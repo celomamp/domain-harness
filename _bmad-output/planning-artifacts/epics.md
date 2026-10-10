@@ -1,5 +1,5 @@
 ---
-status: draft
+status: final
 stepsCompleted: [1, 2, 3, 4]
 scope: 'First cut (Team-shaped pilot) only'
 precedence: 'SPEC > ARCHITECTURE-SPINE > PRD (per SPEC.md)'
