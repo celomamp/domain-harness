@@ -354,3 +354,143 @@ So that agents and the Gate can later use the Company's design system (FR-1, FR-
 **Given** the Standards surface
 **When** I open a Module with no published Standard, or the surface is loading
 **Then** it shows the empty state or the cold-load structure from EXPERIENCE.md, and the Standards list is a table with header cells (UX-DR24, UX-DR26)
+
+## Epic 2: The Buyer shapes a Project tree whose Locked rules cannot be escaped
+
+The Buyer builds the Company's Project tree, names its levels, marks Locked rules and grants child-creation permission. The pure resolver core returns the Effective Standard set for any Project. Community-plan limits are refused in place.
+
+### Story 2.1: Buyer builds the Project tree and names its levels
+
+As the Buyer,
+I want to create Projects under one parent and name what each level means for my Company,
+So that Standards can be scoped to the way my Company is organized (FR-5).
+
+**Acceptance Criteria:**
+
+**Given** I am signed in as the Buyer on the Project tree surface
+**When** I create a Project with a name, a level name and zero or one parent
+**Then** the Project is stored with a registry-minted id, and the level name is stored exactly as I typed it, with no meaning assigned by Domain Harness
+**And** the tree is exposed as an accessible tree in which each node announces its Project name and level name, with 16px indentation and the selected node at weight 600 (UX-DR13)
+
+**Given** Project B is a descendant of Project A
+**When** I set A's parent to B
+**Then** the change is rejected, the text names the parent that closes the cycle, and the tree is unchanged
+
+**Given** any Project change (create or re-parent)
+**When** it is submitted
+**Then** the registry validates the whole proposed bundle input (AD-13) before accepting it, and records the change append-only
+
+**Given** Companies A and B
+**When** A's Buyer opens the Project tree
+**Then** none of B's Projects appear, and the same holds for direct id lookups (NFR-4)
+**And** the empty state (no Project yet beyond the root) and the cold-load structure follow EXPERIENCE.md
+
+### Story 2.2: Standard owner scopes a Standard to any Project
+
+As a Standard owner,
+I want to publish a Standard scoped to a chosen Project instead of only the root,
+So that different parts of the Company can hold different Standards (FR-1, FR-6).
+
+**Acceptance Criteria:**
+
+**Given** I own a Module and the tree has several Projects
+**When** I publish a Standard
+**Then** standard-form lets me pick the Project scope, and the published version shows that scope
+
+**Given** a live Standard in slot (code stack, library, "X") at Project P
+**When** I publish a different Standard in the same slot at P's child C
+**Then** it is accepted, because the scopes differ
+**And** a second Standard in the same slot at P itself is still rejected and names both Standards (AD-13)
+
+### Story 2.3: Resolve and preview the Effective Standard set for a Project
+
+As a Standard owner or the Buyer,
+I want to see the Effective Standard set any Project receives,
+So that I can confirm precedence before agents and the Gate rely on it (FR-6).
+
+**Acceptance Criteria:**
+
+**Given** `packages/core`
+**When** it resolves the Effective Standard set for a Project
+**Then** it is a pure function of (Project tree, Standards, Locked rules) with no I/O and no clock read, it walks from the Project upward, and the Standard scoped closest to the Project wins within each conflict slot
+**And** it raises an error with the error envelope, never a guess, if it meets two live Standards in one slot at one scope
+
+**Given** a parent that allows library X and a child that prohibits library X
+**When** the child's set is resolved
+**Then** X is prohibited
+
+**Given** a token Standard and a library Standard
+**When** both apply
+**Then** both are in the set, because different slots never compete
+
+**Given** the same inputs
+**When** resolution runs twice, or from two callers
+**Then** the outputs are byte-identical, and a property test covers random trees (NFR-1)
+
+**Given** the Project tree surface
+**When** I select a Project
+**Then** I see its Effective Standard set in a table with header cells, showing for each Standard its slot, status, version and the Project it came from
+
+### Story 2.4: Buyer marks Locked rules that descendants cannot override
+
+As the Buyer,
+I want to mark a Standard as a Locked rule on its Project,
+So that no descendant Project can drop or replace it (FR-6).
+
+**Acceptance Criteria:**
+
+**Given** a Standard at Project P
+**When** I mark it as a Locked rule
+**Then** the mark is stored append-only and shown on the Project tree surface
+
+**Given** a parent Locked rule that prohibits library X and a child Standard that allows X
+**When** the child's Effective Standard set is resolved
+**Then** X is still prohibited, and the preview shows the Locked rule as coming from the parent
+
+**Given** an ancestor Locked rule in a slot
+**When** someone tries to mark a contradicting Standard in the same slot on a descendant as a Locked rule
+**Then** registry validation rejects it and names both rules (AD-13)
+
+**Given** I am a Standard owner or Builder
+**When** I try to mark or unmark a Locked rule
+**Then** I receive a denial
+
+### Story 2.5: Child-Project creation requires a Buyer-granted permission
+
+As the Buyer,
+I want to grant specific accounts permission to create child Projects under a Project,
+So that teams can extend the tree without escaping Locked rules (FR-7).
+
+**Acceptance Criteria:**
+
+**Given** I am the Buyer
+**When** I grant or revoke the create-child permission for an account on Project P
+**Then** the grant is stored append-only with who made it and when
+
+**Given** a Builder without the permission on P
+**When** they try to create a child of P
+**Then** they receive a denial, and no Project is created
+
+**Given** a Builder with the permission on P
+**When** they create child C
+**Then** C exists under P, and C's Effective Standard set contains every Locked rule of P's ancestors and of P
+
+### Story 2.6: Community plan refuses tree capabilities in place
+
+As a Buyer on the Community (free) plan,
+I want to be told which plan includes a capability I cannot use,
+So that I understand the limit instead of finding a hidden or broken control (tiers, UX-DR18).
+
+**Acceptance Criteria:**
+
+**Given** a tenant whose plan attribute is Community and which has its root Project
+**When** the Buyer tries to create a second Project, set a parent, or mark a Locked rule
+**Then** a plan-refusal appears in place, names Team (first sale), shows no price, is announced as a status, and nothing is written
+
+**Given** a tenant on Team
+**When** the same actions are taken
+**Then** they succeed
+
+**Given** any plan
+**When** a capability is refused
+**Then** the refusal text exists only on the panel, and the contract package exposes no plan names to the Guidance or Gate result types
