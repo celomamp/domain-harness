@@ -2,7 +2,7 @@
 title: Domain Harness
 status: final
 created: 2026-10-09
-updated: 2026-10-09
+updated: 2026-10-10
 ---
 
 # PRD: Domain Harness
@@ -108,7 +108,8 @@ Use these terms exactly. Source documents say *padrão* for Standard, *projeto* 
 - **Application** — software the Company is building, bound to exactly one Project.
 - **Builder** — the person who constructs an Application with an AI agent.
 - **Buyer** — the technology, IT, or governance leader who holds Standards for the Company and decides Accepted deviations.
-- **Project identification file** — a hidden file at the repository root that carries the Application id and the Project id.
+- **Project identification file** — a hidden file at the repository root that carries the Application id and an advisory Project id. The Project of an Application is resolved from the signed Standard bundle by Application id.
+- **Standard bundle** — the immutable, signed, hash-addressed package of Standards, Project tree, Locked rules, Applications and Accepted deviations that the Company environment pulls from the vendor registry. The active bundle is the version in force.
 - **New-application flow** — the path where a Builder describes an Application, it is placed on a Project, and Domain Harness generates a Boilerplate.
 - **Boilerplate** — the starter for a new Application: approved stack, design system, Project identification file, MCP configuration, and skills.
 - **Guidance** — an answer to an agent that asks for the Standard that applies at a decision, served over MCP.
@@ -117,7 +118,7 @@ Use these terms exactly. Source documents say *padrão* for Standard, *projeto* 
 - **Decision agent** — the component that produces a Decision response.
 - **Gate** — the check of an Application against its Effective Standard set. The CLI Gate runs on demand. The CI Gate runs in the pipeline.
 - **Conflict slot** — the key that tells two Standards they compete. In the code-stack Module the slot is a language name, a framework name, or a library name. In the design-system Module the slot is a component name, a token name, or an import specifier. Standards in different slots do not compete.
-- **Deviation** — a Gate finding that the Application does not follow a Standard. Its match key is the Standard id, the conflict slot, and the subject the Gate found (the dependency coordinate, component, token, or import).
+- **Deviation** — a Gate finding that the Application does not follow a Standard. Its match key is the Standard id, the conflict slot, and the subject the Gate found (the dependency coordinate, component, token, or import). An acceptance is scoped further, to the Application, the Standard version, and that key.
 - **Correction instruction** — the text attached to a Deviation so the Builder can paste it into their agent. The Standard owner authors it on the Standard. When that text is empty, the Gate fills one sentence from the status, the conflict slot, and the approved entry in the same slot when one exists.
 - **Accepted deviation** — a Deviation the Buyer has accepted for a period, with a written justification.
 - **Adherence** — the share of checked Standards an Application follows on a Gate run.
@@ -138,7 +139,7 @@ Use these terms exactly. Source documents say *padrão* for Standard, *projeto* 
 
 #### FR-1: Publish a versioned Standard
 
-A Standard owner can create, edit, and publish a Standard in a Module they own. Publishing creates a new version. Guidance and the Gate resolve the version in force at request time.
+A Standard owner can create, edit, and publish a Standard in a Module they own. Publishing creates a new version. Guidance and the Gate resolve the version in force at request time. The version in force is the active Standard bundle: the Company service verifies a bundle, activates it atomically, and every Guidance call and Gate run pins and records one bundle hash. If the active bundle is older than the Buyer-set bound (default 24 hours, unless the Buyer records an explicit freeze), the CI Gate returns an explicit stale result with a non-zero exit instead of a pass, and Guidance keeps serving the active bundle flagged stale.
 
 **Consequences (testable):**
 - A published Standard has an id, a Module, a Project scope, a version, and a timestamp.
@@ -240,12 +241,12 @@ Domain Harness generates a Boilerplate for a tool that can consume a git reposit
 
 #### FR-10: Project identification file is the join key
 
-Every Application produced by the New-application flow contains a Project identification file at the repository root. Guidance, the Gate, and Collectors resolve the Project from that file and from nowhere else.
+Every Application produced by the New-application flow contains a Project identification file at the repository root. Guidance, the Gate, and Collectors identify the Application from the Application id in that file and from nowhere else. They resolve the Application's Project from the signed Standard bundle by that id.
 
 **Consequences (testable):**
-- A repository whose file names Project P receives the Effective Standard set of P.
+- A repository whose Application id the bundle places on Project P receives the Effective Standard set of P.
 - A missing or unreadable file makes Guidance refuse to answer with another Project's Standards, and makes the Gate fail with an explicit "unbound Application" result rather than a silent pass.
-- The file carries an Application id minted when the Application is created, and the Project id.
+- The file carries an Application id minted when the Application is created, and an advisory Project id. A mismatch between the file's Project id and the bundle's is reported and never used. An Application id absent from the bundle yields an explicit "unbound Application" result.
 - A Guidance event and a Gate run that present that Application id refer to the same history.
 - A second repository that presents an Application id already bound to another repository is refused by Guidance and by the Gate.
 
@@ -281,7 +282,7 @@ On the paid path, an MCP client describes a need and receives a Decision respons
 
 **Notes:**
 - [NOTE FOR PM] If a Decision response and a later Gate run disagree, the Buyer loses trust. Ship the agreement metric (SM-4) with the Decision agent, not after it.
-- [NOTE FOR PM] Packmind already distributes standards to many agents over MCP. Open Question 10 chooses whether the first-cut registry and Document response are built, adopted, or contributed. That choice changes the implementation source. It does not remove FR-1, FR-2, FR-3, or FR-11 from the first cut. The Project tree, the Accepted deviation, and the join are the layers to own. See `addendum.md`.
+- [NOTE FOR PM] Packmind already distributes standards to many agents over MCP. Open Question 10 was resolved as build (the registry and Document response are built in-house; learning is a project goal). That choice sets the implementation source. It does not remove FR-1, FR-2, FR-3, or FR-11 from the first cut. The Project tree, the Accepted deviation, and the join are the layers to own. See `addendum.md`.
 
 ### 5.6 Gate
 
@@ -313,7 +314,7 @@ The CI Gate runs as a step in the Company's existing pipeline and reports the sa
 The Buyer can accept a Deviation for a stated period by recording a justification. Domain Harness raises a recurring alert until the acceptance ends. The Buyer sets the alert interval.
 
 **Consequences (testable):**
-- An Accepted deviation stores the Buyer, the justification, the start, the end, and the Deviation match key.
+- An Accepted deviation stores the Buyer, the justification, the start, the end, and the Deviation match key, scoped to the Application and the Standard version.
 - While it is unexpired, a later finding with that match key is accepted. A finding on the same Standard with a different match key still fails.
 - After the end, a finding with that match key fails the Gate again.
 - An alert is emitted on the Buyer's interval and names the Application, the Standard, and the end date.
@@ -374,6 +375,7 @@ Every Guidance event and every Gate run is stored against the Application id fro
 - A stored Guidance event has the Application id, the tool, the subject asked, the Standard version returned or a miss, and the agent tool name.
 - A stored Gate run has the Application id, the revision, the Effective Standard set version, and each Deviation.
 - The first-cut inventory groups by Project and by agent tool. Naming individual Builders stays off until the privacy rules say otherwise.
+- A stored Guidance event holds only these fields and never raw prompt text. Retention defaults to 90 days and the Company can change it.
 
 #### FR-21: Adherence over time
 
@@ -431,13 +433,14 @@ A Company system with credentials can read the published Standards and the Effec
 
 #### FR-26: Split the runtime
 
-Guidance, the Gate, Standard content, and records that contain sensitive detail run in the Company environment. The management panel runs in the vendor environment. A Collector sends only Compilations.
+Guidance, the Gate, and records that contain sensitive detail run in the Company environment. For the pilot, Standard content is authored and held in the vendor registry and reaches the Company environment only as a signed Standard bundle. Code, prompts, Gate logs, and Guidance records never leave the Company environment. The management panel runs in the vendor environment. A Collector sends only Compilations.
 
 **Consequences (testable):**
 - A Compilation that fails its schema is dropped, the drop is visible to the Buyer, and no partial payload is sent.
 - The Buyer can read the schema for every Compilation type before the Collector is allowed to send.
 - The first-cut Compilation fields are: Application id, Project id, agent tool name, and timestamp; for Guidance, the tool name, the conflict slot, the subject asked, and the Standard id and version or a miss; for a Gate run, the revision, pass or fail, and each Deviation's match key and whether it is open or accepted.
-- A Compilation contains no prompt text, no Standard content, and no source code. Fields beyond this list are Open Question 5.
+- The pilot Compilation catalog is closed: Guidance, Gate run, Deviation, Binding refusal, Bundle status (active hash, sequence, staleness), and Collector health (pending, dropped by reason). Each Compilation carries an idempotency key, the Application id, and a per-Application sequence number. A Gate-run Compilation carries checked and open counts so Adherence is derivable. A Guidance subject crosses only as a conflict-slot name token or a Company-keyed hash. "A revision after that event" (FR-23) is decided by the per-Application sequence.
+- A Compilation contains no prompt text, no Standard content, and no source code. The catalog is frozen for the pilot. Any added field or type needs a security review and a schema version bump.
 
 #### FR-27: Decision agent placement
 
@@ -480,7 +483,7 @@ Confirmed 2026-10-09. The free core puts Standards where an agent can read them.
 - **Business.** Decision agent, the zero-retention term for Decision-agent traffic, Impact analysis, batch acceptance, work-tracker tasks. Up to 100 Active governed Applications.
 - **Enterprise.** Lineage, SSO/SCIM, a dedicated environment, a Company-wide retention commitment for panel data, and an SLA.
 
-The unit of charge is the Active governed Application, in bands. Price points live in `addendum.md` and are not requirements. The paid wall is the Project tree, the Locked rule, a named Accepted deviation, and the history that joins Guidance to a later Deviation.
+The unit of charge is the Active governed Application, in bands. Exceeding a band never blocks the Gate or Guidance: the panel shows the Buyer a banner and a count, and Levva is flagged for commercial follow-up. Price points live in `addendum.md` and are not requirements. The paid wall is the Project tree, the Locked rule, a named Accepted deviation, and the history that joins Guidance to a later Deviation.
 
 Services (playbook, diagnostic, implementation, ongoing maintenance) are sold by Levva beside the software. They are not features of this PRD. The registry must be complete enough that a maintenance engagement can update a Module without a product change.
 
@@ -492,11 +495,12 @@ Services (playbook, diagnostic, implementation, ongoing maintenance) are sold by
 - **NFR-4 Tenant isolation.** A Company's Standards, Projects, Applications, and Compilations are unreadable by another Company (FR-5).
 - **NFR-5 No silent pass.** A missing Project identification file is a failed Gate, not an empty success (FR-10).
 
-Latency budgets, panel availability, and a recovery-time objective are unset. See Open Question 8.
+Pilot design targets, not an SLA: Guidance p95 under 500 ms from the bundle cache, CI Gate result under 60 seconds, panel best-effort. A formal service level and recovery objective are set before an enterprise SLA is signed (Open Question 8).
 
 ## 8. Data Governance
 
-- Standard content, Gate logs that quote code, and Guidance records stay in the Company environment (FR-26, FR-28).
+- Gate logs that quote code, Guidance records, prompts, and source code stay in the Company environment (FR-26, FR-28). Standard content is vendor-held for the pilot and reaches the Company as a signed bundle. Company-keyed encryption of Standards is a later hardening path for regulated sectors.
+- Stored Guidance holds only the FR-20 fields, with a default retention of 90 days that the Company can change. The Buyer controls which roles read it (FR-28).
 - The vendor environment holds the panel and the Compilations the schema allows.
 - The Decision agent, once enabled, is the path that sends a need and a Standard excerpt to the vendor environment, and only under zero retention (FR-27).
 - Lineage, when it exists, is there so a Company can answer which Applications touch which Information sources for LGPD and security reviews (FR-24). It is not a first-cut claim.
@@ -507,7 +511,7 @@ Latency budgets, panel availability, and a recovery-time objective are unset. Se
 - **In v1:** MCP clients; a git repository to hold the Project identification file; the Company's existing CI; the read API (FR-25).
 - **First-cut Boilerplate targets:** Claude Code and Cursor (FR-9).
 - **Later:** Jira and Azure DevOps for FR-19; Figma, repositories, and data catalogs as sources that update Modules; Snyk, Semgrep, and Sonar remain complementary scanners. Domain Harness does not ingest their findings in v1.
-- **Explicitly unbound:** tools without a traditional repository, Lovable among them. Lovable can sync to a git host; whether a Collector may read that sync is Open Question 2.
+- **Explicitly unbound:** tools without a traditional repository, Lovable among them. They stay outside the first cut. The read API is the likely post-pilot feed (Open Question 2).
 
 ## 10. Constraints and Guardrails
 
@@ -522,6 +526,10 @@ The Gate reports Adherence to published Standards. A passing Gate is not a secur
 ### Cost
 
 Decision response spends model tokens. When that path is sold, the plan includes a monthly allowance and bills the overage. Numbers are in `addendum.md`.
+
+### Security
+
+Bundle-signing keys are held in the secret manager or environment for the pilot, never in a repository. Revoking a key means delivering a new trust set to the service and CLI and raising the bundle sequence. A managed key service follows the cloud-provider decision. Identity of an Application is network trust plus a repository fingerprint; per-Application tokens and SSO are later hardening.
 
 ### Neutrality
 
@@ -538,7 +546,7 @@ Guidance must work through MCP tools and generated instruction files. A capabili
 | Standards go stale | Guidance imposes an abandoned Standard with confidence | Ignored Modules and consulted-but-deviated are visible (FR-22, FR-23). A Standard owner is required to publish (FR-4). |
 | Tools without a repository skip the Gate | The inventory undercounts real building | Open Question 2. The read API is the intended feed (FR-25). |
 | Compilations leak prompts | The security review stops the pilot | The first-cut field list excludes prompt text, Standard content, and source code (FR-26, FR-28). |
-| The open-source core is rebuilt for its own sake | Time goes into a commodity | Open Question 10 chooses build, adopt, or contribute before implementation starts. The first-cut capabilities stay in scope. |
+| The open-source core is rebuilt for its own sake | Time goes into a commodity | Open Question 10 is resolved as build; the bundle format is the seam for any later adopted source. The first-cut capabilities stay in scope. |
 | Architecture reads the product as a threat to its role | The sponsor blocks the sale | The acceleration story is time-to-approval, and it waits until the Company records approval timestamps (Open Question 7). The first sale remains proof. |
 
 Business risks (a services-heavy NewCo, a long sales cycle, a part-time founder) are in `addendum.md`. They do not change these requirements.
@@ -607,15 +615,15 @@ The design-system Gate is limited to machine-checkable rules (FR-3).
 ## 15. Open Questions
 
 1. **Name.** Legal name of the company and product name. Domain Harness is the working title.
-2. **Tools without a repository.** How an Application built in Lovable, or a similar host, gets a Project, Guidance, and a Gate result. The read API is the likely feed. A Collector that reads a synced git repository is a candidate, not a decision.
+2. **Tools without a repository.** Resolved 2026-10-10: out of the first cut. The read API (FR-25) is the likely feed after the pilot, revisited when a pilot Application needs it.
 3. **Decision-agent quality operations.** Per-Company evaluations signed by Standard owners, the disagreement path when a Builder challenges a Decision response, and the numeric bar for SM-4.
 4. **Contractual liability.** How far responsibility extends when an Application that passed the Gate later has a security failure. Legal workstream; the product statement is in §10.
-5. **Compilation fields beyond the first cut.** FR-26 lists the fields the pilot sends. Any further field needs a security review before it is added.
-6. **Privacy policy.** What Guidance stores beyond the fields in FR-20, and which roles see it, as a Company-facing policy rather than only an access-control setting.
+5. **Compilation fields beyond the first cut.** Resolved 2026-10-10: the catalog in FR-26 is frozen for the pilot. Adding a field or type needs a security review and a schema version bump.
+6. **Privacy policy.** Resolved 2026-10-10 as a commitment, with the policy text still to be drafted: Guidance stores only the FR-20 fields and never raw prompts, retention defaults to 90 days and is Company-configurable, and the Buyer controls reads (FR-28).
 7. **Sales story.** Resolved 2026-10-09. The first sale is proof: Adherence (SM-1) and the join of Guidance to Gate results. Time-to-approval is a later story for an architecture sponsor, shown only after the Company records an approval timestamp, and it is not a first-cut metric.
-8. **Service levels.** Latency for Document response, panel availability, and recovery objectives. Required before an enterprise SLA is signed, not before the pilot.
+8. **Service levels.** Resolved for the pilot 2026-10-10: design targets in §7, no SLA. A formal service level and recovery objective are required before an enterprise SLA is signed.
 9. **Board recommendations still open.** Brazil-first and a year-3 path to the US, and the NewCo selling software while Levva sells services. They are in `addendum.md`. The charging unit is decided: Active governed Application (§6).
-10. **Implementation source of the registry.** Build, adopt, or contribute the registry and Document response. Decided before implementation starts. The capabilities remain in the first cut. See the note on FR-12.
+10. **Implementation source of the registry.** Resolved 2026-10-10: build in-house. The bundle format is the seam for any later adopted source (for example Packmind or a Figma sync).
 
 ## 16. Assumptions Index
 
