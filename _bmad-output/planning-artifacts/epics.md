@@ -1,6 +1,6 @@
 ---
 status: draft
-stepsCompleted: [1, 2, 3]
+stepsCompleted: [1, 2, 3, 4]
 scope: 'First cut (Team-shaped pilot) only'
 precedence: 'SPEC > ARCHITECTURE-SPINE > PRD (per SPEC.md)'
 inputDocuments:
@@ -245,7 +245,7 @@ So that pilot users exist with the roles every later permission check relies on 
 
 **Given** an operator command (CLI or script) with a Company name and a list of (name, email, role) entries
 **When** the operator runs it
-**Then** a tenant is created with a registry-minted UUIDv7 id, one root Project, and one account per entry whose role is exactly one of Buyer, Standard owner or Builder
+**Then** a tenant is created with a registry-minted UUIDv7 id, a plan attribute (Community, Team, Business or Enterprise; default Team for the pilot), one root Project, and one account per entry whose role is exactly one of Buyer, Standard owner or Builder
 **And** an invalid role, or a duplicate email within the tenant, is rejected with the error envelope and nothing is written
 
 **Given** two provisioned Companies A and B
@@ -268,7 +268,8 @@ So that I can reach every destination my role allows from one place (FR-29).
 
 **Given** the sign-in surface (mechanism chosen at implementation and recorded, no SSO)
 **When** a provisioned account signs in successfully
-**Then** the person lands on Inventory, shown with its empty state, under panel-chrome that shows the wordmark, the role as text, and a nav of every first-cut destination with the current destination at weight 600 (UX-DR5, UX-DR23)
+**Then** the person lands on Inventory, shown with its empty state, under panel-chrome that shows the wordmark, the role as text, and a nav with the current destination at weight 600 (UX-DR5, UX-DR23)
+**And** the nav lists only destinations that exist so far (Inventory shell and Standards); each later story that adds a surface adds its nav entry, until the full UX-DR5 list is present
 **And** button-primary and button-inverse follow UX-DR6
 
 **Given** an unprovisioned identity or a failed attempt
@@ -552,7 +553,11 @@ So that my agent can work inside the Company's stack and design system without m
 
 **Acceptance Criteria:**
 
-**Given** the Buyer has set the Company Guidance endpoint URL in the tenant settings
+**Given** I am the Buyer on the New-application flow surface
+**When** I set the Company Guidance endpoint URL
+**Then** it is stored for the tenant, validated as an HTTPS URL, and changes are recorded append-only
+
+**Given** the Company Guidance endpoint URL is set
 **When** I request a Claude Code Boilerplate for my Application
 **Then** the registry resolves the Application's Effective Standard set through `core` and returns a repository archive containing: the identification file, dependency pins that satisfy every required and approved code-stack entry and include no prohibited one, design-system references (required imports and tokens) that satisfy the design-system Module, an MCP configuration pointing at the endpoint URL, and generated instruction/skills files that Claude Code loads natively
 **And** the archive contains no hook configuration of any kind (NFR-11)
@@ -631,7 +636,7 @@ So that my Company environment receives exactly what was published, and nothing 
 **Then** it receives that tenant's latest bundle only, and another tenant's credential receives a denial
 
 **Given** the Buyer
-**When** they set the staleness bound (default 24h) or record a freeze on the panel
+**When** they set the staleness bound (default 24h) or record a freeze on the Standards surface
 **Then** the change is stored and carried in the next bundle
 
 ### Story 4.2: Company service pulls, verifies and activates bundles
@@ -832,6 +837,14 @@ So that non-compliant code does not reach production unnoticed (FR-14, FR-10, AD
 **When** it finishes
 **Then** the working tree and commit are unchanged (a test checks the git status and HEAD before and after), the log never names a plan, and a reference revision completes in under 60 s (NFR-7)
 
+**Given** a new bundle is activated while a Gate run is in progress
+**When** the run finishes
+**Then** it reports and records the bundle hash it pinned at start (FR-1, NFR-3)
+
+**Given** the step cannot run (for example, the service is unreachable or the CI configuration is invalid)
+**When** the pipeline executes it
+**Then** it prints a text reason and exits non-zero, never a silent skip
+
 ### Story 5.4: Prove Gate determinism across adapters
 
 As the Buyer,
@@ -918,9 +931,9 @@ So that I can audit exactly what the vendor receives (FR-26, AD-20, UX-DR21).
 **When** I open schema-reader
 **Then** I can read each schema in ink on white, and record that I have read the catalog version
 
-**Given** no recorded read for the current catalog version
-**When** the Collector tries to send
-**Then** the panel refuses ingestion for that tenant, and the Collector keeps the records queued
+**Given** the panel's ingestion endpoint (tenant-credentialed, created in this story)
+**When** a Compilation arrives for a tenant with no recorded read of the current catalog version
+**Then** ingestion is refused with the error envelope, and nothing is stored
 
 ### Story 6.2: Project records into Compilations through one Collector chokepoint
 
@@ -961,6 +974,10 @@ So that evidence collection is invisible to my work (NFR-8, AD-10).
 **Given** the panel is unreachable
 **When** Guidance calls and Gate runs continue
 **Then** their latency and results are unchanged (tested with the panel stopped), and Compilations accumulate in a durable local queue with retries and backoff
+
+**Given** ingestion is refused because the Buyer has not read the catalog
+**When** the Collector receives the refusal
+**Then** it keeps the Compilations queued and sends them once the read is recorded
 
 **Given** a resend of the same Compilation
 **When** the panel ingests it
@@ -1021,7 +1038,7 @@ So that I can act on a Deviation without opening the repository (FR-20, FR-21, U
 
 **Given** an application-row
 **When** I activate it by pointer or keyboard
-**Then** the Application surface shows its latest Adherence as text, deviation-rows (Standard id, conflict slot, subject, status word open or accepted, correction-instruction) and whether any Guidance event exists
+**Then** the Application surface shows its latest Adherence as text, deviation-rows (Standard id, conflict slot, subject, status word open or accepted, correction-instruction in a cream inset that can be copied) and whether any Guidance event exists (UX-DR15)
 
 **Given** an open deviation-row
 **When** I choose to accept it
