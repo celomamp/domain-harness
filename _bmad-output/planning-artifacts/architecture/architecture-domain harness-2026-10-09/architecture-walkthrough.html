@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domain Harness Architecture Walkthrough</title>
+<style>
+  :root {
+    --bg: #f7f6f2; --panel: #ffffff; --ink: #1d2327; --muted: #5b646b;
+    --line: #d9d6cc; --accent: #0f6b5c; --accent-soft: #dcefea;
+    --warn: #a4471a; --warn-soft: #f6e4d8; --vendor: #3a4f9a; --vendor-soft: #e3e8f7;
+    --company: #0f6b5c; --company-soft: #dcefea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181a; --panel: #1c2225; --ink: #eceae3; --muted: #9aa3a8;
+      --line: #333c40; --accent: #5cc3ad; --accent-soft: #1c3a34;
+      --warn: #e59a6e; --warn-soft: #3a2a20; --vendor: #8fa4ee; --vendor-soft: #232b48;
+      --company: #5cc3ad; --company-soft: #1c3a34;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181a; --panel: #1c2225; --ink: #eceae3; --muted: #9aa3a8;
+    --line: #333c40; --accent: #5cc3ad; --accent-soft: #1c3a34;
+    --warn: #e59a6e; --warn-soft: #3a2a20; --vendor: #8fa4ee; --vendor-soft: #232b48;
+    --company: #5cc3ad; --company-soft: #1c3a34;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 17px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header.bar {
+    display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+    border-bottom: 1px solid var(--line); font-size: 14px; color: var(--muted);
+  }
+  header.bar strong { color: var(--ink); }
+  header.bar .sp { flex: 1; }
+  button {
+    font: inherit; font-size: 14px; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  main { height: calc(100% - 100px); overflow: auto; padding: 24px 20px; }
+  .slide { display: none; max-width: 1040px; margin: 0 auto; }
+  .slide.on { display: block; }
+  h1 { font-size: 34px; line-height: 1.15; margin: 0 0 12px; }
+  h2 { font-size: 28px; line-height: 1.2; margin: 0 0 8px; }
+  .lede { color: var(--muted); font-size: 19px; margin: 0 0 20px; max-width: 70ch; }
+  .grid { display: grid; gap: 14px; }
+  .g2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .tag {
+    display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
+    background: var(--accent-soft); color: var(--accent); margin-right: 6px;
+  }
+  .tag.warn { background: var(--warn-soft); color: var(--warn); }
+  .tag.v { background: var(--vendor-soft); color: var(--vendor); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; background: var(--panel); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: 0; }
+  code { font: 14px ui-monospace, Menlo, monospace; background: var(--accent-soft); color: var(--accent); padding: 1px 6px; border-radius: 5px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { fill: var(--ink); font: 14px system-ui, sans-serif; }
+  svg .mut { fill: var(--muted); font-size: 12px; }
+  svg .box { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+  svg .core { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+  svg .vend { fill: var(--vendor-soft); stroke: var(--vendor); stroke-width: 1.5; }
+  svg .comp { fill: var(--company-soft); stroke: var(--company); stroke-width: 1.5; }
+  svg .zone-v { fill: none; stroke: var(--vendor); stroke-width: 1.5; stroke-dasharray: 6 5; }
+  svg .zone-c { fill: none; stroke: var(--company); stroke-width: 1.5; stroke-dasharray: 6 5; }
+  svg .arrow { stroke: var(--ink); stroke-width: 1.6; fill: none; marker-end: url(#ah); }
+  svg .arrow.dim { stroke: var(--muted); stroke-dasharray: 5 4; }
+  .step { counter-increment: s; }
+  .step .n { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 99px;
+    background: var(--accent); color: var(--bg); font-weight: 700; font-size: 14px; margin-right: 8px; }
+  footer.nav {
+    display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+    border-top: 1px solid var(--line); color: var(--muted); font-size: 14px;
+  }
+  footer.nav .sp { flex: 1; }
+  .dots { display: flex; gap: 6px; flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 99px; background: var(--line); border: 0; padding: 0; }
+  .dot.on { background: var(--accent); }
+  .pick { cursor: pointer; }
+  .pick.sel { border-color: var(--accent); background: var(--accent-soft); }
+  .out { margin-top: 12px; padding: 12px 14px; border-left: 4px solid var(--accent); background: var(--panel); border-radius: 0 10px 10px 0; font-size: 15px; }
+  @media (max-width: 600px) {
+    body { font-size: 16px; } h1 { font-size: 27px; } h2 { font-size: 23px; }
+    header.bar { padding: 10px 16px; flex-wrap: wrap; } header.bar span:nth-of-type(1) { display: none; }
+    main { padding: 18px 16px; height: calc(100% - 110px); }
+    footer.nav { padding: 10px 16px; } .dots { display: none; } #count { font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<header class="bar">
+  <strong>Domain Harness</strong><span>Architecture walkthrough</span>
+  <span class="sp"></span>
+  <button id="theme" aria-label="Toggle colour theme">Theme</button>
+</header>
+
+<main id="main">
+
+<!-- 1 -->
+<section class="slide on" data-title="The spine in one page">
+  <h1>Four surfaces. One answer.</h1>
+  <p class="lede">Guidance, the CLI Gate, the CI Gate and the Read API must never disagree about which Standard applies. The architecture exists to make that true by construction, not by discipline.</p>
+  <div class="grid g3">
+    <div class="card"><h3>Paradigm</h3><p>Hexagonal. One pure resolver core, thin adapters around it.</p></div>
+    <div class="card"><h3>Unit of truth</h3><p>An immutable, signed, hash-addressed Standard bundle.</p></div>
+    <div class="card"><h3>Trust boundary</h3><p>Company data stays in the Company environment. Only a closed catalog of Compilations leaves.</p></div>
+  </div>
+  <div class="out">21 architecture decisions (AD-1 to AD-21) bind this. This deck walks the ones a new team member must know first. The full contract is <code>ARCHITECTURE-SPINE.md</code>.</div>
+</section>
+
+<!-- 2 -->
+<section class="slide" data-title="The core and its adapters">
+  <h2>One resolver, many adapters</h2>
+  <p class="lede">Resolution logic exists in exactly one package. Everything else is I/O around it.</p>
+  <svg viewBox="0 0 900 330" role="img" aria-label="Core in the centre with contract beneath and adapters around">
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+    <rect class="core" x="330" y="110" width="240" height="90" rx="12"/>
+    <text x="450" y="148" text-anchor="middle" font-weight="700">packages/core</text>
+    <text x="450" y="170" text-anchor="middle" class="mut">pure resolver: tree, precedence, Locked rules</text>
+    <text x="450" y="186" text-anchor="middle" class="mut">no I/O, no clock, no network</text>
+    <rect class="box" x="330" y="250" width="240" height="56" rx="10"/>
+    <text x="450" y="274" text-anchor="middle" font-weight="600">packages/contract</text>
+    <text x="450" y="292" text-anchor="middle" class="mut">bundle, Compilations, results, errors</text>
+    <rect class="box" x="40" y="40" width="190" height="50" rx="10"/><text x="135" y="70" text-anchor="middle">MCP Guidance</text>
+    <rect class="box" x="40" y="130" width="190" height="50" rx="10"/><text x="135" y="160" text-anchor="middle">CI Gate runner</text>
+    <rect class="box" x="40" y="220" width="190" height="50" rx="10"/><text x="135" y="250" text-anchor="middle">CLI Gate (offline)</text>
+    <rect class="box" x="670" y="40" width="190" height="50" rx="10"/><text x="765" y="70" text-anchor="middle">Read API</text>
+    <rect class="box" x="670" y="130" width="190" height="50" rx="10"/><text x="765" y="160" text-anchor="middle">Collector</text>
+    <rect class="box" x="670" y="220" width="190" height="50" rx="10"/><text x="765" y="250" text-anchor="middle">Registry (validate, boilerplate)</text>
+    <path class="arrow" d="M230 65 L330 130"/><path class="arrow" d="M230 155 L330 155"/><path class="arrow" d="M230 245 L330 180"/>
+    <path class="arrow" d="M670 65 L570 130"/><path class="arrow" d="M670 155 L570 155"/><path class="arrow" d="M670 245 L570 180"/>
+    <path class="arrow dim" d="M450 200 L450 250"/>
+  </svg>
+  <div class="out">Extra rule: <code>packages/extractor</code> turns files into revision facts, once, with a versioned schema (AD-18). Two Gates cannot parse lockfiles differently.</div>
+</section>
+
+<!-- 3 -->
+<section class="slide" data-title="Two environments">
+  <h2>Two environments, one direction of travel</h2>
+  <p class="lede">Standards flow in as signed bundles. Compilations flow out. The Company environment never accepts an inbound call from the vendor.</p>
+  <svg viewBox="0 0 900 360" role="img" aria-label="Vendor and Company environments with bundle and Compilation flow">
+    <rect class="zone-v" x="10" y="10" width="400" height="340" rx="14"/>
+    <text x="30" y="36" font-weight="700" fill="var(--vendor)">Vendor environment</text>
+    <rect class="vend" x="30" y="60" width="170" height="52" rx="10"/><text x="115" y="90" text-anchor="middle">Registry</text>
+    <rect class="vend" x="220" y="60" width="170" height="52" rx="10"/><text x="305" y="90" text-anchor="middle">Bundle builder + signer</text>
+    <rect class="vend" x="30" y="150" width="170" height="52" rx="10"/><text x="115" y="180" text-anchor="middle">Boilerplate</text>
+    <rect class="vend" x="220" y="150" width="170" height="52" rx="10"/><text x="305" y="180" text-anchor="middle">Panel</text>
+    <rect class="vend" x="30" y="260" width="360" height="52" rx="10"/><text x="210" y="290" text-anchor="middle">Postgres, tenant-scoped + RLS</text>
+    <rect class="zone-c" x="490" y="10" width="400" height="340" rx="14"/>
+    <text x="510" y="36" font-weight="700" fill="var(--company)">Company environment</text>
+    <rect class="comp" x="510" y="60" width="170" height="52" rx="10"/><text x="595" y="90" text-anchor="middle">Bundle puller + verify</text>
+    <rect class="comp" x="700" y="60" width="170" height="52" rx="10"/><text x="785" y="90" text-anchor="middle">Standards service</text>
+    <rect class="comp" x="510" y="150" width="170" height="52" rx="10"/><text x="595" y="180" text-anchor="middle">MCP + CI Gate + API</text>
+    <rect class="comp" x="700" y="150" width="170" height="52" rx="10"/><text x="785" y="180" text-anchor="middle">Collector</text>
+    <rect class="comp" x="510" y="260" width="360" height="52" rx="10"/><text x="690" y="290" text-anchor="middle">Postgres: bindings, records, active pointer</text>
+    <path class="arrow" d="M510 86 L392 86"/>
+    <text x="450" y="76" text-anchor="middle" class="mut">pull bundle</text>
+    <path class="arrow" d="M700 176 L392 176"/>
+    <text x="548" y="228" text-anchor="middle" class="mut">Compilations only</text>
+  </svg>
+  <div class="out">What never leaves: source code, prompts, Gate logs, Guidance records. What the vendor holds for the pilot: Standard content (AD-3, a PRD amendment).</div>
+</section>
+
+<!-- 4 -->
+<section class="slide" data-title="The bundle">
+  <h2>The bundle is the contract</h2>
+  <p class="lede">Anything the Gate or Guidance may know arrives inside it. No side channel.</p>
+  <div class="grid g2">
+    <div class="card"><h3><span class="tag v">contains</span></h3>
+      <p>Standard versions, Modules, owners, the Project tree, Locked rules, the Application list (id → Project) and Accepted deviations.</p></div>
+    <div class="card"><h3><span class="tag">proves</span></h3>
+      <p>Signed with a key id in the verifier's trust set, tenant id inside the payload, per-tenant monotonic sequence. An older bundle is refused.</p></div>
+    <div class="card"><h3><span class="tag warn">why the Project is not in the repo file</span></h3>
+      <p>A Builder can edit a file. The Project is derived from the bundle by Application id, so a Builder cannot shed a Locked rule.</p></div>
+    <div class="card"><h3><span class="tag">activation</span></h3>
+      <p>One atomic active pointer in the record store. Every call pins the bundle hash at start and records it.</p></div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide" data-title="Gate is a function">
+  <h2>The Gate is a pure function</h2>
+  <p class="lede">Same inputs, same Deviations. The clock is an input, never read ambiently.</p>
+  <table>
+    <tr><th>Input</th><th>Supplied by</th></tr>
+    <tr><td>Revision facts</td><td><code>packages/extractor</code>, with its version recorded</td></tr>
+    <tr><td>Bundle hash</td><td>Active pointer (service) or bundle file (CLI)</td></tr>
+    <tr><td>Clock</td><td>The adapter, passed in</td></tr>
+    <tr><td>Application id</td><td>The identification file, bound to a repository fingerprint</td></tr>
+  </table>
+  <div class="out"><span class="tag warn">stale</span> Past the Buyer-set bound (default 24h) the CI Gate returns an explicit <code>stale</code> and a non-zero exit. It never passes silently (AD-21). Guidance keeps serving, flagged stale.</div>
+</section>
+
+<!-- 6 -->
+<section class="slide" data-title="Who owns what">
+  <h2>Every piece of state has one owner</h2>
+  <table>
+    <tr><th>State</th><th>Owner</th><th>Reaches Gate / Guidance by</th></tr>
+    <tr><td>Standards, tree, Locked rules, Applications, Accepted deviations</td><td>Vendor registry</td><td>Bundle only</td></tr>
+    <tr><td>Application id ↔ repository fingerprint</td><td>Company service (or local file for CLI)</td><td>Local lookup</td></tr>
+    <tr><td>Guidance events, Gate runs, gaps, sequence</td><td>Company record store</td><td>Compilations, via the Collector</td></tr>
+  </table>
+  <div class="out">An acceptance made in the panel reaches the Gate by producing a new bundle. Expiry needs no new bundle, because the core evaluates it against the clock input (AD-7).</div>
+</section>
+
+<!-- 7 -->
+<section class="slide" data-title="What leaves">
+  <h2>One door out</h2>
+  <p class="lede">A single Collector module owns the only record-to-Compilation projection. No adapter has a path to the vendor.</p>
+  <div class="grid g3">
+    <div class="card step"><h3><span class="n">1</span>Adapters write</h3><p>Full records go to the Company store only.</p></div>
+    <div class="card step"><h3><span class="n">2</span>Collector projects</h3><p>Built from the published, versioned schema. Failing payloads are dropped and counted.</p></div>
+    <div class="card step"><h3><span class="n">3</span>Queue and retry</h3><p>Durable buffer. The Builder is never blocked by the vendor (AD-10).</p></div>
+  </div>
+  <div class="out">Subjects cross only as slot-name tokens. Free text becomes a tenant-keyed hash. The catalog is closed: Guidance, Gate run, Deviation, Binding refusal, Bundle status, Collector health (AD-20).</div>
+</section>
+
+<!-- 8 -->
+<section class="slide" data-title="Decisions and deferrals">
+  <h2>What you decided, and what waits</h2>
+  <div class="grid g2">
+    <div class="card"><h3><span class="tag">decided</span></h3>
+      <p>Hexagonal core. Company-run service. Vendor-held registry for the pilot. Build, don't adopt. TypeScript monorepo. Signed bundles. Shared Postgres with tenant scope and RLS. Fail closed on stale. Network trust plus fingerprint.</p></div>
+    <div class="card"><h3><span class="tag warn">deferred</span></h3>
+      <p>Company-keyed encrypted Standards. Per-Application tokens and SSO. Cloud provider, SLOs, DR. Decision agent. Impact analysis and batch acceptance. Signing key custody.</p></div>
+  </div>
+  <div class="out"><span class="tag warn">assumption</span> MCP SDK v2 status conflicted across sources on 2026-10-09. v1.x is pinned. Confirm the npm <code>latest</code> tag at scaffold. TypeScript 7 tooling compatibility also needs a scaffold check.</div>
+</section>
+
+<!-- 9 -->
+<section class="slide" data-title="Discussion">
+  <h2>For the team to argue about</h2>
+  <p class="lede">Pick one to see why it matters.</p>
+  <div class="grid g2" id="picks">
+    <div class="card pick" data-o="If the vendor registry is breached, Standard content is exposed in the pilot. The Deferred path is Company-keyed encryption. Is that acceptable for the first regulated customer, or does it move up?">Is vendor-held Standard content acceptable for the pilot?</div>
+    <div class="card pick" data-o="A vendor outage past the bound blocks CI for every Application. The freeze switch is the escape hatch. Who is allowed to press it, and is the default bound right for the pilot Company?">Is a 24h fail-closed bound right?</div>
+    <div class="card pick" data-o="Anyone on the Company network who copies an Application id and fingerprint can pose as that Application. A per-Application token closes it at the cost of secret distribution to Builders.">Is network trust plus fingerprint enough?</div>
+    <div class="card pick" data-o="Building registry, authoring and bundle builder is a large slice of a six-month pilot. The bundle format is the seam that would let an adopted tool plug in later. Which pieces do you cut first if time runs short?">What do we cut if the pilot slips?</div>
+  </div>
+  <div class="out" id="pickout">Select a question.</div>
+</section>
+
+</main>
+
+<footer class="nav">
+  <button id="prev">Previous</button>
+  <div class="dots" id="dots" aria-hidden="true"></div>
+  <span class="sp"></span>
+  <span id="count"></span>
+  <button id="next">Next</button>
+</footer>
+
+<script>
+(function () {
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var i = 0;
+  var dots = document.getElementById('dots');
+  var count = document.getElementById('count');
+  slides.forEach(function (s, n) {
+    var d = document.createElement('button');
+    d.className = 'dot'; d.setAttribute('aria-label', 'Go to slide ' + (n + 1) + ': ' + s.getAttribute('data-title'));
+    d.addEventListener('click', function () { go(n); });
+    dots.appendChild(d);
+  });
+  dots.removeAttribute('aria-hidden');
+  function go(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach(function (s, k) { s.classList.toggle('on', k === i); });
+    Array.prototype.forEach.call(dots.children, function (d, k) { d.classList.toggle('on', k === i); });
+    count.textContent = (i + 1) + ' / ' + slides.length + ' · ' + slides[i].getAttribute('data-title');
+    document.getElementById('main').scrollTop = 0;
+    try { history.replaceState(null, '', '#' + (i + 1)); } catch (e) {}
+  }
+  document.getElementById('prev').addEventListener('click', function () { go(i - 1); });
+  document.getElementById('next').addEventListener('click', function () { go(i + 1); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') go(i + 1);
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') go(i - 1);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.pick'), function (p) {
+    p.tabIndex = 0;
+    function pick() {
+      Array.prototype.forEach.call(document.querySelectorAll('.pick'), function (q) { q.classList.remove('sel'); });
+      p.classList.add('sel');
+      document.getElementById('pickout').textContent = p.getAttribute('data-o');
+    }
+    p.addEventListener('click', pick);
+    p.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+  });
+  var themeBtn = document.getElementById('theme');
+  themeBtn.addEventListener('click', function () {
+    var cur = document.documentElement.getAttribute('data-theme');
+    var dark = cur ? cur === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+  });
+  var h = parseInt((location.hash || '').replace('#', ''), 10);
+  go(isNaN(h) ? 0 : h - 1);
+})();
+</script>
+</body>
+</html>

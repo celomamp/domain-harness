@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Expense cards — Domain Harness</title>
+  <style>
+    /*
+      Governs this screen:
+      DESIGN.md — Brand & Style; Colors; Typography; Layout & Spacing;
+        Elevation & Depth; Shapes; Components (adherence-series, deviation-row,
+        correction-instruction, button-primary); Do's and Don'ts.
+      EXPERIENCE.md — Voice and Tone; Component Patterns (adherence-series,
+        deviation-row, correction-instruction); State Patterns (Application
+        at rest, unbound Application failure); Information Architecture
+        (Application); UJ-1; UJ-4.
+    */
+    :root {
+      --surface-base: #FEFBE9;
+      --surface-raised: #FFFFFF;
+      --ink: #0A0A0A;
+      --ink-secondary: #171717;
+      --ink-on-accent: #000000;
+      --accent: #FFC700;
+      --border: #E5E5E5;
+      --inverse: #FAFAFA;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --shadow: rgba(0, 0, 0, 0.1) 0 1px 2px;
+      --gutter: 24px;
+      --font: Sora, Poppins, ui-sans-serif, system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.5;
+      color: var(--ink);
+      background: var(--border);
+      padding: 32px 24px 64px;
+    }
+    .mock-caption {
+      width: 1280px;
+      margin: 0 auto 12px;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    .mock-caption + .browser { margin-bottom: 48px; }
+    .browser {
+      width: 1280px;
+      margin: 0 auto;
+      background: var(--surface-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .chrome {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 40px;
+      padding: 8px 16px;
+      background: var(--surface-raised);
+      border-bottom: 1px solid var(--border);
+    }
+    .dots { display: flex; gap: 6px; }
+    .dots i {
+      display: block;
+      width: 12px;
+      height: 12px;
+      background: var(--ink-secondary);
+      border-radius: var(--radius-sm);
+    }
+    .url {
+      flex: 1;
+      min-height: 24px;
+      padding: 4px 12px;
+      background: var(--surface-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      line-height: 1.4;
+      color: var(--ink-secondary);
+    }
+    .top {
+      padding: 16px 24px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .wordmark {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .role {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      padding-bottom: 12px;
+    }
+    .nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+      text-decoration: none;
+    }
+    .nav a[aria-current="page"] {
+      font-weight: 600;
+      color: var(--ink);
+    }
+    a:focus-visible,
+    button:focus-visible,
+    select:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid var(--ink);
+      outline-offset: 2px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 256px 1fr;
+      gap: var(--gutter);
+      padding: 24px;
+      align-items: start;
+    }
+    .tree-title {
+      margin: 0 0 12px;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.85;
+      letter-spacing: 0.033em;
+      color: var(--ink-secondary);
+    }
+    .tree { margin: 0; padding: 0; list-style: none; }
+    .tree ul { margin: 0; padding: 0 0 0 16px; list-style: none; }
+    .tree li {
+      min-height: 24px;
+      padding: 4px 0;
+      color: var(--ink);
+    }
+    .tree [aria-selected="true"] > .node-line { font-weight: 600; }
+    .node-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+    .level, .locked {
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    h1 {
+      margin: 0 0 16px;
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1.11;
+    }
+    h2.group {
+      margin: 24px 0 8px;
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .meta { margin: 0 0 8px; }
+    .adherence-series {
+      margin: 16px 0 0;
+      padding: 16px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .adherence-series figcaption {
+      margin: 0 0 12px;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    .adherence-series ol { margin: 0; padding: 0; list-style: none; }
+    .adherence-series li {
+      display: grid;
+      grid-template-columns: 4.5rem 1fr 7rem;
+      gap: 12px;
+      align-items: center;
+      min-height: 24px;
+      margin: 0 0 8px;
+    }
+    .adherence-series li:last-child { margin-bottom: 0; }
+    .bar-track { min-height: 12px; }
+    .bar {
+      display: block;
+      height: 12px;
+      background: var(--ink-secondary);
+      border-radius: var(--radius-sm);
+    }
+    .mark {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      margin-right: 8px;
+      vertical-align: middle;
+      background: var(--accent);
+      border-radius: var(--radius-sm);
+    }
+    .point-note {
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface-raised);
+    }
+    th, td {
+      padding: 8px 12px;
+      text-align: left;
+      vertical-align: top;
+      border: 1px solid var(--border);
+    }
+    th {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    .correction-instruction {
+      margin: 8px 0 0;
+      padding: 12px;
+      background: var(--surface-base);
+      color: var(--ink);
+    }
+    .button-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      margin-top: 16px;
+      padding: 8px 22px;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.85;
+      letter-spacing: 0.033em;
+      color: var(--ink-on-accent);
+      background: var(--accent);
+      border: 0;
+      border-radius: var(--radius-sm);
+    }
+    .failure { margin: 0; }
+  </style>
+</head>
+<body>
+
+  <p class="mock-caption">Application — Expense cards, last Gate run</p>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="url">/applications/expense-cards</div>
+    </div>
+    <div class="top">
+      <div class="top-row">
+        <p class="wordmark">Domain Harness</p>
+        <p class="role">Buyer</p>
+      </div>
+      <nav class="nav" aria-label="Management panel">
+        <a href="#inventory">Inventory</a>
+        <a href="#adherence">Adherence</a>
+        <a href="#gaps">Gaps</a>
+        <a href="#ignored-modules">Ignored Modules</a>
+        <a href="#cross-checks">Cross-checks</a>
+        <a href="#standards">Standards</a>
+        <a href="#project-tree">Project tree</a>
+        <a href="#new-application-flow">New-application flow</a>
+        <a href="#compilations">Compilations</a>
+        <a href="#guidance-access">Guidance access</a>
+      </nav>
+    </div>
+    <div class="layout">
+      <aside>
+        <h2 class="tree-title">Project tree</h2>
+        <ul class="tree" role="tree" aria-label="Project tree">
+          <li role="treeitem" aria-expanded="true">
+            <span class="node-line">Company</span>
+            <ul role="group">
+              <li role="treeitem" aria-expanded="true" aria-selected="true">
+                <span class="node-line">
+                  Platform
+                  <span class="level">tribe</span>
+                  <span class="locked">Locked rule</span>
+                </span>
+                <ul role="group">
+                  <li role="treeitem">
+                    <span class="node-line">Internal tools</span>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </aside>
+      <main>
+        <h1>Expense cards</h1>
+        <p class="meta">Adherence 12 of 14 checked Standards on the last Gate run.</p>
+        <p class="meta">Gate run: fail.</p>
+        <p class="meta">Guidance was consulted: yes.</p>
+
+        <figure class="adherence-series">
+          <figcaption>Adherence on four Gate runs.</figcaption>
+          <ol>
+            <li>
+              <span>14/14</span>
+              <span class="bar-track"><span class="bar" style="width:100%"></span></span>
+              <span class="point-note"></span>
+            </li>
+            <li>
+              <span>13/14</span>
+              <span class="bar-track"><span class="bar" style="width:93%"></span></span>
+              <span class="point-note"></span>
+            </li>
+            <li>
+              <span>12/14</span>
+              <span class="bar-track"><span class="bar" style="width:86%"></span></span>
+              <span class="point-note"></span>
+            </li>
+            <li aria-current="true">
+              <span>12/14</span>
+              <span class="bar-track"><span class="bar" style="width:86%"></span></span>
+              <span class="point-note"><span class="mark" aria-hidden="true"></span>selected</span>
+            </li>
+          </ol>
+        </figure>
+
+        <h2 class="group">Deviations</h2>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Status</th>
+              <th scope="col">Standard</th>
+              <th scope="col">Conflict slot</th>
+              <th scope="col">Subject</th>
+              <th scope="col">Record</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="deviation-row">
+              <td>open</td>
+              <th scope="row">STD-CS-14</th>
+              <td>lodash</td>
+              <td>lodash@4.17.21</td>
+              <td>
+                Deviation open.
+                <div class="correction-instruction">Replace lodash with the approved entry in this conflict slot.</div>
+              </td>
+            </tr>
+            <tr class="deviation-row">
+              <td>accepted</td>
+              <th scope="row">STD-DS-08</th>
+              <td>color.action</td>
+              <td>--color-action</td>
+              <td>End date 2026-12-01. Alert interval 14 days.</td>
+            </tr>
+          </tbody>
+        </table>
+        <button class="button-primary" type="button">Accept this Deviation</button>
+      </main>
+    </div>
+  </div>
+
+  <p class="mock-caption">Application failure — unbound Application</p>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="url">/applications/unbound</div>
+    </div>
+    <div class="top">
+      <div class="top-row">
+        <p class="wordmark">Domain Harness</p>
+        <p class="role">Buyer</p>
+      </div>
+      <nav class="nav" aria-label="Management panel">
+        <a href="#inventory">Inventory</a>
+        <a href="#adherence">Adherence</a>
+        <a href="#gaps">Gaps</a>
+        <a href="#ignored-modules">Ignored Modules</a>
+        <a href="#cross-checks">Cross-checks</a>
+        <a href="#standards">Standards</a>
+        <a href="#project-tree">Project tree</a>
+        <a href="#new-application-flow">New-application flow</a>
+        <a href="#compilations">Compilations</a>
+        <a href="#guidance-access">Guidance access</a>
+      </nav>
+    </div>
+    <div class="layout">
+      <aside>
+        <h2 class="tree-title">Project tree</h2>
+        <ul class="tree" role="tree" aria-label="Project tree">
+          <li role="treeitem" aria-expanded="true">
+            <span class="node-line">Company</span>
+            <ul role="group">
+              <li role="treeitem" aria-expanded="true" aria-selected="true">
+                <span class="node-line">
+                  Platform
+                  <span class="level">tribe</span>
+                  <span class="locked">Locked rule</span>
+                </span>
+                <ul role="group">
+                  <li role="treeitem">
+                    <span class="node-line">Internal tools</span>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </aside>
+      <main>
+        <h1>Application</h1>
+        <p class="failure" role="status">unbound Application. The Project identification file is missing or unreadable. Restore that file.</p>
+      </main>
+    </div>
+  </div>
+
+</body>
+</html>

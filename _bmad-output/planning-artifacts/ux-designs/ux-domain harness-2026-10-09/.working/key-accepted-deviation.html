@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accepted deviation — Domain Harness</title>
+  <style>
+    /*
+      Governs this screen:
+      DESIGN.md — Brand & Style; Colors; Typography; Layout & Spacing;
+        Elevation & Depth; Shapes; Components (accepted-deviation-alert,
+        acceptance-form, button-primary, button-inverse, denial); Do's and Don'ts.
+      EXPERIENCE.md — Voice and Tone; Component Patterns (acceptance-form,
+        accepted-deviation-alert, denial); State Patterns (Accepted deviation
+        form, invalid submit, permission-denied); Information Architecture
+        (Accepted deviation); UJ-4.
+    */
+    :root {
+      --surface-base: #FEFBE9;
+      --surface-raised: #FFFFFF;
+      --ink: #0A0A0A;
+      --ink-secondary: #171717;
+      --ink-on-accent: #000000;
+      --accent: #FFC700;
+      --border: #E5E5E5;
+      --inverse: #FAFAFA;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --shadow: rgba(0, 0, 0, 0.1) 0 1px 2px;
+      --gutter: 24px;
+      --font: Sora, Poppins, ui-sans-serif, system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.5;
+      color: var(--ink);
+      background: var(--border);
+      padding: 32px 24px 64px;
+    }
+    .mock-caption {
+      width: 1280px;
+      margin: 0 auto 12px;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    .mock-caption + .browser { margin-bottom: 48px; }
+    .browser {
+      width: 1280px;
+      margin: 0 auto;
+      background: var(--surface-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .chrome {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 40px;
+      padding: 8px 16px;
+      background: var(--surface-raised);
+      border-bottom: 1px solid var(--border);
+    }
+    .dots { display: flex; gap: 6px; }
+    .dots i {
+      display: block;
+      width: 12px;
+      height: 12px;
+      background: var(--ink-secondary);
+      border-radius: var(--radius-sm);
+    }
+    .url {
+      flex: 1;
+      min-height: 24px;
+      padding: 4px 12px;
+      background: var(--surface-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      line-height: 1.4;
+      color: var(--ink-secondary);
+    }
+    .top {
+      padding: 16px 24px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .wordmark {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .role {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      padding-bottom: 12px;
+    }
+    .nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+      text-decoration: none;
+    }
+    .nav a[aria-current="page"] {
+      font-weight: 600;
+      color: var(--ink);
+    }
+    a:focus-visible,
+    button:focus-visible,
+    select:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid var(--ink);
+      outline-offset: 2px;
+    }
+    .alert-wrap { padding: 16px 24px 0; }
+    .alert {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 16px;
+      background: var(--accent);
+      color: var(--ink-on-accent);
+      border-radius: var(--radius-sm);
+    }
+    .alert p {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.85;
+      letter-spacing: 0.033em;
+    }
+    .button-inverse {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 8px 22px;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.85;
+      letter-spacing: 0.033em;
+      color: var(--inverse);
+      background: var(--ink-secondary);
+      border: 0;
+      border-radius: var(--radius-sm);
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 256px 1fr;
+      gap: var(--gutter);
+      padding: 24px;
+      align-items: start;
+    }
+    .tree-title {
+      margin: 0 0 12px;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.85;
+      letter-spacing: 0.033em;
+      color: var(--ink-secondary);
+    }
+    .tree { margin: 0; padding: 0; list-style: none; }
+    .tree ul { margin: 0; padding: 0 0 0 16px; list-style: none; }
+    .tree li {
+      min-height: 24px;
+      padding: 4px 0;
+      color: var(--ink);
+    }
+    .tree [aria-selected="true"] > .node-line { font-weight: 600; }
+    .node-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+    .level, .locked {
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    h1 {
+      margin: 0 0 16px;
+      font-size: 48px;
+      font-weight: 600;
+      line-height: 1.11;
+      letter-spacing: -0.01em;
+    }
+    .lead { margin: 0 0 16px; }
+    .acceptance-form, .denial {
+      max-width: 640px;
+      padding: 16px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow);
+    }
+    .field { margin: 0 0 16px; }
+    .field label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    input, select, textarea {
+      width: 100%;
+      min-height: 40px;
+      padding: 8px 12px;
+      font-family: var(--font);
+      font-size: 16px;
+      color: var(--ink);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    textarea { min-height: 96px; resize: vertical; }
+    .field-error {
+      margin: 8px 0 0;
+      color: var(--ink);
+    }
+    .stored {
+      margin: 0 0 16px;
+      font-size: 14px;
+      line-height: 1.4;
+      letter-spacing: 0.005em;
+      color: var(--ink-secondary);
+    }
+    .button-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 8px 22px;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.85;
+      letter-spacing: 0.033em;
+      color: var(--ink-on-accent);
+      background: var(--accent);
+      border: 0;
+      border-radius: var(--radius-sm);
+    }
+    .denial { margin-top: 16px; }
+    .denial p { margin: 0; }
+  </style>
+</head>
+<body>
+
+  <p class="mock-caption">Accepted deviation — Buyer records the open lodash Deviation</p>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="url">/accepted-deviation</div>
+    </div>
+    <div class="top">
+      <div class="top-row">
+        <p class="wordmark">Domain Harness</p>
+        <p class="role">Buyer</p>
+      </div>
+      <nav class="nav" aria-label="Management panel">
+        <a href="#inventory">Inventory</a>
+        <a href="#adherence">Adherence</a>
+        <a href="#gaps">Gaps</a>
+        <a href="#ignored-modules">Ignored Modules</a>
+        <a href="#cross-checks">Cross-checks</a>
+        <a href="#standards">Standards</a>
+        <a href="#project-tree">Project tree</a>
+        <a href="#new-application-flow">New-application flow</a>
+        <a href="#compilations">Compilations</a>
+        <a href="#guidance-access">Guidance access</a>
+      </nav>
+    </div>
+    <div class="alert-wrap">
+      <div class="alert" role="status">
+        <p>Application Expense cards. Standard STD-CS-14. End date 2026-12-01.</p>
+        <button class="button-inverse" type="button">Dismiss</button>
+      </div>
+    </div>
+    <div class="layout">
+      <aside>
+        <h2 class="tree-title">Project tree</h2>
+        <ul class="tree" role="tree" aria-label="Project tree">
+          <li role="treeitem" aria-expanded="true">
+            <span class="node-line">Company</span>
+            <ul role="group">
+              <li role="treeitem" aria-expanded="true" aria-selected="true">
+                <span class="node-line">
+                  Platform
+                  <span class="level">tribe</span>
+                  <span class="locked">Locked rule</span>
+                </span>
+                <ul role="group">
+                  <li role="treeitem">
+                    <span class="node-line">Internal tools</span>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </aside>
+      <main>
+        <h1>Accepted deviation</h1>
+        <p class="lead">Application Expense cards. Standard STD-CS-14. Conflict slot lodash. Subject lodash@4.17.21.</p>
+        <form class="acceptance-form">
+          <div class="field">
+            <label for="justification">Justification</label>
+            <textarea id="justification" name="justification">Keep lodash@4.17.21 until the approved entry in this conflict slot is adopted on this Application.</textarea>
+          </div>
+          <div class="field">
+            <label for="start">Start</label>
+            <input id="start" name="start" type="date" value="2026-10-09">
+          </div>
+          <div class="field">
+            <label for="end">End</label>
+            <input id="end" name="end" type="date" value="2026-12-01">
+          </div>
+          <div class="field">
+            <label for="interval">Alert interval</label>
+            <input id="interval" name="interval" type="text" value="14 days">
+          </div>
+          <p class="stored">Stored: Buyer, justification, start, end, match key.</p>
+          <button class="button-primary" type="button">Record Accepted deviation</button>
+        </form>
+      </main>
+    </div>
+  </div>
+
+  <p class="mock-caption">Invalid submit — end before start, record unwritten</p>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="url">/accepted-deviation</div>
+    </div>
+    <div class="top">
+      <div class="top-row">
+        <p class="wordmark">Domain Harness</p>
+        <p class="role">Buyer</p>
+      </div>
+      <nav class="nav" aria-label="Management panel">
+        <a href="#inventory">Inventory</a>
+        <a href="#adherence">Adherence</a>
+        <a href="#gaps">Gaps</a>
+        <a href="#ignored-modules">Ignored Modules</a>
+        <a href="#cross-checks">Cross-checks</a>
+        <a href="#standards">Standards</a>
+        <a href="#project-tree">Project tree</a>
+        <a href="#new-application-flow">New-application flow</a>
+        <a href="#compilations">Compilations</a>
+        <a href="#guidance-access">Guidance access</a>
+      </nav>
+    </div>
+    <div class="layout">
+      <aside>
+        <h2 class="tree-title">Project tree</h2>
+        <ul class="tree" role="tree" aria-label="Project tree">
+          <li role="treeitem" aria-expanded="true">
+            <span class="node-line">Company</span>
+            <ul role="group">
+              <li role="treeitem" aria-expanded="true" aria-selected="true">
+                <span class="node-line">
+                  Platform
+                  <span class="level">tribe</span>
+                  <span class="locked">Locked rule</span>
+                </span>
+                <ul role="group">
+                  <li role="treeitem">
+                    <span class="node-line">Internal tools</span>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </aside>
+      <main>
+        <h1>Accepted deviation</h1>
+        <p class="lead">Application Expense cards. Standard STD-CS-14. Conflict slot lodash. Subject lodash@4.17.21.</p>
+        <form class="acceptance-form">
+          <div class="field">
+            <label for="justification-invalid">Justification</label>
+            <textarea id="justification-invalid" name="justification">Keep lodash@4.17.21 until the approved entry in this conflict slot is adopted on this Application.</textarea>
+          </div>
+          <div class="field">
+            <label for="start-invalid">Start</label>
+            <input id="start-invalid" name="start" type="date" value="2026-10-09">
+          </div>
+          <div class="field">
+            <label for="end-invalid">End</label>
+            <input id="end-invalid" name="end" type="date" value="2026-09-01">
+            <p class="field-error" role="status">An end before the start is not recorded. The record is unwritten.</p>
+          </div>
+          <div class="field">
+            <label for="interval-invalid">Alert interval</label>
+            <input id="interval-invalid" name="interval" type="text" value="14 days">
+          </div>
+          <p class="stored">Stored: Buyer, justification, start, end, match key.</p>
+          <button class="button-primary" type="button">Record Accepted deviation</button>
+        </form>
+      </main>
+    </div>
+  </div>
+
+  <p class="mock-caption">Denial — Builder cannot accept their own Deviation</p>
+  <div class="browser">
+    <div class="chrome">
+      <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="url">/accepted-deviation</div>
+    </div>
+    <div class="top">
+      <div class="top-row">
+        <p class="wordmark">Domain Harness</p>
+        <p class="role">Builder</p>
+      </div>
+      <nav class="nav" aria-label="Management panel">
+        <a href="#inventory">Inventory</a>
+        <a href="#adherence">Adherence</a>
+        <a href="#gaps">Gaps</a>
+        <a href="#ignored-modules">Ignored Modules</a>
+        <a href="#cross-checks">Cross-checks</a>
+        <a href="#standards">Standards</a>
+        <a href="#project-tree">Project tree</a>
+        <a href="#new-application-flow">New-application flow</a>
+        <a href="#compilations">Compilations</a>
+        <a href="#guidance-access">Guidance access</a>
+      </nav>
+    </div>
+    <div class="layout">
+      <aside>
+        <h2 class="tree-title">Project tree</h2>
+        <ul class="tree" role="tree" aria-label="Project tree">
+          <li role="treeitem" aria-expanded="true">
+            <span class="node-line">Company</span>
+            <ul role="group">
+              <li role="treeitem" aria-expanded="true" aria-selected="true">
+                <span class="node-line">
+                  Platform
+                  <span class="level">tribe</span>
+                  <span class="locked">Locked rule</span>
+                </span>
+                <ul role="group">
+                  <li role="treeitem">
+                    <span class="node-line">Internal tools</span>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </aside>
+      <main>
+        <h1>Accepted deviation</h1>
+        <p class="lead">Application Expense cards. Standard STD-CS-14. Conflict slot lodash. Subject lodash@4.17.21.</p>
+        <form class="acceptance-form">
+          <div class="field">
+            <label for="justification-denied">Justification</label>
+            <textarea id="justification-denied" name="justification">Keep lodash@4.17.21 until the approved entry in this conflict slot is adopted on this Application.</textarea>
+          </div>
+          <div class="field">
+            <label for="start-denied">Start</label>
+            <input id="start-denied" name="start" type="date" value="2026-10-09">
+          </div>
+          <div class="field">
+            <label for="end-denied">End</label>
+            <input id="end-denied" name="end" type="date" value="2026-12-01">
+          </div>
+          <div class="field">
+            <label for="interval-denied">Alert interval</label>
+            <input id="interval-denied" name="interval" type="text" value="14 days">
+          </div>
+          <p class="stored">Stored: Buyer, justification, start, end, match key.</p>
+          <button class="button-primary" type="button">Record Accepted deviation</button>
+        </form>
+        <div class="denial" role="status">
+          <p>A Builder cannot accept their own Deviation. The Buyer records the acceptance.</p>
+        </div>
+      </main>
+    </div>
+  </div>
+
+</body>
+</html>
