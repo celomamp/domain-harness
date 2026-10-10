@@ -3,8 +3,9 @@ name: domain harness
 status: final
 sources:
   - "{planning_artifacts}/prds/prd-domain harness-2026-10-09/prd.md"
+  - "{planning_artifacts}/architecture/architecture-domain harness-2026-10-09/ARCHITECTURE-SPINE.md"
   - "https://levva.io/"
-updated: 2026-10-09
+updated: 2026-10-10
 ---
 
 # Domain Harness — Experience Spine
@@ -50,7 +51,7 @@ Composition reference: [mockups/inventory.html](mockups/inventory.html), [mockup
 | Project tree | management panel | Create Projects, set one parent, name the level, mark a Locked rule. | First cut |
 | New-application flow | management panel [ASSUMPTION] | A description and a Project, then a Boilerplate. | First cut |
 | Accepted deviation | a Deviation, and the alert on the management panel [ASSUMPTION] | Buyer records justification, period, and alert interval. | First cut |
-| Compilations | management panel | Read each Compilation schema. See a dropped payload. | First cut |
+| Compilations | management panel | Read each Compilation schema. See a dropped payload, each service's active bundle hash, sequence and staleness, and the Collector's pending and dropped counts. | First cut |
 | Guidance access | management panel | Buyer configures which roles can read stored Guidance events. | First cut |
 | Impact analysis | publish path, when the report exists | Applications that lose Adherence, the Adherence change, and the Accepted deviations the change touches. | Outside the first cut |
 | Lineage | management panel, when the report exists | Which Applications touch which Information sources. | Outside the first cut |
@@ -70,7 +71,7 @@ Microcopy for the management panel, the CLI Gate, the CI Gate, and Agent Guidanc
 
 Use the PRD glossary as written: Domain Harness, Company, Standard, Module, Standard owner, Project, Project tree, Locked rule, Effective Standard set, Application, Builder, Buyer, Project identification file, New-application flow, Boilerplate, Guidance, Document response, Decision response, Decision agent, Gate, Conflict slot, Deviation, Correction instruction, Accepted deviation, Adherence, Collector, Compilation, Impact analysis, Information source, Active governed Application.
 
-Microcopy terms, also exact, and not a second glossary: CLI Gate, CI Gate, management panel, Ghost application, miss, gap, ignored list, unbound Application, consulted-but-deviated, baseline set.
+Microcopy terms, also exact, and not a second glossary: CLI Gate, CI Gate, management panel, Ghost application, miss, gap, ignored list, unbound Application, stale, bundle, consulted-but-deviated, baseline set.
 
 | Do | Don't |
 |---|---|
@@ -98,15 +99,17 @@ Behavioral rules. Visual specs live in DESIGN.md.
 | ignored-module-row | Ignored Modules | One Module with published Standards and zero Guidance events in the period. That Module is on the ignored list. |
 | standard-form | Standards | The Standard owner creates, edits, and publishes in a Module they own. Publishing creates a new version and shows id, Module, Project scope, version, and timestamp. A new Guidance request and a new Gate run resolve that version. An in-flight Gate run keeps the version it resolved at start. One response and one run use one version of a Standard. Code-stack entry: name as the conflict slot, optional version constraint, status approved, prohibited, or required, optional Correction instruction. Design-system component entry: name, usage rule, tokens it depends on, optional Correction instruction. Token entry: name, required or prohibited. Import entry: module specifier, required or prohibited. Standards conflict only on a shared conflict slot. First cut offers the code stack and design system Modules only. [ASSUMPTION] In the first cut, publishing a Standard makes that version the version in force, per FR-1. |
 | project-node | Project tree | Buyer creates a Project, sets zero or one parent, and names what the level means. Domain Harness stores that name and does not assign a meaning. Buyer marks a Locked rule so a descendant Project cannot override it. Buyer grants permission to create a child Project. A child created with that permission inherits every Locked rule of its ancestors. A cycle is rejected. Another Company's Projects are absent. Community (free) is one Project. A further Project, the tree, or a Locked rule on Community (free) is a plan-refusal that names Team (first sale). |
-| boilerplate-result | New-application flow | After a description and a Project, shows the Project identification file, dependency pins that satisfy the code-stack Module, design-system references that satisfy the design-system Module, MCP configuration pointed at the Company's Guidance endpoint, and skills. The Project identification file is a hidden file at the repository root. It carries the Application id, minted when the Application is created, and the Project id. Guidance, the Gate, and Collectors resolve the Project from that file and from nowhere else. Skills are generated instruction files the target tool already loads. They are not a vendor hook. Ana is not asked to configure MCP by hand. First-cut targets are Claude Code and Cursor. A tool that reads a git repository, an MCP configuration, and a skills file is in scope once its configuration shape is known. The Application is bound to exactly one Project and appears for the Buyer before any Gate run. A description with no Project is not created. |
+| boilerplate-result | New-application flow | After a description and a Project, shows the Project identification file, dependency pins that satisfy the code-stack Module, design-system references that satisfy the design-system Module, MCP configuration pointed at the Company's Guidance endpoint, and skills. The Project identification file is a hidden file at the repository root. It carries the Application id, minted when the Application is created, and an advisory Project id. Guidance, the Gate, and Collectors identify the Application from that Application id and from nowhere else, and resolve its Project from the signed bundle. A mismatch between the file's Project id and the bundle is reported, never used. An Application id absent from the bundle is an unbound Application. Skills are generated instruction files the target tool already loads. They are not a vendor hook. Ana is not asked to configure MCP by hand. First-cut targets are Claude Code and Cursor. A tool that reads a git repository, an MCP configuration, and a skills file is in scope once its configuration shape is known. The Application is bound to exactly one Project and appears for the Buyer before any Gate run. A description with no Project is not created. |
 | correction-instruction | deviation-row, CLI Gate, CI Gate | Text the Builder pastes into the agent. The Standard owner authors it on the Standard. When that text is empty, the Gate fills one sentence from the status, the conflict slot, and the approved entry in the same slot when one exists. The CI step log includes one Correction instruction naming the Standard and a compliant alternative. Domain Harness does not edit the repository. |
 | acceptance-form | Accepted deviation | Buyer records a justification, a start, an end, and the alert interval for one Deviation. Stored: the Buyer, the justification, the start, the end, and the match key. The end date and the alert interval stay as text on the record for as long as it is stored. While unexpired, a later finding with that match key is accepted. After the end, that match key fails the Gate again. An end before the start is an invalid submit: the form names the end field and keeps the record unwritten. A Builder who accepts their own Deviation receives a denial that says the Buyer records the acceptance. Batch acceptance is outside the first cut. |
 | accepted-deviation-alert | management panel | [ASSUMPTION] The recurring Accepted-deviation alert is shown on the management panel to the Buyer. The PRD names the alert contents and leaves the channel unstated. No email is assumed. The alert names the Application, the Standard, and the end date. It stays until the Buyer dismisses it or the end date passes. |
-| plan-refusal | Any panel surface whose capability is outside the signed-in plan | Shown in place on the management panel. Names the plan that includes the capability: Community (free), Team (first sale), Business, or Enterprise. No prices. v1 does not charge per seat. Team includes up to 25 Active governed Applications. Business includes up to 100. An Active governed Application has a Project identification file and, in the period being counted, a Gate run or a Guidance event. Enterprise states no band. The pipeline log and the MCP response do not carry this refusal. [ASSUMPTION] A capability outside the signed-in Company's plan is refused in place, and the refusal names the plan that includes it. No prices. What the product does when an Active governed Application band is exceeded stays open. |
+| plan-refusal | Any panel surface whose capability is outside the signed-in plan | Shown in place on the management panel. Names the plan that includes the capability: Community (free), Team (first sale), Business, or Enterprise. No prices. v1 does not charge per seat. Team includes up to 25 Active governed Applications. Business includes up to 100. An Active governed Application has a Project identification file and, in the period being counted, a Gate run or a Guidance event. Enterprise states no band. The pipeline log and the MCP response do not carry this refusal. [ASSUMPTION] A capability outside the signed-in Company's plan is refused in place, and the refusal names the plan that includes it. No prices. Exceeding a band is never a plan-refusal and never blocks work: see band-banner. |
+| band-banner | management panel, Buyer | Shown to the Buyer when the Active governed Application count exceeds the plan's band: a banner with the count and the band, in text. Levva is flagged for follow-up. It never blocks a Gate run, a Guidance call, or the New-application flow. The pipeline log and the MCP response do not carry it. |
+| bundle-status | Compilations | Per service: the active bundle hash, its sequence, its age against the Buyer-set bound, and whether the Buyer has recorded a freeze. A service past the bound is marked stale in text. |
 | denial | Any panel surface | The surface stays visible. A role without the grant gets a denial, not a hidden app. The refused action is announced. A person without a provisioned account cannot publish, accept a Deviation, or read Guidance events. A Builder who is not the Standard owner cannot publish. A Builder without permission to create a child Project receives a denial, and no Project is created. A Builder cannot accept their own Deviation. A role without the grant receives a denial on Guidance event content. Another Company's Standards, Projects, Applications, and Compilations are not on this panel. |
 | compilation-drop | Compilations | A Compilation that fails its schema is dropped. The drop is visible to the Buyer. No partial payload is shown. A Compilation contains no prompt text, no Standard content, and no source code. |
-| schema-reader | Compilations | The Buyer reads the versioned schema for every Compilation type before the Collector is allowed to send. First-cut fields are Application id, Project id, agent tool name, and timestamp; for Guidance, the tool name, the conflict slot, the subject asked, and the Standard id and version or a miss; for a Gate run, the revision, pass or fail, and each Deviation's match key and whether it is open or accepted. |
-| role-grant | Guidance access | The Buyer configures which roles can read stored Guidance events. A role without the grant receives a denial on Guidance event content. Exporting a Compilation yields no field defined as prompt text. |
+| schema-reader | Compilations | The Buyer reads the versioned schema for every Compilation type before the Collector is allowed to send. The catalog is closed and frozen for the pilot: Guidance, Gate run, Deviation, Binding refusal, Bundle status (active hash, sequence, staleness), and Collector health (pending, dropped by reason). Every Compilation carries an idempotency key, the Application id, an agent tool name, a timestamp, and a per-Application sequence number. Guidance carries the tool name, the conflict slot, the subject asked as a slot-name token or a Company-keyed hash, and the Standard id and version or a miss. A Gate run carries the revision, pass or fail, the checked and open counts, and each Deviation's match key and whether it is open or accepted. A field or type beyond the catalog needs a security review and a schema version bump. The Collector's pending count and dropped count are visible to the Buyer. |
+| role-grant | Guidance access | The Buyer configures which roles can read stored Guidance events. A role without the grant receives a denial on Guidance event content. Exporting a Compilation yields no field defined as prompt text. Stored Guidance events hold only the fields in FR-20, never raw prompt text. Retention defaults to 90 days and the Company can change it. |
 | panel-chrome | Every panel surface | Wordmark, role as text, nav of every panel destination. Inventory groups application-rows under an agent-tool heading. |
 | sign-in | Before the management panel | [ASSUMPTION] Sign-in requires a provisioned account. The authentication mechanism is unset, and so are the fields. SSO is outside the first cut. A failed attempt shows a denial in text and stays on sign-in. Success lands on Inventory. The account names the role. Buyer, Standard owner, and Builder then use the same panel. |
 
@@ -120,7 +123,7 @@ Host surfaces have no panel cold-load and no offline mode.
 |---|---|---|
 | sign-in | First cut | Cold-load: the form structure. The fields stay unset with the mechanism. Empty: the form is waiting. Permission-denied: an unprovisioned account receives a denial in text and does not reach Inventory. Failure: a failed attempt shows a denial in text and stays on sign-in. Success lands on Inventory. Offline: no editing. |
 | Inventory | First cut | Cold-load: surface structure, then Compilation evidence. Empty: no Application on the selected Project. Permission-denied: denial. Failure: a tool with no repository never appears, so the inventory is incomplete. When the plan lacks the panel that joins Guidance to Gate results, plan-refusal names Team (first sale). Offline: no editing. |
-| Application | First cut | Cold-load: surface structure, then Compilation evidence. Empty: the Application is listed and has no Guidance event and no Gate run. Permission-denied: denial on Guidance event content when the role lacks the grant. Failure: a Gate result of unbound Application is shown as a failure. The text says the Project identification file is missing or unreadable, and recovery is to restore that file. A second repository that presents an Application id already bound to another repository is refused in text, and recovery is to use the repository already bound to that id. When the plan lacks the panel that joins Guidance to Gate results, plan-refusal names Team (first sale). Offline: no editing. |
+| Application | First cut | Cold-load: surface structure, then Compilation evidence. Empty: the Application is listed and has no Guidance event and no Gate run. Permission-denied: denial on Guidance event content when the role lacks the grant. Failure: a Gate result of unbound Application is shown as a failure. The text says the Project identification file is missing or unreadable, or that its Application id is absent from the bundle, and recovery is to restore that file or ask the Buyer to place the Application. A second repository that presents an Application id already bound to another repository is refused in text, and recovery is to use the repository already bound to that id. When the plan lacks the panel that joins Guidance to Gate results, plan-refusal names Team (first sale). Offline: no editing. |
 | Adherence | First cut | Cold-load: surface structure, then Compilation evidence. Empty: no Gate run in the selection, so adherence-series has no point. Permission-denied: denial. Failure: plan-refusal naming Team (first sale) when the plan lacks the panel that joins Guidance to Gate results. A pass is not certification copy. Offline: no editing. |
 | Gaps | First cut | Cold-load: surface structure, then Compilation evidence. Empty: no miss in the period. Permission-denied: denial. Failure: the Compilation did not arrive. Plan-refusal names Team (first sale) when the plan lacks the panel that joins Guidance to Gate results. Offline: no editing. |
 | Ignored Modules | First cut | Cold-load: surface structure, then Compilation evidence. Empty: no Module is on the ignored list. Permission-denied: denial. Failure: plan-refusal names Team (first sale) when the plan lacks the panel that joins Guidance to Gate results. Offline: no editing. |
@@ -133,9 +136,9 @@ Host surfaces have no panel cold-load and no offline mode.
 | Guidance access | First cut | Cold-load: surface structure. Empty: no role grant is configured. Permission-denied: denial on Guidance event content when the role lacks the grant. Failure: a Compilation export contains no prompt text. Offline: no editing. |
 | Impact analysis | Outside the first cut | Cold-load: report structure. Empty: no Application loses Adherence. Permission-denied: denial. Failure: plan-refusal names Business when the plan lacks the report. The two publish sentences in UJ-5 stay unreconciled. Offline: no editing. |
 | Lineage | Outside the first cut | Cold-load: report structure. Empty: no Application is paired with an Information source. Permission-denied: denial. Failure: plan-refusal names Enterprise when the plan lacks the report. Offline: no editing. |
-| CLI Gate | First cut | Prints each Deviation with its Standard id and Correction instruction. Empty of findings: exit zero when every Deviation is absent or accepted and unexpired, and the print says pass. Failure: exit non-zero when a Deviation is open, and the print says fail. unbound Application, a missing or unreadable Project identification file, a duplicate Application id, and a run that did not complete each print one sentence. A missing Effective Standard set prints that the set could not be read, and the exit is non-zero. The command does not modify the working tree. |
-| CI Gate | First cut | The step log shows each Deviation and one Correction instruction. The result matches the CLI Gate for the same revision and the same published versions. Failure: the step fails the pipeline when the CLI Gate would exit non-zero. unbound Application, a missing or unreadable Project identification file, a duplicate Application id, a run that did not complete, and a missing Effective Standard set each print one sentence in the step log. The commit that entered the step is the commit that leaves it. The CI Gate is a Team capability. The pipeline log does not name the plan. When the step does not run, it still prints a text reason. |
-| Agent Guidance | First cut for Document response. Decision response is outside the first cut. | Document response returns the matching Standard content, or a miss. The miss is stored as a gap. The same tools serve any MCP client. Failure: a missing or unreadable Project identification file makes Guidance refuse, in one sentence, to answer with another Project's Standards. A second repository presenting an already bound Application id is refused in one sentence. A missing Effective Standard set returns one sentence that the set could not be read. A miss sentence includes the asked-for subject. No tool requires a session briefing, and no tool blocks the agent from finishing a turn. Decision response, outside the first cut, returns only the applicable component, token, or rule, and a short usage example, cites the Standard version it used, does not answer from knowledge that is not a published Standard, and a miss does not invent a Standard. Decision response is a Business capability. The MCP response does not name the plan. |
+| CLI Gate | First cut | Prints each Deviation with its Standard id and Correction instruction. Empty of findings: exit zero when every Deviation is absent or accepted and unexpired, and the print says pass. Failure: exit non-zero when a Deviation is open, and the print says fail. unbound Application, a missing or unreadable Project identification file, a duplicate Application id, and a run that did not complete each print one sentence. A missing Effective Standard set prints that the set could not be read, and the exit is non-zero. A bundle file whose issue time is past the Buyer-set bound (default 24 hours, unless a freeze is recorded) prints one sentence that the bundle is stale, and the exit is non-zero. A bundle that fails verification prints one sentence and the exit is non-zero. The command does not modify the working tree. |
+| CI Gate | First cut | The step log shows each Deviation and one Correction instruction. The result matches the CLI Gate for the same revision and the same published versions. Failure: the step fails the pipeline when the CLI Gate would exit non-zero. unbound Application, a missing or unreadable Project identification file, a duplicate Application id, a run that did not complete, and a missing Effective Standard set each print one sentence in the step log. When the active bundle is past the Buyer-set bound (default 24 hours, unless a freeze is recorded), the step prints an explicit stale result in one sentence and fails the pipeline. It is never a pass. The commit that entered the step is the commit that leaves it. The CI Gate is a Team capability. The pipeline log does not name the plan. When the step does not run, it still prints a text reason. |
+| Agent Guidance | First cut for Document response. Decision response is outside the first cut. | Every response is one of three typed results: hit (Standard id, version, content), miss (the asked-for subject), or unbound. The service stores each miss as a gap. When the active bundle is past the Buyer-set bound, Guidance keeps serving it and each response says it is stale. The same tools serve any MCP client. Failure: a missing or unreadable Project identification file, or an Application id absent from the bundle, returns unbound and Guidance refuses, in one sentence, to answer with another Project's Standards. A second repository presenting an already bound Application id is refused in one sentence. A missing Effective Standard set returns one sentence that the set could not be read. A miss sentence includes the asked-for subject. No tool requires a session briefing, and no tool blocks the agent from finishing a turn. Decision response, outside the first cut, returns only the applicable component, token, or rule, and a short usage example, cites the Standard version it used, does not answer from knowledge that is not a published Standard, and a miss does not invent a Standard. Decision response is a Business capability. The MCP response does not name the plan. |
 
 ## Interaction Primitives
 
@@ -147,7 +150,7 @@ Host surfaces have no panel cold-load and no offline mode.
 
 **CI Gate.** A step in the Company's existing pipeline. The step log is the Company's log. Domain Harness does not replace the pipeline UI.
 
-**Agent Guidance.** A tool response to any MCP client. First-cut Boilerplates target Claude Code and Cursor. First-cut tools are `code_stack_rule` (language, framework, or library name), `design_component` (component name or usage situation), `design_token` (token name), and `design_import` (module specifier). The quality of those descriptions is part of the product. Each description states the decision and the inputs. The response is the Standard content, or a miss. It is not a briefing-sized dump.
+**Agent Guidance.** A tool response to any MCP client. First-cut Boilerplates target Claude Code and Cursor. First-cut tools are `code_stack_rule` (language, framework, or library name), `design_component` (component name or usage situation), `design_token` (token name), and `design_import` (module specifier). The quality of those descriptions is part of the product. Each description states the decision and the inputs. The response is a hit with the Standard content, a miss, or unbound. It is not a briefing-sized dump.
 
 **Read API.** A Company system reads. There is no write.
 
@@ -220,7 +223,7 @@ Rejects, from the non-goals:
 
 Resolution: Vini can point a Standard owner at a gap or a repeated Deviation without opening the repository. Rows do not name a Builder.
 
-Failure path: An Application published from a tool with no repository never appears. Vini's inventory is incomplete until that channel is defined.
+Failure path: An Application published from a tool with no repository never appears. Such tools stay outside the first cut, and Vini's inventory is incomplete until a channel is defined.
 
 ### UJ-2. Ana starts an Application that is already placed.
 
@@ -245,7 +248,7 @@ Failure path: Ana asks for a child Project so a Locked rule will not apply. Crea
 
 **Realizes:** FR-6 Precedence and Locked rules; FR-10 Project identification file is the join key; FR-11 Document response over MCP; FR-12 Decision response; FR-20 Store Guidance and Gate results on the Application; FR-22 Demand, gaps, ignored Modules, inventory.
 
-1. Entry state: the agent is connected to Domain Harness. The Project identification file resolves the Project.
+1. Entry state: the agent is connected to Domain Harness. The Application id in the Project identification file resolves the Project from the active bundle.
 2. The agent calls a granular tool and asks for the primary button.
 3. Domain Harness returns a Document response: the component, the token, and the usage rule from the Effective Standard set.
 4. In the paid Decision response path, the same ask returns only the applicable component, token, or rule, and a short usage example. That path is outside the first cut. It does not answer from knowledge that is not a published Standard.
@@ -254,7 +257,7 @@ Failure path: Ana asks for a child Project so a Locked rule will not apply. Crea
 
 Resolution: the Guidance event is stored against the Application. The Effective Standard set is resolved from the Application's Project upward. On a shared conflict slot, the Standard scoped to the Project closest to the Application wins. A Locked rule from an ancestor remains and is not replaced. Guidance and the Gate return that same set for the same Application and the same published versions. Parent allows library X and child prohibits X, so an Application on the child is prohibited from X. A parent Locked rule that prohibits X still prohibits X when the child allows X. A token Standard and a library Standard do not compete.
 
-Failure path: no Standard covers the ask. The tool says so, and the miss is recorded as a gap for the Standard owner. A miss does not invent a Standard. A missing Project identification file makes Guidance refuse to answer with another Project's Standards.
+Failure path: no Standard covers the ask. The tool says so, and the miss is recorded as a gap for the Standard owner. A miss does not invent a Standard. A missing Project identification file, or an Application id absent from the bundle, returns unbound and Guidance refuses to answer with another Project's Standards. When the active bundle is stale, Guidance still answers and flags the response stale.
 
 ### UJ-4. The pipeline stops Ana, and IT may let it through.
 
@@ -263,7 +266,7 @@ Failure path: no Standard covers the ask. The tool says so, and the miss is reco
 **Realizes:** FR-10 Project identification file is the join key; FR-13 CLI Gate; FR-14 CI Gate; FR-15 Accepted deviation.
 
 1. The Company's CI runs the Gate.
-2. Entry state: the revision contains the Project identification file. The Gate can read the Effective Standard set.
+2. Entry state: the revision contains the Project identification file. The Gate can read the Effective Standard set from a verified bundle within the Buyer-set bound.
 3. The Gate reports Deviations. Each one includes a Correction instruction.
 4. Ana pastes that instruction into her agent and pushes again, or asks the Buyer to accept the Deviation with a justification.
 
@@ -273,7 +276,7 @@ Failure path: no Standard covers the ask. The tool says so, and the miss is reco
 
 Resolution: The repository commit is the one Ana pushed. Domain Harness has not edited it. For a fixed revision and a fixed set of published versions, the CLI Gate and the CI Gate return the same Deviations. The CLI Gate prints each Deviation and does not modify the working tree. Exit is non-zero when a Deviation is open, and zero when every Deviation is absent or accepted and unexpired. The CI step fails the pipeline in the non-zero case. The commit that entered the step is the commit that leaves it. A passing Gate is never copy for security, accessibility, or legal certification.
 
-Failure path: The design-system miss is visual and has no machine-checkable rule. The first-cut Gate does not invent a visual failure; Guidance still returned the Standard during construction. A Builder cannot accept their own Deviation. unbound Application fails the Gate rather than passing.
+Failure path: The design-system miss is visual and has no machine-checkable rule. The first-cut Gate does not invent a visual failure; Guidance still returned the Standard during construction. A Builder cannot accept their own Deviation. unbound Application fails the Gate rather than passing. A stale bundle fails the CI Gate with an explicit stale result rather than passing, until the Buyer refreshes the bundle or records a freeze.
 
 ### FR-13: CLI Gate.
 
@@ -287,7 +290,7 @@ The protagonist is Ana, or the pipeline when it runs the same command.
 
 **Climax:** Ana reads the printed Correction instruction and can paste it into her agent. The command has not modified the working tree.
 
-Failure path: exit is non-zero when a Deviation is open. unbound Application, a missing or unreadable Project identification file, a duplicate Application id, and a run that did not complete each print one sentence. A missing Effective Standard set prints that the set could not be read, and the exit is non-zero. That result is distinct from unbound Application.
+Failure path: exit is non-zero when a Deviation is open. unbound Application, a missing or unreadable Project identification file, a duplicate Application id, and a run that did not complete each print one sentence. A missing Effective Standard set prints that the set could not be read, and the exit is non-zero. That result is distinct from unbound Application. A stale bundle prints one sentence and the exit is non-zero.
 
 ### UJ-5. Helena changes a token and sees who breaks.
 
@@ -395,12 +398,12 @@ Failure path: missing credentials are refused. A write from this API does not ex
 **Cut:** First cut.
 
 1. Vini opens schema-reader and reads the schema for every Compilation type before the Collector is allowed to send.
-2. Guidance, the Gate, Standard content, and records that contain sensitive detail stay in the Company environment. The management panel runs in the vendor environment. A Collector sends only Compilations.
-3. A Collector sends a Compilation using the first-cut fields. A later payload fails its schema.
+2. Guidance, the Gate, and records that contain sensitive detail stay in the Company environment. Standard content is held in the vendor environment for the pilot and reaches the Company only as a signed bundle. The management panel runs in the vendor environment. A Collector sends only Compilations.
+3. A Collector sends a Compilation from the closed catalog. A later payload fails its schema.
 
 **Climax:** Vini sees compilation-drop. No partial payload is on the panel.
 
-Failure path: the drop is the failure. A Compilation contains no prompt text, no Standard content, and no source code.
+Failure path: the drop is the failure. A Compilation contains no prompt text, no Standard content, and no source code. When the panel is unreachable the Collector queues and retries, the Buyer sees the pending count, and a Guidance call or Gate run never fails or waits for it.
 
 ### FR-27: Decision agent placement.
 
@@ -424,7 +427,7 @@ Failure path: disabling the Decision agent stops Decision response calls. Docume
 
 **Climax:** That person receives a denial on the content. The panel is the same panel.
 
-Failure path: exporting a Compilation and searching it yields no field defined as prompt text. The Company-facing privacy policy text is unset. This guardrail does not wait for that text.
+Failure path: exporting a Compilation and searching it yields no field defined as prompt text. Stored Guidance holds only the FR-20 fields, retention defaults to 90 days and the Company can change it, and the Buyer controls who reads. The Company-facing privacy policy text is still to be drafted. This guardrail does not wait for that text.
 
 ### FR-29: Provision the pilot accounts.
 
@@ -445,12 +448,9 @@ Failure path: a person without a provisioned account cannot publish, accept a De
 Non-blocking for this spine. Architecture and legal carry them.
 
 - Authentication mechanism
-- Active governed Application band exceeded
 - Legal product name
 - Copilot Boilerplate shape
-- Tools without a repository
-- Compilation fields beyond the first cut
-- Privacy policy text
+- Privacy policy text, to be drafted from the 90-day retention commitment
 - Decision-response disagreement path, and per-Company evaluations signed by Standard owners
 - Origin sync from Figma and other source systems
 - Alert channel, if the panel assumption is rejected
