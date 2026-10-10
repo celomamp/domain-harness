@@ -1,0 +1,105 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 10-10-2026 12:00
+last_updated: 10-10-2026 12:00
+project: domain harness
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: backlog
+  1-1-scaffold-the-monorepo-from-a-researched-open-source-starter: backlog
+  1-2-operator-provisions-a-company-and-its-role-named-accounts: backlog
+  1-3-sign-in-to-a-branded-management-panel: backlog
+  1-4-buyer-assigns-exactly-one-standard-owner-per-module: backlog
+  1-5-standard-owner-publishes-a-versioned-code-stack-standard: backlog
+  1-6-standard-owner-publishes-design-system-components-tokens-and: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-buyer-builds-the-project-tree-and-names-its-levels: backlog
+  2-2-standard-owner-scopes-a-standard-to-any-project: backlog
+  2-3-resolve-and-preview-the-effective-standard-set-for-a-project: backlog
+  2-4-buyer-marks-locked-rules-that-descendants-cannot-override: backlog
+  2-5-child-project-creation-requires-a-buyer-granted-permission: backlog
+  2-6-community-plan-refuses-tree-capabilities-in-place: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-builder-places-a-new-application-on-a-project: backlog
+  3-2-define-the-project-identification-file: backlog
+  3-3-generate-a-boilerplate-for-claude-code: backlog
+  3-4-generate-a-boilerplate-for-cursor: backlog
+  3-5-buyer-registers-an-existing-application: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-registry-compiles-and-signs-standard-bundles: backlog
+  4-2-company-service-pulls-verifies-and-activates-bundles: backlog
+  4-3-identify-the-application-on-every-guidance-call: backlog
+  4-4-serve-document-response-through-the-four-mcp-tools: backlog
+  4-5-record-guidance-events-and-gaps-in-the-company-store: backlog
+  4-6-read-the-effective-standard-set-through-the-read-api: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-extract-revision-facts-deterministically: backlog
+  5-2-evaluate-deviations-in-the-core: backlog
+  5-3-run-the-ci-gate-as-a-pipeline-step: backlog
+  5-4-prove-gate-determinism-across-adapters: backlog
+  5-5-buyer-records-an-accepted-deviation: backlog
+  5-6-buyer-receives-recurring-alerts-for-accepted-deviations: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-publish-the-compilation-catalog-and-gate-sending-on-the-buye: backlog
+  6-2-project-records-into-compilations-through-one-collector-chok: backlog
+  6-3-deliver-compilations-durably-without-touching-the-builder: backlog
+  6-4-buyer-sees-bundle-status-collector-health-and-drops: backlog
+  6-5-buyer-sees-the-inventory-by-project-and-agent-tool: backlog
+  6-6-buyer-reads-one-application-s-evidence-and-accepts-from-a-de: backlog
+  6-7-buyer-controls-who-reads-guidance-records-and-how-long-they: backlog
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-adherence-and-frequent-deviations-over-time: backlog
+  7-2-demand-and-gaps-for-standard-owners: backlog
+  7-3-ignored-modules: backlog
+  7-4-ghost-applications-and-consulted-but-deviated: backlog
+  7-5-new-application-flow-adherence-beside-the-baseline-set: backlog
+  7-6-active-governed-application-count-and-the-soft-band-banner: backlog
+  epic-7-retrospective: optional
+
+  epic-8: backlog
+  8-1-load-and-verify-a-bundle-file-offline: backlog
+  8-2-run-the-gate-locally-with-the-same-result-as-ci: backlog
+  8-3-distribute-the-cli: backlog
+  epic-8-retrospective: optional
