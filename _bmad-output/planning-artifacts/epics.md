@@ -123,25 +123,25 @@ UX-DR30: MCP tool descriptions. The descriptions of the 4 Guidance tools state t
 
 ### FR Coverage Map
 
-FR-1: Epic 1 (author, version, publish in registry) + Epic 3 (signed bundle, active pointer, pin, stale rule)
+FR-1: Epic 1 (author, version, publish in registry) + Epic 4 (signed bundle, active pointer, pin, stale rule)
 FR-2: Epic 1 - Code-stack Module entries; Gate checking in Epic 5
-FR-3: Epic 1 - Design-system Module entries; Guidance in Epic 3, Gate checking in Epic 5
+FR-3: Epic 1 - Design-system Module entries; Guidance in Epic 4, Gate checking in Epic 5
 FR-4: Epic 1 - One Standard owner per Module, Buyer reassigns
 FR-5: Epic 2 - Shape the Project tree, cycle rejection, tenant isolation
 FR-6: Epic 2 - Precedence and Locked rules in the core resolver
 FR-7: Epic 2 - Child-Project permission
-FR-8: Epic 4 - Place a new Application
-FR-9: Epic 4 - Generate Boilerplate for Claude Code and Cursor
-FR-10: Epic 3 (Guidance binding, unbound, fingerprint) + Epic 4 (mint id and file) + Epic 5 (Gate refusals) + Epic 8 (CLI local binding)
-FR-11: Epic 3 - Document response over MCP, typed results, gaps
+FR-8: Epic 3 - Place a new Application
+FR-9: Epic 3 - Generate Boilerplate for Claude Code and Cursor
+FR-10: Epic 4 (Guidance binding, unbound, fingerprint) + Epic 3 (mint id and file) + Epic 5 (Gate refusals) + Epic 8 (CLI local binding)
+FR-11: Epic 4 - Document response over MCP, typed results, gaps
 FR-13: Epic 8 - Offline Community CLI Gate
 FR-14: Epic 5 - CI Gate
 FR-15: Epic 5 - Accepted deviation and recurring alert
-FR-20: Epic 3 (Guidance events) + Epic 5 (Gate runs) + Epic 6 (retention)
+FR-20: Epic 4 (Guidance events) + Epic 5 (Gate runs) + Epic 6 (retention)
 FR-21: Epic 7 - Adherence over time
 FR-22: Epic 6 (inventory) + Epic 7 (demand, gaps, ignored Modules)
 FR-23: Epic 7 - Cross-checks
-FR-25: Epic 3 - Read API
+FR-25: Epic 4 - Read API
 FR-26: Epic 6 - Collector, closed Compilation catalog, schema reader, drops
 FR-28: Epic 6 - Guidance-record role grants
 FR-29: Epic 1 - Provision pilot accounts and sign-in
@@ -149,32 +149,32 @@ FR-29: Epic 1 - Provision pilot accounts and sign-in
 ## Epic List
 
 ### Epic 1: Standard owners record and publish the Company's Standards
-The Buyer, Standard owner and Builder of a pilot Company sign in to one management panel with provisioned, role-named accounts. The Buyer assigns one owner per Module. That owner authors, versions and publishes code-stack and design-system Standards, with conflict-slot validation. Includes the greenfield monorepo scaffold, tenant-scoped vendor data layer, panel shell and design tokens.
+The Buyer, Standard owner and Builder of a pilot Company sign in to one management panel with provisioned, role-named accounts. The Buyer assigns one owner per Module. That owner authors, versions and publishes code-stack and design-system Standards, with conflict-slot validation. Includes the greenfield monorepo scaffold, the tenant-scoped vendor data layer, the panel shell and design tokens, and the core conflict-slot rule (AD-13) used to validate publication on a single root Project.
 **FRs covered:** FR-29, FR-4, FR-1 (authoring and publish), FR-2, FR-3
 **Also:** NFR-4, NFR-10; AD-3, AD-4, AD-5, AD-12, AD-13, AD-17; UX-DR1 to DR7, DR12, DR20, DR23 to DR28
 
 ### Epic 2: The Buyer shapes a Project tree whose Locked rules cannot be escaped
-The Buyer builds the Company's Project tree, names its levels, marks Locked rules and grants child-creation permission. The pure resolver core returns the Effective Standard set for any Project (closest Project wins per slot, ancestor Locked rules stay). Community-plan limits are refused in place.
+The Buyer builds the Company's Project tree, names its levels, marks Locked rules and grants child-creation permission. The pure resolver core (whose slot rule already exists from Epic 1) returns the Effective Standard set for any Project (closest Project wins per slot, ancestor Locked rules stay). Community-plan limits are refused in place.
 **FRs covered:** FR-5, FR-6, FR-7
 **Also:** NFR-1 (core determinism), NFR-4; AD-1, AD-6, AD-7, AD-13; UX-DR13, DR18
 
-### Epic 3: A Builder's agent gets the Company Standard at the moment of decision
+### Epic 3: A Builder starts an Application already placed inside the Standards
+On the panel, a Builder describes an Application and picks a Project. The registry creates the Application, mints its id, and generates a Boilerplate archive for Claude Code or Cursor. The archive contains the identification file, compliant pins and design-system references, MCP configuration pointing at the Company Guidance endpoint (a tenant-configured URL; the service itself arrives in Epic 4), and skills files. The Buyer sees the Application immediately.
+**FRs covered:** FR-8, FR-9, FR-10 (minting and file)
+**Also:** AD-16; UX-DR14. Each Application change produces a new bundle input, so Epic 4 Guidance can resolve the Application.
+
+### Epic 4: A Builder's agent gets the Company Standard at the moment of decision
 The registry signs bundles. The Company-operated service pulls, verifies and atomically activates them, and serves Document response over MCP through the four granular tools: hit, miss or unbound, with misses stored as gaps and a stale flag past the bound. Guidance events are recorded against the Application id, with repository fingerprint binding. The same service exposes the read-only Read API.
 **FRs covered:** FR-1 (bundle, active version, stale), FR-10 (Guidance side), FR-11, FR-20 (Guidance events), FR-25
 **Also:** NFR-3, NFR-5, NFR-6, NFR-9, NFR-11, NFR-12; AD-2, AD-11, AD-14, AD-15, AD-19, AD-21; UX-DR29, DR30
 
-### Epic 4: A Builder starts an Application already placed inside the Standards
-On the panel, a Builder describes an Application and picks a Project. The registry creates the Application, mints its id, and generates a Boilerplate archive for Claude Code or Cursor. The archive contains the identification file, compliant pins and design-system references, MCP configuration pointing at the Company Guidance endpoint, and skills files. The Buyer sees the Application immediately.
-**FRs covered:** FR-8, FR-9, FR-10 (minting and file)
-**Also:** AD-16; UX-DR14
-
 ### Epic 5: The pipeline stops non-compliant code, and the Buyer may accept a Deviation
-The CI Gate step extracts revision facts, evaluates them against the pinned bundle and prints Deviations with Correction instructions. It fails closed on unbound or stale and never edits the commit. The Buyer records time-boxed Accepted deviations, and the registry raises recurring alerts on the panel.
+The CI Gate step extracts revision facts, evaluates them against the pinned bundle and prints Deviations with Correction instructions. It fails closed on unbound or stale and never edits the commit. The Buyer records time-boxed Accepted deviations, and the registry raises recurring alerts on the panel. Acceptance starts from the Deviation match key (Standard id, conflict slot, subject), which can be pasted from the CI log line, plus the Application, as in UJ-4 where the Builder brings the Deviation to the Buyer. A fixture-based determinism test proves that two adapter paths return identical Deviations for the same (bundle hash, extractor version, revision, clock), satisfying NFR-1 without depending on Epic 8.
 **FRs covered:** FR-14, FR-15, FR-2/FR-3 (Gate checks), FR-10 (Gate refusals), FR-20 (Gate runs)
 **Also:** NFR-1, NFR-5, NFR-7; AD-6, AD-7, AD-18, AD-21; UX-DR10, DR15 to DR17, DR29
 
 ### Epic 6: The Buyer receives auditable evidence without sensitive data leaving the Company
-A single Collector projects Company records into the closed, versioned Compilation catalog and sends them outbound with idempotency keys and per-Application sequence. It drops schema failures visibly and queues durably when the panel is down. The Buyer reads every schema before sending is allowed, sees bundle status and Collector health, controls who reads Guidance records, and sees the inventory by Project and agent tool.
+A single Collector projects Company records into the closed, versioned Compilation catalog and sends them outbound with idempotency keys and per-Application sequence. It drops schema failures visibly and queues durably when the panel is down. The Buyer reads every schema before sending is allowed, sees bundle status and Collector health, controls who reads Guidance records, and sees the inventory by Project and agent tool. Adds the Application view with Deviation rows and "accept from the Deviation row", which pre-fills the Epic 5 acceptance form.
 **FRs covered:** FR-26, FR-28, FR-20 (retention), FR-22 (inventory)
 **Also:** NFR-2, NFR-8, NFR-9; AD-9, AD-10, AD-20; UX-DR7, DR8, DR21, DR22, DR24
 
@@ -187,3 +187,155 @@ Panel intelligence derived only from Compilations: Adherence time series and fre
 The free CLI Gate verifies a bundle file and keeps a local binding file. It runs the same core and extractor offline, prints the same Deviations as the CI Gate, applies the stale rule to the bundle issue time, and never touches the working tree. It ships only if it does not delay the pilot.
 **FRs covered:** FR-13, FR-10 (CLI local binding)
 **Also:** NFR-1 (CLI/CI parity), NFR-5; AD-8; UX-DR29
+
+## Epic 1: Standard owners record and publish the Company's Standards
+
+The Buyer, Standard owner and Builder of a pilot Company sign in to one management panel with provisioned, role-named accounts. The Buyer assigns one owner per Module. That owner authors, versions and publishes code-stack and design-system Standards, with conflict-slot validation.
+
+### Story 1.1: Scaffold the monorepo with enforced dependency direction
+
+As a developer on Domain Harness,
+I want a TypeScript monorepo whose package boundaries are enforced by tooling,
+So that resolution logic can only ever live in `packages/core` and every later story lands in the right place.
+
+**Acceptance Criteria:**
+
+**Given** a fresh clone
+**When** I install and run the workspace build, typecheck and test commands
+**Then** `packages/{core,extractor,contract,collector}` and `apps/{registry,panel,service,cli}` exist and all three commands pass
+**And** the root manifest declares `engines.node >=24`, and the chosen TypeScript version (7.x, or 6.0.x with the reason recorded) plus the monorepo tool and test runner are recorded in the README
+
+**Given** a file in `packages/core` or `packages/extractor` that imports anything other than `@domain-harness/contract`
+**When** the lint/boundary check runs
+**Then** it fails and names the offending import
+**And** the same check fails when `apps/panel` imports `core`, or any package imports an `apps/*` module
+
+**Given** `packages/contract`
+**When** I inspect its exports
+**Then** it defines the single error envelope `{ code, message, subject }` and a UUIDv7 id type
+**And** a continuous-integration workflow runs build, typecheck, lint/boundary check and tests on every push
+
+### Story 1.2: Operator provisions a Company and its role-named accounts
+
+As the operator,
+I want to provision one Company with named Buyer, Standard owner and Builder accounts,
+So that pilot users exist with the roles every later permission check relies on (FR-29).
+
+**Acceptance Criteria:**
+
+**Given** the vendor Postgres 18 database
+**When** migrations run
+**Then** they create only the tenant, account and root-Project tables this story needs
+**And** the application database role does not own the tables, and row-level security is enabled on every tenant-scoped table (AD-12)
+
+**Given** an operator command (CLI or script) with a Company name and a list of (name, email, role) entries
+**When** the operator runs it
+**Then** a tenant is created with a registry-minted UUIDv7 id, one root Project, and one account per entry whose role is exactly one of Buyer, Standard owner or Builder
+**And** an invalid role, or a duplicate email within the tenant, is rejected with the error envelope and nothing is written
+
+**Given** two provisioned Companies A and B
+**When** any data-access function is called without a tenant id
+**Then** it raises an error instead of querying
+**And** a test proves that a query issued in tenant A's context cannot read B's rows even when the tenant filter is deliberately omitted (RLS as the second guard, NFR-4)
+
+### Story 1.3: Sign in to a branded management panel
+
+As a provisioned Buyer, Standard owner or Builder,
+I want to sign in and land on the management panel with my role shown,
+So that I can reach every destination my role allows from one place (FR-29).
+
+**Acceptance Criteria:**
+
+**Given** the panel app
+**When** it renders any surface
+**Then** colors, typography (Sora and Poppins), spacing and radii come from one token source matching DESIGN.md in light and dark mode (UX-DR1, UX-DR2)
+**And** an automated contrast check passes every pair in the DESIGN.md contrast table, and no style uses `#737373` for text or gold for text, pass/fail or chrome (UX-DR3, UX-DR4)
+
+**Given** the sign-in surface (mechanism chosen at implementation and recorded, no SSO)
+**When** a provisioned account signs in successfully
+**Then** the person lands on Inventory, shown with its empty state, under panel-chrome that shows the wordmark, the role as text, and a nav of every first-cut destination with the current destination at weight 600 (UX-DR5, UX-DR23)
+**And** button-primary and button-inverse follow UX-DR6
+
+**Given** an unprovisioned identity or a failed attempt
+**When** sign-in is submitted
+**Then** a denial is shown in text, announced as a status, and the person stays on sign-in (UX-DR20)
+
+**Given** keyboard-only use at 320, 768 and 1280 CSS pixels wide
+**When** I complete sign-in and move through the nav
+**Then** tab order follows reading order, the ink focus ring is visible, nothing traps focus, every target is at least 24px, and sign-in remains usable at 320px (UX-DR25 to UX-DR27)
+**And** the page language is English and all copy uses the glossary terms exactly (UX-DR28)
+
+### Story 1.4: Buyer assigns exactly one Standard owner per Module
+
+As the Buyer,
+I want to create the code-stack and design-system Modules and assign or reassign each one's Standard owner,
+So that every Module has one accountable person and only that person can publish into it (FR-4).
+
+**Acceptance Criteria:**
+
+**Given** I am signed in as the Buyer
+**When** I create a Module
+**Then** I can choose only the code stack or design system kind in the first cut, the other kinds are not offered, and the Module is stored with a registry-minted id and no owner
+
+**Given** a Module and a provisioned account
+**When** I assign that account as Standard owner, or reassign it to another account
+**Then** the Module has exactly one owner afterwards and the change is stored append-only with who made it and when
+
+**Given** I am signed in as a Standard owner or Builder
+**When** I try to assign or reassign a Module owner
+**Then** I receive a denial and nothing changes
+
+### Story 1.5: Standard owner publishes a versioned code-stack Standard
+
+As the Standard owner of the code-stack Module,
+I want to create, edit and publish entries for languages, frameworks and libraries,
+So that the Company's approved, prohibited and required stack is on record (FR-1, FR-2).
+
+**Acceptance Criteria:**
+
+**Given** I own the code-stack Module
+**When** I submit standard-form with a name (the conflict slot), an optional version constraint, a status of approved, prohibited or required, and an optional Correction instruction
+**Then** publishing creates a version shown with its Standard id, Module, Project scope (root Project), version and UTC timestamp (UX-DR12)
+**And** editing and publishing again creates a new version and never mutates a previous one
+
+**Given** a Module with no owner
+**When** anyone attempts to publish into it
+**Then** publication is refused with the text that the Module has no owner
+
+**Given** I am signed in as a Builder, or as the owner of a different Module
+**When** I attempt to publish into this Module
+**Then** I receive a denial and no version is created
+
+**Given** a live Standard already occupies conflict slot (code stack, library, "X") at the root Project
+**When** I try to publish a second, different Standard in that same slot and scope
+**Then** `packages/core` validation (AD-13) rejects it, the form names both Standards, and no version is created
+**And** core unit tests show that the slot is the tuple (Module kind, slot kind, name)
+
+**Given** an invalid submit (for example, a missing name)
+**When** I publish
+**Then** the field keeps its value and ink text under it explains the error
+
+### Story 1.6: Standard owner publishes design-system components, tokens and imports
+
+As the Standard owner of the design-system Module,
+I want to record component, token and import entries,
+So that agents and the Gate can later use the Company's design system (FR-1, FR-3).
+
+**Acceptance Criteria:**
+
+**Given** I own the design-system Module
+**When** I publish a component entry
+**Then** it stores a name (slot), a usage rule, the tokens it depends on and an optional Correction instruction as a new version
+
+**Given** I publish a token entry or an import entry
+**When** the version is created
+**Then** a token entry stores a name and a status of required or prohibited, and an import entry stores a module specifier and a status of required or prohibited
+
+**Given** a token named "primary" and a code-stack library named "primary"
+**When** both are published at the root Project
+**Then** both are accepted, because different slot kinds never compete
+**And** a second live component with the same name at the same scope is rejected as in Story 1.5
+
+**Given** the Standards surface
+**When** I open a Module with no published Standard, or the surface is loading
+**Then** it shows the empty state or the cold-load structure from EXPERIENCE.md, and the Standards list is a table with header cells (UX-DR24, UX-DR26)
