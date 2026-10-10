@@ -43,6 +43,69 @@ pnpm test             # Vitest in every package
 
 CI (`.github/workflows/ci.yml`) runs the same steps on every push, on Node 24 and 26.
 
+## Database (registry)
+
+The registry uses PostgreSQL 18. For local work, start the compose service (its password is a local-only development credential, not a secret):
+
+```sh
+docker compose up -d --wait postgres
+```
+
+Connection strings come only from environment variables:
+
+| Variable | Used by | Connects as |
+| --- | --- | --- |
+| `REGISTRY_MIGRATION_DATABASE_URL` | `migrate` | the migrator, which owns the tables |
+| `REGISTRY_DATABASE_URL` | `provision` (and the registry runtime) | a login role that is a member of `dh_registry_app`, never a superuser, `BYPASSRLS` role or table owner |
+| `REGISTRY_TEST_DATABASE_URL` | `pnpm test` (database suite) | an admin role that may create and drop databases |
+
+`migrate` runs as the migrator role, which owns the tables it creates. The registry runtime never uses that role. In production, create a separate login role for the runtime that is a member of `dh_registry_app` only. It must not be a member of the table owner, a superuser or `BYPASSRLS`. Take the password from your secret manager:
+
+```sql
+-- after the first migrate (it creates dh_registry_app)
+CREATE ROLE registry_runtime LOGIN PASSWORD '<from your secret manager>' IN ROLE dh_registry_app;
+```
+
+`REGISTRY_DATABASE_URL` then names `registry_runtime`. `provision` refuses to start when the role is unsafe.
+
+Apply migrations (idempotent):
+
+```sh
+export REGISTRY_MIGRATION_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
+pnpm --filter @domain-harness/registry migrate
+```
+
+Provision one Company from a JSON file. `plan` is optional (`Community`, `Team`, `Business` or `Enterprise`; default `Team`) and each account's `role` is `Buyer`, `Standard owner` or `Builder`:
+
+```json
+{
+  "company": "Acme",
+  "plan": "Team",
+  "accounts": [
+    { "name": "Bea", "email": "bea@acme.example", "role": "Buyer" },
+    { "name": "Sam", "email": "sam@acme.example", "role": "Standard owner" },
+    { "name": "Bo", "email": "bo@acme.example", "role": "Builder" }
+  ]
+}
+```
+
+```sh
+# Locally, `options=-c role=dh_registry_app` makes the dev superuser act as the
+# runtime role; in production use a login role that is a member of dh_registry_app.
+export REGISTRY_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?options=-c%20role%3Ddh_registry_app'
+pnpm --filter @domain-harness/registry provision ./company.json
+```
+
+It prints `{ tenantId, rootProjectId, plan, accounts: [{ id, role }] }` (ids only, no names or emails). Any error prints one `{ code, message, subject }` envelope to stderr, exits 1 and writes nothing.
+
+The database test suite (`apps/registry/src/tenancy/tenancy.db.test.ts`) runs when `REGISTRY_TEST_DATABASE_URL` is set, creating and dropping its own throwaway database:
+
+```sh
+REGISTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres pnpm test
+```
+
+Without it, the suite is skipped with a printed reason; when `CI` is set, a missing URL fails the run.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:

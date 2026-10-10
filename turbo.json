@@ -24,6 +24,10 @@
     "test": {
       "dependsOn": [
         "^build"
+      ],
+      "env": [
+        "REGISTRY_TEST_DATABASE_URL",
+        "CI"
       ]
     }
   }

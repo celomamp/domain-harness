@@ -8,15 +8,20 @@
     "build": "tsc -b tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint . --max-warnings 0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate": "node --conditions=@domain-harness/source src/db/migrate-cli.ts",
+    "provision": "node --conditions=@domain-harness/source src/operator/provision-cli.ts"
   },
   "dependencies": {
-    "@domain-harness/contract": "workspace:*"
+    "@domain-harness/contract": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "pg": "catalog:"
   },
   "devDependencies": {
     "@domain-harness/eslint-config": "workspace:*",
     "@domain-harness/tsconfig": "workspace:*",
     "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "eslint": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -1,0 +1,27 @@
+# Local development only. Start with `docker compose up -d postgres`.
+#
+# The password below is a LOCAL-ONLY DEVELOPMENT CREDENTIAL for a database
+# bound to localhost; it is not a secret and is never used outside a developer
+# machine. Real connection strings come from environment variables.
+name: domain-harness
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres # local-only dev password, see above
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # Postgres 18 images keep data under /var/lib/postgresql (versioned subdirectory).
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  postgres-data:

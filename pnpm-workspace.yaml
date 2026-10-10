@@ -7,9 +7,13 @@ packages:
 catalog:
   "@eslint/js": 10.0.1
   "@types/node": 24.19.2
+  "@types/pg": 8.23.1
   dependency-cruiser: 18.5.0
+  # Registry database access (Story 1.2): typed queries + node-postgres driver.
+  drizzle-orm: 0.45.4
   eslint: 10.12.0
   globals: 17.13.0
+  pg: 8.23.1
   # Native compiler for build and typecheck.
   typescript: 7.0.2
   typescript-eslint: 8.71.1

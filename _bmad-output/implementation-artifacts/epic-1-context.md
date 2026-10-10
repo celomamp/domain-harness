@@ -1,6 +1,6 @@
 # Epic 1 Context: Standard owners record and publish the Company's Standards
 
-<!-- Compiled from planning artifacts. Edit freely. Regenerate with compile-epic-context if planning docs change. -->
+<!-- Generated from planning artifacts. Regenerate with compile-epic-context if planning docs change. -->
 
 ## Goal
 
@@ -52,8 +52,9 @@ Stand up the greenfield Domain Harness monorepo and the first vendor-side slice:
 - **Secrets:** secrets come from the environment or a secret manager, never from the repository.
 - **Stack:**
   - Node 26 LTS target, with `engines.node >=24` in the root manifest.
-  - TypeScript 7.x, falling back to 6.0.x if the tooling lags. Confirm at scaffold.
-  - `@modelcontextprotocol/sdk` 1.x (used from Epic 4). Confirm the npm `latest` tag at scaffold.
+  - TypeScript 7.0.2 (native compiler) for build and typecheck. TypeScript 6.0.3 is installed through an npm alias only for compiler-API tooling (typescript-eslint, dependency-cruiser) until 7.1 ships that API.
+  - `@modelcontextprotocol/server` 2.x (npm `latest` 2.3.1), replacing `@modelcontextprotocol/sdk` 1.x. It is used from Epic 4, behind the MCP adapter, over Streamable HTTP.
+  - The pilot Company builds only in TypeScript/npm. Both stack decisions are recorded in `docs/decisions/starter-template.md`.
 - **Sign-in:** a passwordless magic link. The email delivery provider is chosen and recorded during Story 1.3.
 
 ## UX & Interaction Patterns

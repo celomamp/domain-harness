@@ -71,3 +71,23 @@ Workspace packages expose their source under the custom export condition `@domai
 
 - Upgrading TypeScript means moving two pins: the default catalog for 7.x and `compiler-api` for 6.x. Remove the alias once typescript-eslint supports 7.1+.
 - Adding a database, web framework, MCP SDK or auth library is each a later story's change. Each must respect the boundary rules above.
+
+## Addendum (Story 1.2): database access as installed
+
+- **Date:** 2026-10-10
+- **Story:** 1.2, Operator provisions a Company and its role-named accounts
+
+| Choice | Decision | Reason |
+| --- | --- | --- |
+| Database | PostgreSQL 18, one shared vendor database | Spine data layer. Local development uses `compose.yaml` (`postgres:18`); CI uses a `postgres:18` service container. |
+| Driver | `pg` (node-postgres) 8.23.1, MIT; `@types/pg` 8.23.1 for types | The driver Drizzle's `node-postgres` adapter targets; pure JavaScript, no native build. |
+| Queries | Drizzle ORM 0.45.4 (`drizzle-orm`), Apache-2.0, as recorded above | Typed `select`/`insert` over table definitions in `apps/registry/src/db/schema.ts`. `drizzle-kit` is **not** installed. |
+| Migrations | Plain SQL files in `apps/registry/migrations/NNNN_name.sql`, applied by a ~60-line runner (`src/db/migrate.ts`) that runs each file in its own transaction under an advisory lock and records it in `registry_migrations` | The point of these migrations is role creation, grants, `ENABLE`/`FORCE ROW LEVEL SECURITY` and policies, which read best and are reviewed best as SQL. Generated migrations would add a tool and a snapshot format for no gain. The Drizzle schema mirrors the SQL; the SQL is the source of truth. |
+| Ids | UUIDv7 minted in TypeScript (`apps/registry/src/ids.ts`), monotonic within a process | Spine: ids are minted by the registry. PostgreSQL 18's native `uuidv7()` is deliberately unused so the id rule lives in one place. |
+
+Tenant isolation, as built:
+
+- The registry runtime connects as any login role that is a member of the `NOLOGIN` group role `dh_registry_app`. That role has only `SELECT, INSERT` on `tenants`, `accounts`, `projects`, owns nothing and has no `BYPASSRLS`. The provisioning command checks this at start (`assertRuntimeRoleSafe`) and refuses a superuser, a `BYPASSRLS` role or a table owner.
+- Every tenant table has RLS enabled and forced; each policy compares the row's tenant to `nullif(current_setting('app.tenant_id', true), '')::uuid`, so a connection with no tenant context sees zero rows.
+- Every data-access function goes through `withTenant(db, tenantId, fn)`, which throws `tenant_required` before touching the connection unless the id is a canonical UUIDv7, then sets `app.tenant_id` transaction-locally.
+- Environment variables: `REGISTRY_MIGRATION_DATABASE_URL` (migrator/owner), `REGISTRY_DATABASE_URL` (runtime role), `REGISTRY_TEST_DATABASE_URL` (admin connection for the database test suite).
