@@ -1,6 +1,6 @@
 ---
 status: draft
-stepsCompleted: [1, 2]
+stepsCompleted: [1, 2, 3]
 scope: 'First cut (Team-shaped pilot) only'
 precedence: 'SPEC > ARCHITECTURE-SPINE > PRD (per SPEC.md)'
 inputDocuments:
@@ -130,7 +130,7 @@ FR-4: Epic 1 - One Standard owner per Module, Buyer reassigns
 FR-5: Epic 2 - Shape the Project tree, cycle rejection, tenant isolation
 FR-6: Epic 2 - Precedence and Locked rules in the core resolver
 FR-7: Epic 2 - Child-Project permission
-FR-8: Epic 3 - Place a new Application
+FR-8: Epic 3 - Place a new Application (and register existing Applications for the baseline set)
 FR-9: Epic 3 - Generate Boilerplate for Claude Code and Cursor
 FR-10: Epic 4 (Guidance binding, unbound, fingerprint) + Epic 3 (mint id and file) + Epic 5 (Gate refusals) + Epic 8 (CLI local binding)
 FR-11: Epic 4 - Document response over MCP, typed results, gaps
@@ -494,3 +494,740 @@ So that I understand the limit instead of finding a hidden or broken control (ti
 **Given** any plan
 **When** a capability is refused
 **Then** the refusal text exists only on the panel, and the contract package exposes no plan names to the Guidance or Gate result types
+
+## Epic 3: A Builder starts an Application already placed inside the Standards
+
+On the panel, a Builder describes an Application and picks a Project. The registry creates the Application, mints its id, and generates a Boilerplate archive for Claude Code or Cursor. The Buyer sees the Application immediately. Existing Applications can also be registered, so they form the baseline set.
+
+### Story 3.1: Builder places a new Application on a Project
+
+As a Builder,
+I want to describe an Application and confirm the Project it belongs to,
+So that it exists for the Buyer from the start, bound to exactly one Project (FR-8).
+
+**Acceptance Criteria:**
+
+**Given** I am the Buyer
+**When** I open a Project to an account for building
+**Then** the build grant is stored append-only, and only accounts with it can place Applications on that Project
+
+**Given** I am a Builder with a build grant on Project P
+**When** I submit the New-application flow with a description and P
+**Then** an Application is created with a registry-minted UUIDv7 id, bound to exactly P, and marked as created by the New-application flow
+**And** the Buyer immediately sees it in the Applications list on Inventory, before any Guidance event or Gate run (Compilation evidence fills in later, in Epic 6)
+
+**Given** a description with no Project
+**When** I submit
+**Then** nothing is created, and the text names the Project field and tells me to choose a Project
+
+**Given** a Project I hold no build grant on
+**When** I submit
+**Then** I receive a denial and nothing is created
+
+### Story 3.2: Define the Project identification file
+
+As a Builder,
+I want each Application to carry one small, hidden identification file,
+So that Guidance, the Gate and Collectors can all find my Application the same way (FR-10).
+
+**Acceptance Criteria:**
+
+**Given** `packages/contract`
+**When** I inspect it
+**Then** it defines the identification file name (a dotfile at the repository root), a format that carries a semver, the Application id and an advisory Project id, and a parser that returns either the parsed values or an explicit "missing" or "unreadable" result, never a default
+
+**Given** an Application created in Story 3.1
+**When** the registry renders its identification file
+**Then** the content holds that Application's id and its current Project id as advisory, and the registry is the only place that mints the id (AD-16)
+
+**Given** a file with an unknown major version
+**When** it is parsed
+**Then** the result is "unreadable", with the error envelope
+
+### Story 3.3: Generate a Boilerplate for Claude Code
+
+As a Builder,
+I want to download a starter repository for Claude Code that already follows the Standards,
+So that my agent can work inside the Company's stack and design system without me configuring MCP by hand (FR-9).
+
+**Acceptance Criteria:**
+
+**Given** the Buyer has set the Company Guidance endpoint URL in the tenant settings
+**When** I request a Claude Code Boilerplate for my Application
+**Then** the registry resolves the Application's Effective Standard set through `core` and returns a repository archive containing: the identification file, dependency pins that satisfy every required and approved code-stack entry and include no prohibited one, design-system references (required imports and tokens) that satisfy the design-system Module, an MCP configuration pointing at the endpoint URL, and generated instruction/skills files that Claude Code loads natively
+**And** the archive contains no hook configuration of any kind (NFR-11)
+
+**Given** the first cut
+**When** the Effective Standard set requires an ecosystem the generator does not support (only the npm/TypeScript ecosystem is supported)
+**Then** generation stops with one sentence naming the unsupported required entries, and no partial archive is produced
+
+**Given** no endpoint URL has been set
+**When** I request a Boilerplate
+**Then** generation is refused with text telling me to ask the Buyer to set the Guidance endpoint
+
+**Given** the boilerplate-result surface
+**When** generation succeeds
+**Then** it lists each artifact in text, with no badges, plus the archive download (UX-DR14)
+
+### Story 3.4: Generate a Boilerplate for Cursor
+
+As a Builder who uses Cursor,
+I want the same starter shaped for Cursor's configuration,
+So that I get the same placement whichever supported tool I use (FR-9).
+
+**Acceptance Criteria:**
+
+**Given** the Boilerplate request form
+**When** I choose the target tool
+**Then** Claude Code and Cursor are offered, and the chosen tool is recorded on the Application as its agent tool
+
+**Given** the Cursor target
+**When** the archive is generated
+**Then** it contains the same identification file, pins and design-system references as the Claude Code archive for the same Application and bundle input, with MCP configuration and rule/instruction files in the locations and formats Cursor loads, and no hook
+
+**Given** both targets for the same Application
+**When** their archives are compared
+**Then** the identification file and dependency pins are byte-identical
+
+### Story 3.5: Buyer registers an existing Application
+
+As the Buyer,
+I want to register an Application that was not built through the New-application flow,
+So that it can run the Gate and count in the baseline set (FR-10, FR-23).
+
+**Acceptance Criteria:**
+
+**Given** I am the Buyer
+**When** I register an existing Application with a name and a Project
+**Then** an Application is created with a registry-minted id, marked as not created by the New-application flow, and I receive only its identification file to commit (no Boilerplate)
+
+**Given** a Builder or a Standard owner
+**When** they try to register an existing Application
+**Then** they receive a denial
+
+## Epic 4: A Builder's agent gets the Company Standard at the moment of decision
+
+The registry signs bundles. The Company-operated service pulls, verifies and atomically activates them, and serves Document response over MCP. Guidance events and gaps are recorded against the Application. The same service exposes the read-only Read API.
+
+### Story 4.1: Registry compiles and signs Standard bundles
+
+As the Buyer,
+I want every change to Standards, the tree, Locked rules, Applications and acceptances to produce a signed, immutable bundle,
+So that my Company environment receives exactly what was published, and nothing else (FR-1, AD-11).
+
+**Acceptance Criteria:**
+
+**Given** `packages/contract`
+**When** I inspect it
+**Then** it defines the bundle format with a type name and semver, containing the Standards (current versions), Project tree, Locked rules, Applications (id → Project, created-by-flow flag), Accepted deviations, and the staleness bound and freeze state
+
+**Given** any accepted registry mutation
+**When** it is committed
+**Then** a new bundle is built with canonical serialization, is hash-addressed, and is signed over a payload that includes the tenant id, a per-tenant monotonic sequence and the key id
+**And** the signing key comes from the environment or secret manager, and a test fails if a key file is in the repository
+
+**Given** a tenant credential
+**When** the Company service pulls over an outbound HTTPS call
+**Then** it receives that tenant's latest bundle only, and another tenant's credential receives a denial
+
+**Given** the Buyer
+**When** they set the staleness bound (default 24h) or record a freeze on the panel
+**Then** the change is stored and carried in the next bundle
+
+### Story 4.2: Company service pulls, verifies and activates bundles
+
+As the Buyer,
+I want our Company-operated service to accept only a valid, newer bundle and switch to it atomically,
+So that every answer and every Gate run uses one trusted version (FR-1, AD-2, AD-11, AD-14, AD-21).
+
+**Acceptance Criteria:**
+
+**Given** `apps/service`
+**When** it is delivered
+**Then** it ships as one container image with its own Postgres 18 record store, a compose file (Helm optional), configuration for the vendor URL, tenant credential and trust set from the environment, and no inbound port toward the vendor (NFR-12)
+
+**Given** a pulled bundle
+**When** verification runs
+**Then** the bundle is refused, with a recorded reason, if the signature fails, the key id is not in the trust set, the tenant does not match, the hash does not match, or the sequence is lower than the active one
+
+**Given** a verified bundle
+**When** it is activated
+**Then** the active-bundle pointer in the record store is swapped in one transaction, and two service replicas report the same active hash
+
+**Given** the active bundle
+**When** its age passes the Buyer-set bound and no freeze is recorded
+**Then** the service marks itself stale, and records the active hash, sequence and age for later Compilation
+
+### Story 4.3: Identify the Application on every Guidance call
+
+As a Builder,
+I want my agent's calls tied to my Application and nobody else's,
+So that I receive my Project's Standards and a copied identity is refused (FR-10, AD-19).
+
+**Acceptance Criteria:**
+
+**Given** the Boilerplates from Epic 3
+**When** they are regenerated
+**Then** their MCP configuration passes the Application id from the identification file and a repository fingerprint to the service on each call, using a mechanism defined in `contract`
+
+**Given** an Application id that is present in the active bundle and seen for the first time
+**When** a call arrives
+**Then** the service binds that id to the presented fingerprint (trust on first use) and resolves the Project from the bundle, never from the file
+
+**Given** a call where the file is missing or unreadable, or the id is absent from the bundle
+**When** it is handled
+**Then** the result is `unbound`, with one sentence, and no other Project's Standards are returned
+
+**Given** a bound id presented with a different fingerprint
+**When** the call arrives
+**Then** it is refused in one sentence, and a Binding refusal record is stored
+
+**Given** a file whose advisory Project id differs from the bundle
+**When** the call is handled
+**Then** the mismatch is reported in the response and the record, and the bundle's Project is used
+
+### Story 4.4: Serve Document response through the four MCP tools
+
+As a Builder,
+I want my agent to ask for the exact Standard at the moment it decides,
+So that it uses the Company's stack and components without a session briefing (FR-11, AD-15).
+
+**Acceptance Criteria:**
+
+**Given** the service's MCP adapter on Streamable HTTP, using `@modelcontextprotocol/sdk` 1.x
+**When** a client lists tools
+**Then** it sees exactly `code_stack_rule`, `design_component`, `design_token` and `design_import`, whose descriptions (versioned in `contract`) state the decision each serves and its input (UX-DR30)
+
+**Given** a bound Application
+**When** a tool is called with a subject
+**Then** the response is exactly one of `hit` (Standard id, version, content including the Correction instruction), `miss` (the asked-for subject, in one sentence) or `unbound`, resolved through `core` against the pinned active bundle hash, which the response quotes
+
+**Given** `design_component` called with a usage situation instead of a name
+**When** it is resolved
+**Then** matching is a deterministic text match against component names and usage rules, documented in `contract`, and no match returns `miss`
+
+**Given** a stale service
+**When** any tool answers
+**Then** it still answers from the active bundle, and the response says it is stale
+
+**Given** an unreadable Effective Standard set
+**When** a tool is called
+**Then** it returns one sentence that the set could not be read
+
+**Given** any tool
+**When** it is called
+**Then** it requires no prior briefing call and never blocks the agent's turn, and a load test against the bundle cache shows p95 under 500 ms (NFR-6)
+
+### Story 4.5: Record Guidance events and gaps in the Company store
+
+As a Standard owner,
+I want every Guidance answer and every miss recorded against the Application,
+So that gaps reach me without depending on the agent to report them (FR-20, FR-11, AD-15).
+
+**Acceptance Criteria:**
+
+**Given** any Guidance call
+**When** it completes
+**Then** an append-only record stores only: the Application id, tool, subject asked, Standard id and version or a miss, agent tool name, bundle hash, UTC timestamp, and a per-Application sequence number assigned by the record store
+
+**Given** a `miss`
+**When** it is recorded
+**Then** the service, not the agent, persists it as a gap against the Application, the tool and the subject
+
+**Given** the record schema and service logs
+**When** a test inspects them
+**Then** no field holds raw prompt text, and exported logs and metrics carry only ids and counts, never subject text (NFR-9)
+
+### Story 4.6: Read the Effective Standard set through the Read API
+
+As a Company system,
+I want to read published Standards and the Effective Standard set of a Project with credentials,
+So that tools that never run the Gate use the same source of truth (FR-25).
+
+**Acceptance Criteria:**
+
+**Given** valid Company credentials
+**When** the system requests the Effective Standard set for Project P
+**Then** the response equals what Guidance would resolve for an Application on P against the same pinned bundle hash, and quotes that hash
+
+**Given** missing or invalid credentials
+**When** any request is made
+**Then** it is refused with the error envelope
+
+**Given** a write method (POST, PUT, PATCH or DELETE)
+**When** it is sent to any Read API path
+**Then** it is refused, and no write path exists in the router
+
+## Epic 5: The pipeline stops non-compliant code, and the Buyer may accept a Deviation
+
+The CI Gate step extracts revision facts and evaluates them against the pinned bundle. It prints Deviations with Correction instructions, fails closed on unbound or stale, and never edits the commit. The Buyer records time-boxed Accepted deviations, and the registry raises recurring alerts.
+
+### Story 5.1: Extract revision facts deterministically
+
+As a Builder,
+I want one extractor to read my revision's dependencies, imports and tokens,
+So that every Gate sees exactly the same facts for the same files (AD-18).
+
+**Acceptance Criteria:**
+
+**Given** `packages/extractor`
+**When** it is given file contents (not file paths or I/O handles)
+**Then** it returns facts in a versioned fact schema defined in `contract`: dependency coordinates (name and resolved version) from npm manifests and lockfiles, import specifiers from TS/JS sources, and design-token names from CSS custom properties and token references
+
+**Given** the same file contents in any order
+**When** extraction runs repeatedly
+**Then** the output is byte-identical, and the extractor version is part of the output
+
+**Given** a file the extractor cannot parse
+**When** extraction runs
+**Then** the file is reported as unreadable in the facts, never silently skipped
+
+### Story 5.2: Evaluate Deviations in the core
+
+As a Builder,
+I want the core to compare my revision's facts with the Effective Standard set,
+So that each Deviation is precise and carries the instruction that fixes it (FR-2, FR-3, FR-13, FR-14).
+
+**Acceptance Criteria:**
+
+**Given** facts, a bundle and a clock input
+**When** `core` evaluates them
+**Then** it emits a Deviation for each prohibited code-stack match, each missing required entry, each version-constraint violation, each prohibited or missing required token, each prohibited or missing required import, and each component outside the allow-list, each with match key (Standard id, conflict slot, subject)
+**And** it does not evaluate visual fidelity
+
+**Given** a Standard with an empty Correction instruction
+**When** a Deviation is emitted
+**Then** the instruction is one sentence built from the status, the conflict slot and the approved entry in the same slot when one exists
+
+**Given** the result
+**When** it is returned
+**Then** it includes checked and open counts, and Adherence equals checked minus open, divided by checked
+
+**Given** an Accepted deviation in the bundle
+**When** the clock input is before its end
+**Then** a finding with exactly that acceptance key is marked accepted, and a different subject on the same Standard stays open
+**And** when the clock input is after the end, the same finding is open again with no new bundle (AD-7)
+
+### Story 5.3: Run the CI Gate as a pipeline step
+
+As a Builder,
+I want a CI step that fails my pipeline when a Deviation is open and tells me how to fix it,
+So that non-compliant code does not reach production unnoticed (FR-14, FR-10, AD-21).
+
+**Acceptance Criteria:**
+
+**Given** a CI step package (a generic container or script usable from any CI, with the GitHub Actions wrapper first)
+**When** it runs on a revision
+**Then** it reads the identification file, runs `extractor` on the revision files, and calls the service's Gate runner, which pins the active bundle hash, evaluates with `core` using the service clock, and stores a Gate-run record (Application id, revision, bundle hash, extractor version, Deviations, checked and open counts, per-Application sequence)
+
+**Given** the result
+**When** it is printed to the step log
+**Then** each Deviation shows its Standard id and one Correction instruction naming the Standard and a compliant alternative, and the step exits non-zero exactly when an open Deviation exists
+
+**Given** a missing or unreadable identification file, an unbound id, a duplicate id from another fingerprint, an unreadable Effective Standard set, a stale service without a freeze, or a run that did not complete
+**When** the step runs
+**Then** it prints the matching single sentence from UX-DR29 and exits non-zero, never a pass (NFR-5)
+
+**Given** any run
+**When** it finishes
+**Then** the working tree and commit are unchanged (a test checks the git status and HEAD before and after), the log never names a plan, and a reference revision completes in under 60 s (NFR-7)
+
+### Story 5.4: Prove Gate determinism across adapters
+
+As the Buyer,
+I want proof that the same revision and bundle always produce the same Deviations,
+So that I can trust a pass or a fail regardless of where the Gate ran (NFR-1).
+
+**Acceptance Criteria:**
+
+**Given** a fixture suite in the repository (revisions, bundles and clock inputs covering every Deviation type, acceptance before and after the end, and every refusal)
+**When** the suite runs through the service Gate runner path and through a direct in-process adapter path
+**Then** both produce byte-identical results for every fixture
+
+**Given** the suite
+**When** CI runs
+**Then** it runs on every push, and Epic 8 can reuse it unchanged
+
+### Story 5.5: Buyer records an Accepted deviation
+
+As the Buyer,
+I want to accept a specific Deviation for a period, with a justification,
+So that work can ship when I decide a Deviation is acceptable, without changing the Standard (FR-15).
+
+**Acceptance Criteria:**
+
+**Given** I am the Buyer on the Accepted deviation surface
+**When** I paste a CI log line, or enter the Standard id, conflict slot and subject, and choose the Application
+**Then** acceptance-form is pre-filled with the match key, and resolves the Standard version from the Application's current Effective Standard set
+
+**Given** the form
+**When** I submit a justification, start, end and alert interval
+**Then** the registry stores the Buyer, justification, start, end, alert interval and the key (Application id, Standard id, Standard version, conflict slot, subject) append-only, and the next bundle carries it (UX-DR16)
+
+**Given** an end before the start
+**When** I submit
+**Then** the form names the end field and nothing is written
+
+**Given** a Builder
+**When** they try to accept any Deviation, including their own
+**Then** they receive a denial saying the Buyer records the acceptance
+
+**Given** a Community tenant
+**When** the Buyer opens the surface
+**Then** a plan-refusal names Team (first sale)
+
+### Story 5.6: Buyer receives recurring alerts for Accepted deviations
+
+As the Buyer,
+I want to be reminded on my chosen interval while an acceptance is active,
+So that accepted risk does not quietly become permanent (FR-15, AD-17).
+
+**Acceptance Criteria:**
+
+**Given** an Accepted deviation with an alert interval
+**When** the registry's scheduler evaluates alerts using its own clock
+**Then** an alert is raised on each interval until the end date, naming the Application, the Standard and the end date
+
+**Given** a raised alert
+**When** I am signed in as the Buyer
+**Then** the accepted-deviation-alert band appears under panel-chrome in gold with ink-on-accent text, and stays until I dismiss it or the end date passes (UX-DR17)
+**And** if it animates or updates for more than 5 seconds, I can pause or hide it
+
+**Given** the Company service
+**When** alerts are produced
+**Then** it plays no part in evaluating or delivering them
+
+## Epic 6: The Buyer receives auditable evidence without sensitive data leaving the Company
+
+A single Collector projects Company records into the closed Compilation catalog and sends them outbound. Schema failures are dropped visibly, and records are queued durably when the panel is down. The Buyer audits schemas, sees bundle status and Collector health, controls Guidance-record access, and sees the inventory and Application evidence.
+
+### Story 6.1: Publish the Compilation catalog, and gate sending on the Buyer reading it
+
+As the Buyer,
+I want to read every Compilation schema before anything leaves my Company,
+So that I can audit exactly what the vendor receives (FR-26, AD-20, UX-DR21).
+
+**Acceptance Criteria:**
+
+**Given** `packages/contract`
+**When** I inspect it
+**Then** it defines versioned (semver plus type name) schemas for exactly Guidance, Gate run, Deviation, Binding refusal, Bundle status and Collector health, with the fields in FR-26 and AD-20 (UUIDv7 idempotency key, Application id, agent tool name, UTC timestamp, per-Application sequence, Gate checked and open counts, subject as slot token or tenant-keyed hash)
+**And** a test fails if a type or field is added without a semver bump
+
+**Given** the Compilations surface
+**When** I open schema-reader
+**Then** I can read each schema in ink on white, and record that I have read the catalog version
+
+**Given** no recorded read for the current catalog version
+**When** the Collector tries to send
+**Then** the panel refuses ingestion for that tenant, and the Collector keeps the records queued
+
+### Story 6.2: Project records into Compilations through one Collector chokepoint
+
+As the Buyer,
+I want one audited function to turn Company records into Compilations,
+So that prompt text, Standard content and source code can never leave (FR-26, AD-9).
+
+**Acceptance Criteria:**
+
+**Given** `packages/collector`
+**When** it projects a record
+**Then** it is the only code with a record-to-Compilation function, and the result is validated against the published schema
+
+**Given** a Guidance subject
+**When** it is projected
+**Then** it crosses as a slot-name token only when it matches the slot grammar; otherwise it crosses as a tenant-keyed hash
+
+**Given** a payload that fails its schema
+**When** it is validated
+**Then** it is dropped whole (no partial payload), and the dropped count increases by reason
+
+**Given** a property-based test seeding records with prompt-like text, Standard content and source snippets
+**When** they are projected
+**Then** none of that text appears in any Compilation
+
+**Given** the service code base
+**When** a dependency or network check runs
+**Then** only `packages/collector` has an outbound path to the vendor panel
+
+### Story 6.3: Deliver Compilations durably without touching the Builder
+
+As a Builder,
+I want panel outages to never slow or fail my Guidance calls or Gate runs,
+So that evidence collection is invisible to my work (NFR-8, AD-10).
+
+**Acceptance Criteria:**
+
+**Given** the panel is unreachable
+**When** Guidance calls and Gate runs continue
+**Then** their latency and results are unchanged (tested with the panel stopped), and Compilations accumulate in a durable local queue with retries and backoff
+
+**Given** a resend of the same Compilation
+**When** the panel ingests it
+**Then** the idempotency key prevents a duplicate row, and an unknown major schema version is rejected and reported
+
+**Given** queue loss (for example, a restored backup)
+**When** sending resumes
+**Then** a Collector-health Compilation reports the gap, and it is never silent
+
+### Story 6.4: Buyer sees bundle status, Collector health and drops
+
+As the Buyer,
+I want one place to see whether each service is current and whether evidence is arriving,
+So that I know when the panel is incomplete (FR-26, AD-14, UX-DR21).
+
+**Acceptance Criteria:**
+
+**Given** the Compilations surface
+**When** Bundle status and Collector health Compilations exist
+**Then** bundle-status shows, per service, the active hash, sequence, age against the bound, freeze state and the word "stale" when past the bound
+**And** the Collector's pending and dropped counts are shown by reason
+
+**Given** a dropped Compilation
+**When** I view the surface
+**Then** compilation-drop is announced as a status in text, stating the schema failed and no partial payload was stored
+
+**Given** no Compilation yet
+**When** the surface loads
+**Then** the empty state still shows schema-reader
+
+### Story 6.5: Buyer sees the inventory by Project and agent tool
+
+As the Buyer,
+I want to see which Applications exist, grouped by Project and agent tool,
+So that I know what the business is building (FR-22 inventory, FR-20, UX-DR7, UX-DR8).
+
+**Acceptance Criteria:**
+
+**Given** Applications in the registry and Compilations from the Company
+**When** I open Inventory
+**Then** application-rows are grouped under an agent-tool heading in a table with header cells, including Applications that have no Compilation yet, and never show a Builder name
+
+**Given** project-filter
+**When** I select a Project
+**Then** the list shows that Project's Applications
+
+**Given** the panel cannot load Compilations
+**When** Inventory loads
+**Then** the structure stays and the evidence region says the Compilation did not arrive (UX-DR24)
+
+### Story 6.6: Buyer reads one Application's evidence and accepts from a Deviation row
+
+As the Buyer,
+I want to open an Application and see its Adherence, Deviations and whether Guidance was consulted,
+So that I can act on a Deviation without opening the repository (FR-20, FR-21, UX-DR10).
+
+**Acceptance Criteria:**
+
+**Given** an application-row
+**When** I activate it by pointer or keyboard
+**Then** the Application surface shows its latest Adherence as text, deviation-rows (Standard id, conflict slot, subject, status word open or accepted, correction-instruction) and whether any Guidance event exists
+
+**Given** an open deviation-row
+**When** I choose to accept it
+**Then** the Epic 5 acceptance-form opens pre-filled with the Application and the match key, and Esc returns focus to the row
+
+**Given** the latest Gate run is unbound, or a Binding refusal exists
+**When** I view the Application
+**Then** the failure text and recovery from EXPERIENCE.md are shown
+
+### Story 6.7: Buyer controls who reads Guidance records, and how long they are kept
+
+As the Buyer,
+I want to grant roles access to stored Guidance events and set retention,
+So that what Builders ask agents stays private by default (FR-28, FR-20, UX-DR22).
+
+**Acceptance Criteria:**
+
+**Given** the Guidance access surface
+**When** I set which roles can read Guidance events
+**Then** the grant is stored in the registry, and the registry issues short-lived, tenant-scoped role tokens that reflect it (AD-17)
+
+**Given** the service's Guidance-event read endpoint
+**When** it is called with a token whose role lacks the grant, or with no token
+**Then** it returns a denial on the content
+
+**Given** retention, which defaults to 90 days
+**When** the Buyer changes it
+**Then** the service deletes Guidance records older than the setting on a schedule, and role-grant shows the current value
+
+**Given** an exported Compilation
+**When** it is searched
+**Then** no field defined as prompt text exists
+
+## Epic 7: The Buyer and Standard owners see how Standards are consulted, followed and broken
+
+Panel intelligence derived only from Compilations: Adherence over time, frequent Deviations, demand, gaps, ignored Modules, cross-checks, and the soft band banner.
+
+### Story 7.1: Adherence and frequent Deviations over time
+
+As the Buyer,
+I want Adherence and the most frequent Deviations as a time series, by Application, Project and Module,
+So that I see whether Standards are being followed (FR-21, UX-DR9).
+
+**Acceptance Criteria:**
+
+**Given** Gate-run Compilations with checked and open counts
+**When** I open Adherence
+**Then** adherence-series plots Adherence per Gate run, with each value and Deviation count also shown as text that serves as the plot's alternative, and the most frequent Deviations listed by Application, Project and Module
+
+**Given** project-filter set to Project P
+**When** the series renders
+**Then** it includes Applications bound to P and its descendants
+
+**Given** no Gate run in the selection
+**When** the surface loads
+**Then** it shows the empty state, and no copy calls a pass a certification
+
+### Story 7.2: Demand and gaps for Standard owners
+
+As a Standard owner,
+I want to see which subjects agents ask about and which asks missed,
+So that I know where a Standard is missing (FR-22, UX-DR11).
+
+**Acceptance Criteria:**
+
+**Given** Guidance Compilations
+**When** I open Gaps
+**Then** consulted subjects are listed with counts, and gap-rows list each miss by Application, tool and subject (token or hash) with a count, and no Builder name
+
+**Given** no miss in the period
+**When** the surface loads
+**Then** the empty state is shown
+
+### Story 7.3: Ignored Modules
+
+As a Standard owner,
+I want to see Modules whose published Standards nobody consulted in the period,
+So that I can tell stale or unknown Standards from used ones (FR-22).
+
+**Acceptance Criteria:**
+
+**Given** a Module with published Standards and zero Guidance events in the selected period
+**When** I open Ignored Modules
+**Then** it appears as an ignored-module-row
+
+**Given** a Module with at least one Guidance event in the period, or with no published Standard
+**When** the list renders
+**Then** it does not appear
+
+### Story 7.4: Ghost applications and consulted-but-deviated
+
+As the Buyer,
+I want to see Applications that reach the Gate with no Guidance, and Guidance that was later deviated from,
+So that I can point a Standard owner at the real problem (FR-23).
+
+**Acceptance Criteria:**
+
+**Given** an Application with a Gate run and no Guidance event
+**When** I open Cross-checks
+**Then** it is listed as a Ghost application
+
+**Given** a Guidance event that returned Standard S for Application A, and a Deviation on S for A in a Gate run whose per-Application sequence is higher
+**When** Cross-checks renders
+**Then** the pair is listed as consulted-but-deviated
+**And** a Deviation with a lower sequence does not qualify, and commit ancestry and host clocks are never used
+
+**Given** a cross-check-row
+**When** I activate it
+**Then** it opens the detail, its accessible name is the check type, and it shows no Builder name
+
+### Story 7.5: New-application flow Adherence beside the baseline set
+
+As the Buyer,
+I want to compare Adherence for Applications created through the New-application flow with the baseline set,
+So that I can see whether starting inside the Standards works (FR-23, SM-1).
+
+**Acceptance Criteria:**
+
+**Given** Applications flagged as created by the flow, and Applications that run the Gate and were not created by the flow
+**When** I open Cross-checks
+**Then** mean Adherence for each group is shown side by side as text, with group sizes
+
+**Given** a group with no Gate run
+**When** it renders
+**Then** that group shows its empty state instead of a number
+
+### Story 7.6: Active governed Application count and the soft band banner
+
+As the Buyer,
+I want to know when we exceed our plan's Application band without anything being blocked,
+So that commercial limits never stop work (tiers, UX-DR19).
+
+**Acceptance Criteria:**
+
+**Given** Compilations in the counting period
+**When** the panel counts Active governed Applications (an identification file and at least one Gate run or Guidance event in the period)
+**Then** the count is derived only from the catalog
+
+**Given** a count above the plan band (Team 25, Business 100)
+**When** the Buyer signs in
+**Then** band-banner shows the count and the band in text, Levva is flagged for follow-up, and no Gate run, Guidance call or New-application flow is blocked
+
+**Given** a Community tenant
+**When** someone opens Adherence, Gaps, Ignored Modules or Cross-checks
+**Then** a plan-refusal names Team (first sale)
+
+## Epic 8 (optional, Community): A Builder runs the Gate offline before pushing
+
+The free CLI Gate verifies a bundle file and keeps a local binding file. It runs the same core and extractor offline and prints the same Deviations as the CI Gate. It ships only if it does not delay the pilot.
+
+### Story 8.1: Load and verify a bundle file offline
+
+As a Builder,
+I want the CLI to use a signed bundle file without any network,
+So that I can check my work anywhere with the same trusted Standards (FR-13, AD-8, AD-11).
+
+**Acceptance Criteria:**
+
+**Given** the registry
+**When** the Buyer downloads the current bundle file and the trust set
+**Then** the CLI can load them from paths
+
+**Given** a bundle file
+**When** the CLI verifies it
+**Then** it applies the same checks as the service (signature, key id, tenant, hash, sequence against the last one seen locally), and prints one sentence and exits non-zero on failure
+
+**Given** a bundle whose issue time is past the bound and has no freeze
+**When** the CLI runs
+**Then** it prints the stale sentence and exits non-zero
+
+### Story 8.2: Run the Gate locally with the same result as CI
+
+As a Builder,
+I want `domain-harness gate` to print each Deviation and exit like the CI step,
+So that I can fix issues before I push (FR-13, FR-10, NFR-1).
+
+**Acceptance Criteria:**
+
+**Given** a local revision with an identification file
+**When** I run the CLI Gate
+**Then** it runs `extractor` and `core` in process, prints each Deviation with its Standard id and Correction instruction, prints pass or fail, and exits zero only when every Deviation is absent, or accepted and unexpired
+
+**Given** the local binding file
+**When** an id is first seen
+**Then** it is bound to the repository fingerprint; a different fingerprint presenting it is refused in one sentence, and missing, unreadable or unbound identification files each print their sentence and exit non-zero
+
+**Given** the Story 5.4 fixture suite
+**When** it runs through the CLI adapter
+**Then** results are byte-identical to the CI path
+
+**Given** any run
+**When** it finishes
+**Then** the working tree is unchanged
+
+### Story 8.3: Distribute the CLI
+
+As a Builder,
+I want to install the CLI with one command and see its versions,
+So that I can trust which extractor and contract it uses.
+
+**Acceptance Criteria:**
+
+**Given** a release
+**When** I install the CLI from the npm package
+**Then** `domain-harness --version` prints the CLI, extractor, fact-schema and contract versions
+
+**Given** a bundle with an unknown major format version
+**When** the CLI loads it
+**Then** it refuses with one sentence and exits non-zero
