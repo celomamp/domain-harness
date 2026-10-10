@@ -73,6 +73,12 @@ A Company building software with AI agents either reviews every business-built A
 - **Neutrality.** Guidance works through MCP and generated instruction files only; any capability requiring one agent vendor's proprietary hook is out of scope.
 - **Conventions.** Opaque UUIDv7 ids minted by the registry, never client-generated; UTC ISO-8601; semver on bundle, fact schema and every Compilation type (reject unknown major); one error envelope (`code`, `message`, `subject`); logs carry ids and counts, never prompt subject text.
 - **Stack.** Node 26 LTS target (`engines >=24`), TypeScript 7.x (fall back to 6.0.x), `@modelcontextprotocol/sdk` 1.x behind the MCP adapter, PostgreSQL 18 with a non-owning application role. Framework, ORM, test runner and monorepo tool chosen at scaffold within the spine's dependency rules.
+- **Keys.** The pilot bundle-signing key lives in the secret manager or environment, never a repository. Revocation is a new trust set (key id) delivered to the service and CLI plus a sequence bump. KMS comes with the provider decision.
+- **Frozen Compilation catalog.** No field or type beyond AD-20 in the pilot; adding one needs a security review and a semver bump.
+- **Privacy.** Stored Guidance holds only FR-20 fields and never raw prompts. Default retention is 90 days, Company-configurable. Reads are Buyer-controlled (FR-28).
+- **Identity.** Network trust plus repository fingerprint (AD-19) is the pilot's identity model. Per-Application tokens and per-Builder SSO stay deferred.
+- **Service targets, not an SLA.** Design goals: Guidance p95 under 500 ms from the bundle cache, CI Gate result under 60 s, panel best-effort. A formal SLO and DR plan precede any Enterprise contract.
+- **Band overage is soft.** Exceeding the Active governed Application band never blocks the Gate or Guidance; the panel shows the Buyer a banner and count, and Levva is flagged for follow-up.
 - **Tiers.** The pilot is Team-shaped (Project tree, Locked rules, CI Gate, Accepted deviations, panel); Community CLI Gate ships only if it does not delay the pilot. Charge unit is the Active governed Application, not seats. Gating per PRD §6.
 
 ## Non-goals
@@ -82,7 +88,7 @@ A Company building software with AI agents either reviews every business-built A
 - A passing Gate certifies no security, accessibility or legal compliance; no OWASP scanning, no ingestion of Snyk/Semgrep/Sonar findings in v1.
 - No authoring of design systems, component libraries or data catalogs; no meaning assigned to Project tree levels; no scoring of visual fidelity.
 - No per-seat pricing.
-- Outside the first cut: Decision agent and Decision response (FR-12, FR-27), Impact analysis, per-change and batch acceptance (FR-16–18), work-tracker tasks (FR-19), lineage and Information sources (FR-24), SSO/SCIM, dedicated environment, SLA, Modules other than code stack and design system, tools without a repository (Lovable), origin sync from Figma, and cloud provider/SLO/DR choices.
+- Outside the first cut: Decision agent and Decision response (FR-12, FR-27), Impact analysis, per-change and batch acceptance (FR-16–18), work-tracker tasks (FR-19), lineage and Information sources (FR-24), SSO/SCIM, dedicated environment, SLA, Modules other than code stack and design system, tools without a repository (Lovable; Read API is the likely post-pilot feed), origin sync from Figma, and cloud provider/SLO/DR choices.
 
 ## Success signal
 
@@ -93,13 +99,3 @@ A Company building software with AI agents either reviews every business-built A
 - MCP SDK v2 status conflicted across sources on 2026-10-09; v1.x is pinned and the npm `latest` tag is confirmed at scaffold.
 - TypeScript 7 ecosystem compatibility (lint, tests, declaration emit) is unconfirmed; 6.0.x is the fallback.
 - `architecture-walkthrough.html` is a team aid, not part of the contract.
-
-## Open Questions
-
-- How does an Application built without a repository (PRD OQ2, Lovable) get a Project, Guidance and a Gate result? Read API is the likely feed.
-- Which Compilation fields beyond the AD-20 catalog are allowed (PRD OQ5), and what is the privacy policy text for stored Guidance (OQ6)?
-- What are the latency, availability and recovery targets (PRD OQ8, spine Deferred)? Needed before an enterprise SLA, not the pilot.
-- Where do signing keys live, and how are they revoked (needs a KMS/provider decision)? Key id, trust set and sequence rules stay as specified.
-- What happens when an Active governed Application band is exceeded (EXPERIENCE open gap)?
-- Are per-Application tokens or per-Builder SSO needed as hardening of the network-trust-plus-fingerprint identity?
-- Open from the PRD: legal name (OQ1), Decision-agent quality operations (OQ3), contractual liability (OQ4), board commercial items (OQ9), Copilot Boilerplate shape.
