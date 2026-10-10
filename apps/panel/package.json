@@ -1,0 +1,24 @@
+{
+  "name": "@domain-harness/panel",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Vendor management panel.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@domain-harness/contract": "workspace:*"
+  },
+  "devDependencies": {
+    "@domain-harness/eslint-config": "workspace:*",
+    "@domain-harness/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

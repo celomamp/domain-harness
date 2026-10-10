@@ -1,0 +1,19 @@
+{
+  "extends": "@domain-harness/tsconfig/base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../../packages/contract/tsconfig.build.json"
+    }
+  ]
+}

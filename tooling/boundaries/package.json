@@ -1,0 +1,21 @@
+{
+  "name": "@domain-harness/boundaries",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dependency-boundary check for the workspace (rules in /.dependency-cruiser.cjs).",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --exclude \"fixtures/**\""
+  },
+  "devDependencies": {
+    "@domain-harness/eslint-config": "workspace:*",
+    "@domain-harness/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "dependency-cruiser": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

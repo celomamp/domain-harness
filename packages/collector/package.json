@@ -1,0 +1,34 @@
+{
+  "name": "@domain-harness/collector",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Record-to-Compilation projection and durable queue (Company side).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@domain-harness/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@domain-harness/contract": "workspace:*"
+  },
+  "devDependencies": {
+    "@domain-harness/eslint-config": "workspace:*",
+    "@domain-harness/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

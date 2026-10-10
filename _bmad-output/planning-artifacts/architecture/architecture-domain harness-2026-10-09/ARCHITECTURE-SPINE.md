@@ -208,8 +208,8 @@ The Project of an Application is derived from the bundle's Application list by A
 | Name | Version |
 | --- | --- |
 | Node.js | 26 LTS target (scheduled 2026-10-28), `engines >=24` (24 Active LTS until 2026-10-20) |
-| TypeScript | 7.x (native compiler). Fall back to 6.0.x if lint, tests, declaration emit or compiler-API consumers lag. Confirm at scaffold |
-| @modelcontextprotocol/sdk | 1.x, behind the MCP adapter. v2 (`@modelcontextprotocol/server`) status conflicted across sources on 2026-10-09 [ASSUMPTION]: confirm the npm `latest` tag at scaffold. Guidance is served over Streamable HTTP |
+| TypeScript | 7.0.2 (native compiler) for build and typecheck; 6.0.3 through an npm alias for compiler-API tooling (typescript-eslint, dependency-cruiser) until 7.1 ships the API. Decided 2026-10-10; see `docs/decisions/starter-template.md` |
+| @modelcontextprotocol/server | 2.x (npm `latest` 2.3.1), behind the MCP adapter. Decided 2026-10-10, replacing `@modelcontextprotocol/sdk` 1.x; see `docs/decisions/starter-template.md`. Guidance is served over Streamable HTTP |
 | PostgreSQL | 18 (the application database role must not own the tables, or row-level security is bypassed) |
 | CI Gate target | GitHub Actions (pilot) |
 | Panel sign-in | Passwordless magic link (email delivery provider chosen at scaffold) |

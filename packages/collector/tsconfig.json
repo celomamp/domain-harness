@@ -1,0 +1,12 @@
+{
+  "extends": "@domain-harness/tsconfig/base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "customConditions": [
+      "@domain-harness/source"
+    ]
+  },
+  "include": [
+    "src"
+  ]
+}

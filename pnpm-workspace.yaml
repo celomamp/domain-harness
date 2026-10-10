@@ -1,0 +1,30 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "tooling/*"
+
+# One version per tool across the workspace. See docs/decisions/starter-template.md.
+catalog:
+  "@eslint/js": 10.0.1
+  "@types/node": 24.19.2
+  dependency-cruiser: 18.5.0
+  eslint: 10.12.0
+  globals: 17.13.0
+  # Native compiler for build and typecheck.
+  typescript: 7.0.2
+  typescript-eslint: 8.71.1
+  vitest: 5.0.3
+
+catalogs:
+  # TypeScript 7.0 has no compiler API (it lands in 7.1), so tools that need it
+  # (typescript-eslint, dependency-cruiser) get 6.0.3 through an npm alias:
+  # "typescript": "catalog:compiler-api".
+  compiler-api:
+    typescript: npm:typescript@6.0.3
+
+# dependency-cruiser loads "typescript" at runtime to parse .ts files; give it
+# the 6.0.3 compiler API instead of whatever TypeScript would otherwise be hoisted.
+packageExtensions:
+  dependency-cruiser:
+    dependencies:
+      typescript: npm:typescript@6.0.3

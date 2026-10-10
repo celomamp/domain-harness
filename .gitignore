@@ -1,1 +1,19 @@
 .DS_Store
+
+# Dependencies
+node_modules
+
+# Build and tool output
+dist
+*.tsbuildinfo
+.turbo
+coverage
+
+# Local env files (secrets never live in the repository)
+.env
+.env.*
+!.env.example
+
+# Debug
+npm-debug.log*
+pnpm-debug.log*
