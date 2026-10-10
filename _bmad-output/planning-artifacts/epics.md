@@ -63,7 +63,7 @@ NFR-12: Security. The Company environment makes only outbound calls to the vendo
 
 ### Additional Requirements
 
-**Starter template: none.** The Architecture Spine names no starter template. Epic 1 Story 1 is a greenfield scaffold: a TypeScript monorepo with `packages/{core,extractor,contract,collector}` and `apps/{registry,panel,service,cli}`. The web framework, ORM, test runner and monorepo tool are chosen at scaffold time and must respect the dependency rules.
+**Starter template: to be researched.** The Architecture Spine names no starter template. Epic 1 Story 1 must first research open-source starters on the internet and adopt one where it fits, recording the decision, rather than starting from zero. The target layout is a TypeScript monorepo with `packages/{core,extractor,contract,collector}` and `apps/{registry,panel,service,cli}`. The web framework, ORM, test runner and monorepo tool are chosen at scaffold time and must respect the dependency rules.
 
 - AD-1/AD-5: Effective-set resolution and Deviation evaluation exist only in `packages/core`, written in TypeScript. No adapter re-implements them, caches a derived result across bundles, or post-processes resolution output.
 - Dependency rule, enforced by tooling: `core` and `extractor` import only `contract`. Adapters and the registry import `core` and `contract`. `panel` imports `contract` only. The registry uses `core` only for slot derivation, publication validation and Boilerplate resolution.
@@ -192,18 +192,33 @@ The free CLI Gate verifies a bundle file and keeps a local binding file. It runs
 
 The Buyer, Standard owner and Builder of a pilot Company sign in to one management panel with provisioned, role-named accounts. The Buyer assigns one owner per Module. That owner authors, versions and publishes code-stack and design-system Standards, with conflict-slot validation.
 
-### Story 1.1: Scaffold the monorepo with enforced dependency direction
+### Story 1.1: Scaffold the monorepo from a researched open-source starter
 
 As a developer on Domain Harness,
-I want a TypeScript monorepo whose package boundaries are enforced by tooling,
-So that resolution logic can only ever live in `packages/core` and every later story lands in the right place.
+I want the monorepo to start from an open-source template chosen through documented research, with package boundaries enforced by tooling,
+So that we build on proven scaffolding instead of starting from zero, and resolution logic can still only live in `packages/core`.
 
 **Acceptance Criteria:**
 
+**Given** the Architecture Spine names no starter template
+**When** the story starts
+**Then** a web search covers open-source, permissively licensed (MIT, Apache-2.0 or BSD) TypeScript monorepo starters and templates (for example Turborepo, Nx or pnpm-workspace starters), MCP server templates built on `@modelcontextprotocol/sdk`, and panel/web app starters
+**And** at least three candidates are compared in `docs/decisions/starter-template.md` on: license, maintenance activity (last release and commit), Node >=24 and TypeScript 7.x/6.0.x support, and fit with the `packages/*` + `apps/*` layout and dependency rules. Coverage of panel framework, ORM/Postgres 18 and test runner is a bonus, not a requirement. For each candidate the record lists what it would add that this design does not allow.
+
+**Given** the comparison
+**When** a decision is recorded
+**Then** the record names the adopted template(s) with the exact version, commit or tag and the license, or explains why every candidate was rejected before falling back to a hand-made scaffold
+**And** the Deferred scaffold choices from the Architecture Spine (web framework, ORM, test runner, monorepo tool) are decided in the same record with one-line reasons
+
+**Given** the adopted starter
+**When** it is applied
+**Then** the code that comes with it is trimmed to the spine's structure: `packages/{core,extractor,contract,collector}` and `apps/{registry,panel,service,cli}`
+**And** sample apps, telemetry, hosted-service integrations and any dependency the record did not approve are removed, and license notices are kept as the license requires
+
 **Given** a fresh clone
 **When** I install and run the workspace build, typecheck and test commands
-**Then** `packages/{core,extractor,contract,collector}` and `apps/{registry,panel,service,cli}` exist and all three commands pass
-**And** the root manifest declares `engines.node >=24`, and the chosen TypeScript version (7.x, or 6.0.x with the reason recorded) plus the monorepo tool and test runner are recorded in the README
+**Then** all three pass
+**And** the root manifest declares `engines.node >=24`
 
 **Given** a file in `packages/core` or `packages/extractor` that imports anything other than `@domain-harness/contract`
 **When** the lint/boundary check runs
