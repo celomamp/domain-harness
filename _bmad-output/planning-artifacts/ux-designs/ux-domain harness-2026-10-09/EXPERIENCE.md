@@ -22,7 +22,7 @@ No UI system is named. Visual identity follows levva.io and lives in DESIGN.md.
 
 [ASSUMPTION] Buyer, Standard owner, and Builder use the same panel. Each role can take only the actions the PRD grants that role. Anything else is a denial, not a hidden product.
 
-[ASSUMPTION] Sign-in requires a provisioned account. The authentication mechanism is unset. SSO is outside the first cut.
+Sign-in is a passwordless magic link sent to a provisioned account's email. SSO is outside the first cut.
 
 The product name is a working title. Buyer is Vini. Builder is Ana. Standard owner is Helena. The operator is the protagonist of account provisioning only.
 
@@ -47,12 +47,12 @@ Composition reference: [mockups/inventory.html](mockups/inventory.html), [mockup
 | Gaps | management panel | Which subjects are consulted, and each stored miss, with a count, for the Standard owner and the Buyer. | First cut |
 | Ignored Modules | management panel | The ignored list. | First cut |
 | Cross-checks | management panel | Ghost applications, consulted-but-deviated, and New-application-flow Adherence beside the baseline set. | First cut |
-| Standards | management panel | Create, edit, and publish a Standard in a code stack or design system Module. | First cut |
+| Standards | management panel | Create, edit, and publish a Standard in a code stack or design system Module. The Buyer sets the staleness bound (default 24 hours) and records or lifts a freeze here; bundle-status on Compilations shows the result. | First cut |
 | Project tree | management panel | Create Projects, set one parent, name the level, mark a Locked rule. | First cut |
-| New-application flow | management panel [ASSUMPTION] | A description and a Project, then a Boilerplate. | First cut |
+| New-application flow | management panel [ASSUMPTION] | A description and a Project, then a Boilerplate. A Builder places Applications only on Projects where the Buyer granted building. The Buyer also sets the Company Guidance endpoint URL here, and registers an existing Application (identification file only, no Boilerplate). | First cut |
 | Accepted deviation | a Deviation, and the alert on the management panel [ASSUMPTION] | Buyer records justification, period, and alert interval. | First cut |
 | Compilations | management panel | Read each Compilation schema. See a dropped payload, each service's active bundle hash, sequence and staleness, and the Collector's pending and dropped counts. | First cut |
-| Guidance access | management panel | Buyer configures which roles can read stored Guidance events. | First cut |
+| Guidance access | management panel | Buyer configures which roles can read stored Guidance events. Guidance-event content is read inside the Company environment through the Company service, not on the management panel. | First cut |
 | Impact analysis | publish path, when the report exists | Applications that lose Adherence, the Adherence change, and the Accepted deviations the change touches. | Outside the first cut |
 | Lineage | management panel, when the report exists | Which Applications touch which Information sources. | Outside the first cut |
 | CLI Gate | a command against a local revision | Prints each Deviation. Host, not a panel page. | First cut |
@@ -109,9 +109,9 @@ Behavioral rules. Visual specs live in DESIGN.md.
 | denial | Any panel surface | The surface stays visible. A role without the grant gets a denial, not a hidden app. The refused action is announced. A person without a provisioned account cannot publish, accept a Deviation, or read Guidance events. A Builder who is not the Standard owner cannot publish. A Builder without permission to create a child Project receives a denial, and no Project is created. A Builder cannot accept their own Deviation. A role without the grant receives a denial on Guidance event content. Another Company's Standards, Projects, Applications, and Compilations are not on this panel. |
 | compilation-drop | Compilations | A Compilation that fails its schema is dropped. The drop is visible to the Buyer. No partial payload is shown. A Compilation contains no prompt text, no Standard content, and no source code. |
 | schema-reader | Compilations | The Buyer reads the versioned schema for every Compilation type before the Collector is allowed to send. The catalog is closed and frozen for the pilot: Guidance, Gate run, Deviation, Binding refusal, Bundle status (active hash, sequence, staleness), and Collector health (pending, dropped by reason). Every Compilation carries an idempotency key, the Application id, an agent tool name, a timestamp, and a per-Application sequence number. Guidance carries the tool name, the conflict slot, the subject asked as a slot-name token or a Company-keyed hash, and the Standard id and version or a miss. A Gate run carries the revision, pass or fail, the checked and open counts, and each Deviation's match key and whether it is open or accepted. A field or type beyond the catalog needs a security review and a schema version bump. The Collector's pending count and dropped count are visible to the Buyer. |
-| role-grant | Guidance access | The Buyer configures which roles can read stored Guidance events. A role without the grant receives a denial on Guidance event content. Exporting a Compilation yields no field defined as prompt text. Stored Guidance events hold only the fields in FR-20, never raw prompt text. Retention defaults to 90 days and the Company can change it. |
+| role-grant | Guidance access | The Buyer configures which roles can read stored Guidance events. A role without the grant receives a denial on Guidance event content. Exporting a Compilation yields no field defined as prompt text. Stored Guidance events hold only the fields in FR-20, never raw prompt text. Retention defaults to 90 days and the Company can change it. Guidance-event content is read inside the Company environment through the Company service; the panel configures the grant and shows the retention setting, never the content. |
 | panel-chrome | Every panel surface | Wordmark, role as text, nav of every panel destination. Inventory groups application-rows under an agent-tool heading. |
-| sign-in | Before the management panel | [ASSUMPTION] Sign-in requires a provisioned account. The authentication mechanism is unset, and so are the fields. SSO is outside the first cut. A failed attempt shows a denial in text and stays on sign-in. Success lands on Inventory. The account names the role. Buyer, Standard owner, and Builder then use the same panel. |
+| sign-in | Before the management panel | Passwordless magic link. A single email field. Submitting any address shows "Check your email for a sign-in link" in text, so the form never reveals whether an account exists; only a provisioned address receives a link. The link is single-use and expires after a short period. An expired or used link lands on sign-in with a denial in text. SSO is outside the first cut. Success lands on Inventory. The account names the role. Buyer, Standard owner, and Builder then use the same panel. |
 
 ## State Patterns
 
@@ -123,7 +123,7 @@ Host surfaces have no panel cold-load and no offline mode.
 |---|---|---|
 | sign-in | First cut | Cold-load: the form structure. The fields stay unset with the mechanism. Empty: the form is waiting. Permission-denied: an unprovisioned account receives a denial in text and does not reach Inventory. Failure: a failed attempt shows a denial in text and stays on sign-in. Success lands on Inventory. Offline: no editing. |
 | Inventory | First cut | Cold-load: surface structure, then Compilation evidence. Empty: no Application on the selected Project. Permission-denied: denial. Failure: a tool with no repository never appears, so the inventory is incomplete. When the plan lacks the panel that joins Guidance to Gate results, plan-refusal names Team (first sale). Offline: no editing. |
-| Application | First cut | Cold-load: surface structure, then Compilation evidence. Empty: the Application is listed and has no Guidance event and no Gate run. Permission-denied: denial on Guidance event content when the role lacks the grant. Failure: a Gate result of unbound Application is shown as a failure. The text says the Project identification file is missing or unreadable, or that its Application id is absent from the bundle, and recovery is to restore that file or ask the Buyer to place the Application. A second repository that presents an Application id already bound to another repository is refused in text, and recovery is to use the repository already bound to that id. When the plan lacks the panel that joins Guidance to Gate results, plan-refusal names Team (first sale). Offline: no editing. |
+| Application | First cut | Cold-load: surface structure, then Compilation evidence. Empty: the Application is listed and has no Guidance event and no Gate run. Permission-denied: the panel shows whether Guidance was consulted (from Compilations), never Guidance content; content is read in the Company environment, where a role without the grant receives a denial. Failure: a repository with no commit returns unbound Application, and the text says to commit once and retry. A Gate result of unbound Application is shown as a failure. The text says the Project identification file is missing or unreadable, or that its Application id is absent from the bundle, and recovery is to restore that file or ask the Buyer to place the Application. A second repository that presents an Application id already bound to another repository is refused in text, and recovery is to use the repository already bound to that id. When the plan lacks the panel that joins Guidance to Gate results, plan-refusal names Team (first sale). Offline: no editing. |
 | Adherence | First cut | Cold-load: surface structure, then Compilation evidence. Empty: no Gate run in the selection, so adherence-series has no point. Permission-denied: denial. Failure: plan-refusal naming Team (first sale) when the plan lacks the panel that joins Guidance to Gate results. A pass is not certification copy. Offline: no editing. |
 | Gaps | First cut | Cold-load: surface structure, then Compilation evidence. Empty: no miss in the period. Permission-denied: denial. Failure: the Compilation did not arrive. Plan-refusal names Team (first sale) when the plan lacks the panel that joins Guidance to Gate results. Offline: no editing. |
 | Ignored Modules | First cut | Cold-load: surface structure, then Compilation evidence. Empty: no Module is on the ignored list. Permission-denied: denial. Failure: plan-refusal names Team (first sale) when the plan lacks the panel that joins Guidance to Gate results. Offline: no editing. |
@@ -437,7 +437,7 @@ The protagonist is the operator.
 
 1. The operator provisions named accounts for the Buyer, the Standard owner, and the Builder of one Company.
 2. Each account record names the role used when that person publishes, creates a child Project, places an Application, accepts a Deviation, or reads Guidance events.
-3. The person signs in. [ASSUMPTION] Sign-in requires a provisioned account. The authentication mechanism is unset. SSO is outside the first cut.
+3. The person signs in with a magic link sent to the provisioned email. SSO is outside the first cut.
 
 **Climax:** Vini, Helena, and Ana reach the same management panel, and each action is limited to the role on the account.
 
@@ -447,7 +447,7 @@ Failure path: a person without a provisioned account cannot publish, accept a De
 
 Non-blocking for this spine. Architecture and legal carry them.
 
-- Authentication mechanism
+- Email delivery provider for magic links
 - Legal product name
 - Copilot Boilerplate shape
 - Privacy policy text, to be drafted from the 90-day retention commitment

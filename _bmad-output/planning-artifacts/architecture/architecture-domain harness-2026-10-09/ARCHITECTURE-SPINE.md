@@ -8,6 +8,7 @@ scope: 'First cut (Team-shaped pilot): Standard registry, Project tree, New-appl
 status: final
 created: '2026-10-09'
 updated: '2026-10-10'
+amended: 'sprint-change-proposal-2026-10-10 (AD-19, AD-22, stack)'
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-13, FR-14, FR-15, FR-20, FR-21, FR-22, FR-23, FR-25, FR-26, FR-28, FR-29, NFR-1, NFR-2, NFR-3, NFR-4, NFR-5]
 sources: ['../../prds/prd-domain harness-2026-10-09/prd.md', '../../prds/prd-domain harness-2026-10-09/addendum.md']
 companions: ['architecture-walkthrough.html']
@@ -170,7 +171,7 @@ The Project of an Application is derived from the bundle's Application list by A
 
 - **Binds:** FR-10, FR-11, NFR-5
 - **Prevents:** Each surface inventing its own way to decide which Application a caller is.
-- **Rule:** The Company service is reachable only inside the Company network. Application id comes from the identification file. On first use the service (or the CLI's local file) binds the id to a repository fingerprint, and a different fingerprint presenting a bound id is refused as a Compilation-visible refusal. Every surface uses this one check. Per-Application tokens are a hardening path (Deferred).
+- **Rule:** The Company service is reachable only inside the Company network. The Application id comes from the identification file. The repository fingerprint is SHA-256 of the root commit SHA (`git rev-list --max-parents=0 HEAD`); the remote URL is not used. Guidance receives both as `X-DH-Application-Id` and `X-DH-Repo-Fingerprint` headers. They are computed at call time by a stdio MCP bridge shipped in the Boilerplate (`@domain-harness/mcp-bridge`), which forwards to the service over Streamable HTTP. The CI step and the CLI compute the same values. Header names and the fingerprint algorithm are versioned in `contract`. On first use the service (or the CLI's local file) binds the id to the fingerprint, and a different fingerprint presenting a bound id is refused as a Compilation-visible refusal. Every surface uses this one check. A repository with no commit yields `unbound`. Forks share a root commit; this is an accepted pilot risk. Per-Application tokens are a hardening path (Deferred).
 
 ### AD-20 — Compilations are a closed catalog with idempotency and one ordering
 
@@ -183,6 +184,12 @@ The Project of an Application is derived from the bundle's Application list by A
 - **Binds:** FR-1, FR-14, NFR-3, NFR-5
 - **Prevents:** A stale service silently passing what a newer Standard or revoked acceptance would fail.
 - **Rule:** The service records the age of the active bundle. Past the Buyer-set bound (default 24h), the CI Gate returns an explicit `stale` result with a non-zero exit, never a pass. Guidance keeps serving the active bundle and flags every response stale. The Buyer can set an explicit, recorded freeze that suspends the bound. The CLI Gate checks the bound against the bundle file's issue time with the same rule.
+
+### AD-22 — Guidance-record reads stay in the Company environment [ADOPTED]
+
+- **Binds:** FR-20, FR-26, FR-28, NFR-9
+- **Prevents:** The panel growing a path to Company-held Guidance content, and the role check living in two places.
+- **Rule:** Stored Guidance-event content is read only through a Company service endpoint inside the Company network. The endpoint requires a short-lived, tenant-scoped role token issued by the registry (AD-17), whose role holds the Buyer's FR-28 grant. The panel configures the grant and shows Compilation-derived evidence only. It never proxies, caches or renders Guidance content. Retention (default 90 days, Company-configurable) is enforced by the service on its own store.
 
 ## Consistency Conventions
 
@@ -204,6 +211,8 @@ The Project of an Application is derived from the bundle's Application list by A
 | TypeScript | 7.x (native compiler). Fall back to 6.0.x if lint, tests, declaration emit or compiler-API consumers lag. Confirm at scaffold |
 | @modelcontextprotocol/sdk | 1.x, behind the MCP adapter. v2 (`@modelcontextprotocol/server`) status conflicted across sources on 2026-10-09 [ASSUMPTION]: confirm the npm `latest` tag at scaffold. Guidance is served over Streamable HTTP |
 | PostgreSQL | 18 (the application database role must not own the tables, or row-level security is bypassed) |
+| CI Gate target | GitHub Actions (pilot) |
+| Panel sign-in | Passwordless magic link (email delivery provider chosen at scaffold) |
 
 Web framework, ORM, test runner and monorepo tool are chosen at scaffold (Deferred).
 
@@ -289,7 +298,7 @@ Operational envelope for the pilot: vendor side is one region, managed Postgres,
 | Intelligence (FR-20–23) | `packages/collector`, `apps/panel` | AD-6, AD-9, AD-10, AD-20 |
 | Standards API (FR-25) | `apps/service` | AD-1, AD-14 |
 | Deployment boundary (FR-26–28) | `packages/collector`, `apps/service` | AD-2, AD-3, AD-9, AD-10 |
-| Access (FR-28, FR-29) | `apps/registry`, `apps/panel`, `apps/service` | AD-17, AD-12 |
+| Access (FR-28, FR-29) | `apps/registry`, `apps/panel`, `apps/service` | AD-17, AD-12, AD-22 |
 
 ## Deferred
 

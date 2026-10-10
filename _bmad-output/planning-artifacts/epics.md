@@ -63,6 +63,8 @@ NFR-12: Security. The Company environment makes only outbound calls to the vendo
 
 ### Additional Requirements
 
+**Pilot facts (SPEC, 2026-10-10):** TypeScript/npm only; GitHub Actions for CI; magic-link sign-in; call identity per amended AD-19 (stdio bridge, `X-DH-*` headers, root-commit fingerprint); Guidance content reads per AD-22.
+
 **Starter template: to be researched.** The Architecture Spine names no starter template. Epic 1 Story 1 must first research open-source starters on the internet and adopt one where it fits, recording the decision, rather than starting from zero. The target layout is a TypeScript monorepo with `packages/{core,extractor,contract,collector}` and `apps/{registry,panel,service,cli}`. The web framework, ORM, test runner and monorepo tool are chosen at scaffold time and must respect the dependency rules.
 
 - AD-1/AD-5: Effective-set resolution and Deviation evaluation exist only in `packages/core`, written in TypeScript. No adapter re-implements them, caches a derived result across bundles, or post-processes resolution output.
@@ -266,14 +268,18 @@ So that I can reach every destination my role allows from one place (FR-29).
 **Then** colors, typography (Sora and Poppins), spacing and radii come from one token source matching DESIGN.md in light and dark mode (UX-DR1, UX-DR2)
 **And** an automated contrast check passes every pair in the DESIGN.md contrast table, and no style uses `#737373` for text or gold for text, pass/fail or chrome (UX-DR3, UX-DR4)
 
-**Given** the sign-in surface (mechanism chosen at implementation and recorded, no SSO)
-**When** a provisioned account signs in successfully
+**Given** the sign-in surface (passwordless magic link, no passwords, no SSO; the email delivery provider is chosen and recorded at implementation)
+**When** a person submits an email address
+**Then** the text "Check your email for a sign-in link" is shown for any address, and only a provisioned address receives a single-use link with a short expiry
+
+**Given** a valid, unused, unexpired link
+**When** a provisioned account opens it
 **Then** the person lands on Inventory, shown with its empty state, under panel-chrome that shows the wordmark, the role as text, and a nav with the current destination at weight 600 (UX-DR5, UX-DR23)
 **And** the nav lists only destinations that exist so far (Inventory shell and Standards); each later story that adds a surface adds its nav entry, until the full UX-DR5 list is present
 **And** button-primary and button-inverse follow UX-DR6
 
-**Given** an unprovisioned identity or a failed attempt
-**When** sign-in is submitted
+**Given** an expired or already-used link
+**When** it is opened
 **Then** a denial is shown in text, announced as a status, and the person stays on sign-in (UX-DR20)
 
 **Given** keyboard-only use at 320, 768 and 1280 CSS pixels wide
@@ -512,7 +518,7 @@ So that it exists for the Buyer from the start, bound to exactly one Project (FR
 **When** I open a Project to an account for building
 **Then** the build grant is stored append-only, and only accounts with it can place Applications on that Project
 
-**Given** I am a Builder with a build grant on Project P
+**Given** I am a Builder with a build grant on Project P (SPEC CAP-3)
 **When** I submit the New-application flow with a description and P
 **Then** an Application is created with a registry-minted UUIDv7 id, bound to exactly P, and marked as created by the New-application flow
 **And** the Buyer immediately sees it in the Applications list on Inventory, before any Guidance event or Gate run (Compilation evidence fills in later, in Epic 6)
@@ -559,11 +565,11 @@ So that my agent can work inside the Company's stack and design system without m
 
 **Given** the Company Guidance endpoint URL is set
 **When** I request a Claude Code Boilerplate for my Application
-**Then** the registry resolves the Application's Effective Standard set through `core` and returns a repository archive containing: the identification file, dependency pins that satisfy every required and approved code-stack entry and include no prohibited one, design-system references (required imports and tokens) that satisfy the design-system Module, an MCP configuration pointing at the endpoint URL, and generated instruction/skills files that Claude Code loads natively
+**Then** the registry resolves the Application's Effective Standard set through `core` and returns a repository archive containing: the identification file, dependency pins that satisfy every required and approved code-stack entry and include no prohibited one, design-system references (required imports and tokens) that satisfy the design-system Module, an MCP configuration that declares the stdio bridge `@domain-harness/mcp-bridge` (run via `npx`, with the endpoint URL as its argument) as the Domain Harness server, and generated instruction/skills files that Claude Code loads natively, which tell the agent to make an initial commit before calling Guidance
 **And** the archive contains no hook configuration of any kind (NFR-11)
 
 **Given** the first cut
-**When** the Effective Standard set requires an ecosystem the generator does not support (only the npm/TypeScript ecosystem is supported)
+**When** the Effective Standard set requires an ecosystem the generator does not support (only npm/TypeScript, per the SPEC pilot facts)
 **Then** generation stops with one sentence naming the unsupported required entries, and no partial archive is produced
 
 **Given** no endpoint URL has been set
@@ -588,7 +594,7 @@ So that I get the same placement whichever supported tool I use (FR-9).
 
 **Given** the Cursor target
 **When** the archive is generated
-**Then** it contains the same identification file, pins and design-system references as the Claude Code archive for the same Application and bundle input, with MCP configuration and rule/instruction files in the locations and formats Cursor loads, and no hook
+**Then** it contains the same identification file, pins and design-system references as the Claude Code archive for the same Application and bundle input, with an MCP configuration declaring the same stdio bridge entry and rule/instruction files in the locations and formats Cursor loads, and no hook
 
 **Given** both targets for the same Application
 **When** their archives are compared
@@ -603,7 +609,7 @@ So that it can run the Gate and count in the baseline set (FR-10, FR-23).
 **Acceptance Criteria:**
 
 **Given** I am the Buyer
-**When** I register an existing Application with a name and a Project
+**When** I register an existing Application with a name and a Project (SPEC CAP-3)
 **Then** an Application is created with a registry-minted id, marked as not created by the New-application flow, and I receive only its identification file to commit (no Boilerplate)
 
 **Given** a Builder or a Standard owner
@@ -671,9 +677,14 @@ So that I receive my Project's Standards and a copied identity is refused (FR-10
 
 **Acceptance Criteria:**
 
-**Given** the Boilerplates from Epic 3
-**When** they are regenerated
-**Then** their MCP configuration passes the Application id from the identification file and a repository fingerprint to the service on each call, using a mechanism defined in `contract`
+**Given** the stdio bridge `@domain-harness/mcp-bridge` published from this repository
+**When** an MCP client starts it inside a repository
+**Then** on each call it reads the Application id from the identification file and computes the repository fingerprint as SHA-256 of the root commit SHA (`git rev-list --max-parents=0 HEAD`), and forwards to the service over Streamable HTTP with the headers `X-DH-Application-Id` and `X-DH-Repo-Fingerprint` (names and algorithm versioned in `contract`, AD-19)
+**And** Boilerplates from Epic 3 need no regeneration, because their MCP configuration already declares the bridge
+
+**Given** a repository with no commit
+**When** a call arrives
+**Then** the result is `unbound`, with one sentence telling the Builder to commit once and retry
 
 **Given** an Application id that is present in the active bundle and seen for the first time
 **When** a call arrives
@@ -777,7 +788,7 @@ So that every Gate sees exactly the same facts for the same files (AD-18).
 
 **Given** `packages/extractor`
 **When** it is given file contents (not file paths or I/O handles)
-**Then** it returns facts in a versioned fact schema defined in `contract`: dependency coordinates (name and resolved version) from npm manifests and lockfiles, import specifiers from TS/JS sources, and design-token names from CSS custom properties and token references
+**Then** it returns facts in a versioned fact schema defined in `contract`: dependency coordinates (name and resolved version) from npm manifests and lockfiles (the only ecosystem, per the SPEC pilot facts), import specifiers from TS/JS sources, and design-token names from CSS custom properties and token references
 
 **Given** the same file contents in any order
 **When** extraction runs repeatedly
@@ -821,9 +832,9 @@ So that non-compliant code does not reach production unnoticed (FR-14, FR-10, AD
 
 **Acceptance Criteria:**
 
-**Given** a CI step package (a generic container or script usable from any CI, with the GitHub Actions wrapper first)
+**Given** a GitHub Action (the pilot CI)
 **When** it runs on a revision
-**Then** it reads the identification file, runs `extractor` on the revision files, and calls the service's Gate runner, which pins the active bundle hash, evaluates with `core` using the service clock, and stores a Gate-run record (Application id, revision, bundle hash, extractor version, Deviations, checked and open counts, per-Application sequence)
+**Then** it reads the identification file, computes the repository fingerprint per AD-19, runs `extractor` on the revision files, and calls the service's Gate runner, which pins the active bundle hash, evaluates with `core` using the service clock, and stores a Gate-run record (Application id, revision, bundle hash, extractor version, Deviations, checked and open counts, per-Application sequence)
 
 **Given** the result
 **When** it is printed to the step log
@@ -1060,7 +1071,7 @@ So that what Builders ask agents stays private by default (FR-28, FR-20, UX-DR22
 **When** I set which roles can read Guidance events
 **Then** the grant is stored in the registry, and the registry issues short-lived, tenant-scoped role tokens that reflect it (AD-17)
 
-**Given** the service's Guidance-event read endpoint
+**Given** the service's Guidance-event read endpoint, inside the Company network (AD-22), with the panel showing no Guidance content
 **When** it is called with a token whose role lacks the grant, or with no token
 **Then** it returns a denial on the content
 

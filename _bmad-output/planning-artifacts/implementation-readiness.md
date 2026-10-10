@@ -1,5 +1,6 @@
 ---
-status: open
+status: resolved
+resolved_by: sprint-change-proposal-2026-10-10.md
 gate: CONCERNS
 date: 2026-10-10
 decision: 'Fix before sprint planning (option B)'

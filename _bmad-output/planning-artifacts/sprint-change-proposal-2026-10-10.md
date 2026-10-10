@@ -1,5 +1,6 @@
 ---
-status: draft
+status: approved
+approved: 2026-10-10
 date: 2026-10-10
 trigger: 'Implementation readiness gate returned CONCERNS (implementation-readiness.md)'
 mode: batch
