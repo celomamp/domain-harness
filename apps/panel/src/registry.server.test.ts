@@ -4,7 +4,11 @@ import {
   createModule,
   createSession,
   getSession,
+  getStandardVersions,
   listModules,
+  listStandards,
+  publishStandard,
+  publishStandardVersion,
   registryBaseUrl,
   requestSignInLink,
 } from "./registry.server.ts";
@@ -111,6 +115,74 @@ describe("registry client", () => {
     it("reports a 200 for create (wrong status) as unavailable", async () => {
       vi.stubGlobal("fetch", respond(200, module));
       expect(await createModule("abc", "code-stack", "x")).toEqual({ kind: "unavailable" });
+    });
+  });
+
+  describe("Standards", () => {
+    const MODULE = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
+    const STANDARD = "01928c7e-5b2a-7c3d-be4f-a1b2c3d4e5f9";
+    const AT = "2026-10-11T09:00:00.000Z";
+    const module = { id: MODULE, kind: "code-stack", name: "Code stack", owner: null, createdAt: AT };
+    const info = {
+      id: STANDARD,
+      version: 1,
+      module: { id: MODULE, kind: "code-stack", name: "Code stack" },
+      project: { id: TENANT, name: "Acme" },
+      entry: { category: "library", name: "React", versionConstraint: null, status: "approved", correctionInstruction: null },
+      publishedAt: AT,
+      publishedBy: { accountId: ACCOUNT, name: "Sam" },
+    };
+    const entry = { category: "library", name: " React ", versionConstraint: "", status: "approved", correctionInstruction: "" };
+
+    it("lists a Module's Standards on its path with a bearer token", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const list = { module, standards: [info] };
+      const fetch = respond(200, list);
+      vi.stubGlobal("fetch", fetch);
+      expect(await listStandards("abc", MODULE)).toEqual({ kind: "ok", value: list });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`http://registry.test/v1/modules/${MODULE}/standards`);
+      expect(init.method).toBe("GET");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+    });
+
+    it("reads a Standard's versions, escaping the id", async () => {
+      const versions = { standardId: STANDARD, versions: [info, { ...info, version: 2 }] };
+      const fetch = respond(200, versions);
+      vi.stubGlobal("fetch", fetch);
+      expect(await getStandardVersions("abc", STANDARD)).toEqual({ kind: "ok", value: versions });
+      await getStandardVersions("abc", "a/b");
+      const [url] = fetch.mock.calls[1] as unknown as [string, RequestInit];
+      expect(url).toMatch(/\/v1\/standards\/a%2Fb\/versions$/);
+    });
+
+    it("publishes a new Standard as { entry } with POST and expects 201", async () => {
+      const fetch = respond(201, info);
+      vi.stubGlobal("fetch", fetch);
+      expect(await publishStandard("abc", MODULE, entry)).toEqual({ kind: "ok", value: info });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toMatch(new RegExp(`/v1/modules/${MODULE}/standards$`));
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe(JSON.stringify({ entry }));
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+    });
+
+    it("publishes a new version on the Standard's versions path", async () => {
+      const fetch = respond(201, { ...info, version: 2 });
+      vi.stubGlobal("fetch", fetch);
+      expect((await publishStandardVersion("abc", STANDARD, entry)).kind).toBe("ok");
+      const [url] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toMatch(new RegExp(`/v1/standards/${STANDARD}/versions$`));
+    });
+
+    it("reports refusals and a malformed or wrong-status answer", async () => {
+      const conflict = { code: "slot_conflict", message: "m", subject: STANDARD };
+      vi.stubGlobal("fetch", respond(409, conflict));
+      expect(await publishStandard("abc", MODULE, entry)).toEqual({ kind: "refused", error: conflict });
+      vi.stubGlobal("fetch", respond(200, info));
+      expect(await publishStandard("abc", MODULE, entry)).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(200, { module, standards: [{ ...info, version: 0 }] }));
+      expect(await listStandards("abc", MODULE)).toEqual({ kind: "unavailable" });
     });
   });
 });

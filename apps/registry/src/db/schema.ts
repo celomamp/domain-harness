@@ -1,8 +1,9 @@
-import { foreignKey, index, integer, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { isNull, sql } from "drizzle-orm";
-import { MODULE_KINDS, PLANS, ROLES } from "@domain-harness/contract";
+import { CODE_STACK_CATEGORIES, MODULE_KINDS, PLANS, ROLES } from "@domain-harness/contract";
+import type { CodeStackEntry } from "@domain-harness/contract";
 
-// Drizzle mirror of migrations/0001_tenancy.sql, 0002_sign_in.sql and 0003_modules.sql, used for typed queries only.
+// Drizzle mirror of migrations/0001_tenancy.sql to 0004_standards.sql, used for typed queries only.
 // The SQL migration is the source of truth for constraints, RLS and grants.
 
 export const tenants = pgTable("tenants", {
@@ -158,7 +159,72 @@ export const moduleOwnerAssignments = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0003. */
+/** Standards: one entry in one Module at one Project scope. The id is stable across versions. */
+export const standards = pgTable(
+  "standards",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    moduleId: uuid("module_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("standards_tenant_id_id_key").on(table.tenantId, table.id),
+    index("standards_tenant_id_module_id_idx").on(table.tenantId, table.moduleId),
+    foreignKey({
+      name: "standards_module_fkey",
+      columns: [table.tenantId, table.moduleId],
+      foreignColumns: [modules.tenantId, modules.id],
+    }),
+    foreignKey({
+      name: "standards_project_fkey",
+      columns: [table.tenantId, table.projectId],
+      foreignColumns: [projects.tenantId, projects.id],
+    }),
+    foreignKey({
+      name: "standards_created_by_fkey",
+      columns: [table.tenantId, table.createdBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** Append-only published versions; a Standard's live version has the highest `version`. */
+export const standardVersions = pgTable(
+  "standard_versions",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    standardId: uuid("standard_id").notNull(),
+    version: integer("version").notNull(),
+    category: text("category", { enum: CODE_STACK_CATEGORIES }).notNull(),
+    name: text("name").notNull(),
+    entry: jsonb("entry").$type<CodeStackEntry>().notNull(),
+    publishedBy: uuid("published_by").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("standard_versions_standard_id_version_key").on(table.standardId, table.version),
+    foreignKey({
+      name: "standard_versions_standard_fkey",
+      columns: [table.tenantId, table.standardId],
+      foreignColumns: [standards.tenantId, standards.id],
+    }),
+    foreignKey({
+      name: "standard_versions_published_by_fkey",
+      columns: [table.tenantId, table.publishedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0004. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -167,6 +233,8 @@ export const TENANT_TABLES = [
   "sessions",
   "modules",
   "module_owner_assignments",
+  "standards",
+  "standard_versions",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */

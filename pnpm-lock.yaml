@@ -378,6 +378,9 @@ importers:
       '@domain-harness/contract':
         specifier: workspace:*
         version: link:../../packages/contract
+      '@domain-harness/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.4(@types/pg@8.23.1)(pg@8.23.1)

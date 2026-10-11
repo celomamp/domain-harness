@@ -36,5 +36,14 @@ export {
   listModules,
 } from "./modules/service.ts";
 export type { ModuleCreateInput, ModuleOwnerAssignInput, ModuleService } from "./modules/service.ts";
+export {
+  createStandardService,
+  listStandards,
+  listStandardVersions,
+  publishStandard,
+  publishStandardVersion,
+} from "./standards/service.ts";
+export type { StandardService } from "./standards/service.ts";
+export { validateCodeStackEntry, validatePublishBody } from "./standards/validate.ts";
 export { createRegistryServer, MAX_BODY_BYTES, stdoutLogger } from "./http/server.ts";
 export type { LogEvent, Logger, RegistryServices } from "./http/server.ts";

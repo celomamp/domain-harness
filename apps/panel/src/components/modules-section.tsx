@@ -1,4 +1,4 @@
-import { Form } from "react-router";
+import { Form, Link } from "react-router";
 import { MODULE_KIND_LABELS, MODULE_KINDS } from "@domain-harness/contract";
 import type { AccountRef, ModuleInfo, ModuleList } from "@domain-harness/contract";
 import { Button } from "./button.tsx";
@@ -102,7 +102,9 @@ function ModuleRow({
   const selected = error !== undefined ? (submitted?.values.accountId ?? "") : (module.owner?.accountId ?? "");
   return (
     <tr>
-      <th scope="row">{module.name}</th>
+      <th scope="row">
+        <Link to={`/standards/${encodeURIComponent(module.id)}`}>{module.name}</Link>
+      </th>
       <td>{MODULE_KIND_LABELS[module.kind]}</td>
       <td>
         {module.owner === null ? (

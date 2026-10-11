@@ -19,6 +19,7 @@ import { assertRuntimeRoleSafe } from "../db/tenant-scope.ts";
 import { createRegistryServer } from "../http/server.ts";
 import { createModuleService } from "../modules/service.ts";
 import { MemoryTransport } from "../mail/memory.ts";
+import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { consumeSignInLink, createSignInService, getSession, requestSignInLinks } from "./service.ts";
 import { hashToken, mintToken } from "./tokens.ts";
@@ -387,7 +388,11 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
     it("answers a known and an unknown address identically, mails only the known one, and signs in", async () => {
       const mail = new MemoryTransport();
       const server = createRegistryServer(
-        { signIn: createSignInService(db, mail, config), modules: createModuleService(db) },
+        {
+          signIn: createSignInService(db, mail, config),
+          modules: createModuleService(db),
+          standards: createStandardService(db),
+        },
         () => undefined,
       );
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

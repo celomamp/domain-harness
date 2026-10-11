@@ -19,6 +19,7 @@ import { createRegistryServer } from "../http/server.ts";
 import { mintUuidV7 } from "../ids.ts";
 import { MemoryTransport } from "../mail/memory.ts";
 import { consumeSignInLink, createSignInService, requestSignInLinks } from "../sign-in/service.ts";
+import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { assignModuleOwner, createModule, createModuleService, listModules } from "./service.ts";
 
@@ -471,7 +472,11 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Modules against Post
     it("lists, creates, assigns and refuses end to end with the session as a Bearer token", async () => {
       const mail = new MemoryTransport();
       const server = createRegistryServer(
-        { signIn: createSignInService(db, mail, { panelUrl: "http://panel.test" }), modules: createModuleService(db) },
+        {
+          signIn: createSignInService(db, mail, { panelUrl: "http://panel.test" }),
+          modules: createModuleService(db),
+          standards: createStandardService(db),
+        },
         () => undefined,
       );
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

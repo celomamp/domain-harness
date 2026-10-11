@@ -11,6 +11,7 @@ export default [
     children: [
       { path: "inventory", file: "routes/inventory.tsx" },
       { path: "standards", file: "routes/standards.tsx" },
+      { path: "standards/:moduleId", file: "routes/module-standards.tsx" },
     ],
   },
 ];

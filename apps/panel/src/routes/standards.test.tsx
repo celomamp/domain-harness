@@ -83,6 +83,10 @@ describe("Standards: Modules section", () => {
     expect(headers).toEqual(["Module", "Kind", "Standard owner"]);
     const rows = within(table).getAllByRole("row").slice(1);
     expect(within(rows[0] as HTMLElement).getByRole("rowheader").textContent).toBe("Code stack");
+    expect(within(rows[0] as HTMLElement).getByRole("link", { name: "Code stack" }).getAttribute("href")).toBe(
+      `/standards/${MODULE}`,
+    );
+    expect(screen.getByText("Open a Module to see and publish its Standards.")).toBeTruthy();
     expect(rows[0]?.textContent).toContain("code stack");
     expect(rows[0]?.textContent).toContain("Sam Owner");
     expect(rows[0]?.textContent).toContain(`assigned ${AT} by Bea Buyer`);
@@ -182,6 +186,7 @@ describe("Standards: Modules section", () => {
     expect(document.querySelectorAll("[tabindex]").length).toBe(0);
     const focusables = [...document.querySelectorAll<HTMLElement>("main a[href], main button, main input:not([type=hidden]), main select")];
     expect(focusables.map((el) => el.getAttribute("name") ?? el.textContent)).toEqual([
+      "Code stack",
       "accountId",
       "Assign Standard owner",
       "name",

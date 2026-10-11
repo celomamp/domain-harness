@@ -1,6 +1,6 @@
 /*
   Components from DESIGN.md: button-primary, button-inverse, denial,
-  panel-chrome, sign-in (with standard-form fields), and the Modules table. Gold (the accent tokens)
+  panel-chrome, sign-in (with standard-form fields), the Modules and Standards tables. Gold (the accent tokens)
   appears only on button-primary, and only as a fill.
 */
 
@@ -154,6 +154,7 @@
 
 .standard-form input,
 .standard-form select,
+.standard-form textarea,
 .module-owner-form select {
   width: 100%;
   min-height: var(--size-field-min);
@@ -176,17 +177,57 @@
   justify-self: start;
 }
 
+/* Publish, then (while editing) the Cancel edit link. */
+.standard-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.standard-form__actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--size-target-min);
+  color: var(--color-ink);
+}
+
 /* Modules: a table with header cells on raised rows, hairline borders; scrolls sideways when narrow. */
-.modules {
+.modules,
+.standards,
+.published {
   display: grid;
   gap: var(--space-4);
+}
+
+/* The facts of a successful publish: term then value, ink on a raised surface. */
+.published-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.published-facts dt {
+  color: var(--color-ink-secondary);
+}
+
+.published-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .table-scroll {
   overflow-x: auto;
 }
 
-.modules-table {
+.modules-table,
+.standards-table {
   width: 100%;
   border-collapse: collapse;
   background: var(--color-surface-raised);
@@ -195,14 +236,17 @@
 }
 
 .modules-table th,
-.modules-table td {
+.modules-table td,
+.standards-table th,
+.standards-table td {
   padding: var(--space-3);
   text-align: start;
   vertical-align: top;
   border-bottom: var(--size-hairline) solid var(--color-border);
 }
 
-.modules-table thead th {
+.modules-table thead th,
+.standards-table thead th {
   color: var(--color-ink-secondary);
   font-family: var(--type-label-family);
   font-size: var(--type-label-size);

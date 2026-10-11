@@ -10,9 +10,14 @@ import {
   isModuleList,
   isSessionCreated,
   isSessionInfo,
+  isStandardInfo,
+  isStandardList,
+  isStandardVersionList,
   MODULE_API_PATHS,
   moduleOwnerPath,
+  moduleStandardsPath,
   REGISTRY_API_PATHS,
+  standardVersionsPath,
 } from "@domain-harness/contract";
 import type {
   ErrorEnvelope,
@@ -20,6 +25,10 @@ import type {
   ModuleList,
   SessionCreated,
   SessionInfo,
+  StandardInfo,
+  StandardList,
+  StandardPublishRequest,
+  StandardVersionList,
 } from "@domain-harness/contract";
 
 export const DEFAULT_REGISTRY_URL = "http://127.0.0.1:4100";
@@ -115,4 +124,44 @@ export function assignModuleOwner(
   accountId: string,
 ): Promise<RegistryResult<ModuleInfo>> {
   return call(moduleOwnerPath(moduleId), json({ accountId }, bearer(sessionToken)), 200, isModuleInfo);
+}
+
+const getJson = (sessionToken: string): RequestInit => ({
+  method: "GET",
+  headers: { ...bearer(sessionToken), accept: "application/json" },
+});
+
+/** The live version of every Standard in a Module, with the Module itself (every role may read). */
+export function listStandards(sessionToken: string, moduleId: string): Promise<RegistryResult<StandardList>> {
+  return call(moduleStandardsPath(moduleId), getJson(sessionToken), 200, isStandardList);
+}
+
+/** Every version of one Standard, oldest first (every role may read). */
+export function getStandardVersions(
+  sessionToken: string,
+  standardId: string,
+): Promise<RegistryResult<StandardVersionList>> {
+  return call(standardVersionsPath(standardId), getJson(sessionToken), 200, isStandardVersionList);
+}
+
+/**
+ * Publish version 1 of a new Standard into a Module (the registry allows only
+ * the Module's Standard owner). The entry is passed as submitted; the registry
+ * trims, validates and answers field errors.
+ */
+export function publishStandard(
+  sessionToken: string,
+  moduleId: string,
+  entry: StandardPublishRequest["entry"],
+): Promise<RegistryResult<StandardInfo>> {
+  return call(moduleStandardsPath(moduleId), json({ entry }, bearer(sessionToken)), 201, isStandardInfo);
+}
+
+/** Publish the next version of an existing Standard (its Module's Standard owner only). */
+export function publishStandardVersion(
+  sessionToken: string,
+  standardId: string,
+  entry: StandardPublishRequest["entry"],
+): Promise<RegistryResult<StandardInfo>> {
+  return call(standardVersionsPath(standardId), json({ entry }, bearer(sessionToken)), 201, isStandardInfo);
 }

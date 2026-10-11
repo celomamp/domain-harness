@@ -14,6 +14,7 @@ import { createTransportFromEnv } from "../mail/from-env.ts";
 import { reportFailure } from "../operator/output.ts";
 import { createModuleService } from "../modules/service.ts";
 import { createSignInService } from "../sign-in/service.ts";
+import { createStandardService } from "../standards/service.ts";
 import { createRegistryServer, stdoutLogger } from "./server.ts";
 
 const DB_ENV = "REGISTRY_DATABASE_URL";
@@ -80,7 +81,11 @@ async function main(): Promise<void> {
   }
 
   const server = createRegistryServer(
-    { signIn: createSignInService(db, mailer, config), modules: createModuleService(db) },
+    {
+      signIn: createSignInService(db, mailer, config),
+      modules: createModuleService(db),
+      standards: createStandardService(db),
+    },
     stdoutLogger,
   );
   await new Promise<void>((resolve, reject) => {

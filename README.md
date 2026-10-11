@@ -153,6 +153,23 @@ Every Module endpoint can also answer `401 session_invalid`, `405 method_not_all
 
 The management panel's Standards page lists the Modules and shows both forms to every role; the registry decides. The Modules database suite (`apps/registry/src/modules/modules.db.test.ts`) runs with the other suites under `REGISTRY_TEST_DATABASE_URL`.
 
+## Code-stack Standards
+
+A Standard is one entry in one Module at one Project scope (the Company's root Project for now). Its id is minted by the registry and stays the same across versions. Every publish appends a new, immutable version (`1`, `2`, ...) recording who published it and when (UTC); earlier versions are never changed, and the highest version is the one in force. **Only the current Standard owner of a Module can publish into it.** Every role can read.
+
+A code-stack entry has `category` (`language`, `framework` or `library`), `name` (1 to 200 characters, trimmed), an optional `versionConstraint` (at most 100), `status` (`approved`, `prohibited` or `required`) and an optional `correctionInstruction` (at most 1000). Its Conflict slot is (code stack, category, name), with names compared trimmed, NFC and regardless of case. Two different live Standards in one slot at one Project scope are refused across Modules (`409 slot_conflict`, subject: the Standard already holding the slot). The check is the pure rule in `@domain-harness/core`, run over the whole proposed live set; publishes in one Company are serialised, so two concurrent publishes into one slot cannot both succeed.
+
+| Endpoint | Body | Success | Refusals |
+|---|---|---|---|
+| `GET /v1/modules/{id}/standards` | none | `200 { module, standards }` (the live version of each Standard) | `404 module_not_found` |
+| `POST /v1/modules/{id}/standards` | `{ "entry": { ... } }` | `201` version 1 of a new Standard: `{ id, version, module, project, entry, publishedAt, publishedBy }` | see below |
+| `GET /v1/standards/{id}/versions` | none | `200 { standardId, versions }`, oldest first | `404 standard_not_found` |
+| `POST /v1/standards/{id}/versions` | `{ "entry": { ... } }` | `201` the next version, same id (the entry may move to another slot; it is checked again) | see below |
+
+A publish is checked in this order; the first failure wins and nothing is written: `401 session_invalid` → `404 module_not_found` / `404 standard_not_found` (also for malformed or another Company's ids) → `409 module_has_no_owner` → `403 not_module_owner` (Buyer, Builder or the owner of another Module) → `400 invalid_input` with the field name as subject (or an unexpected key; `entry` for a design-system Module, which accepts no code-stack entry) → `409 slot_conflict`. Transport refusals come before that order, because the body is read first: `415 unsupported_media_type`, `413 payload_too_large`, and `400 invalid_input` with subject `body` for malformed JSON. Request bodies may be up to 16 KiB.
+
+In the panel, each Module name on the Standards page opens that Module's page (`/standards/{moduleId}`): its Standards table, the code-stack form (shown to every role) and, after a publish, the Standard id, Module, Project scope, version and UTC time. Migration `0004_standards.sql` adds the append-only `standards` and `standard_versions` tables under the same forced RLS; `apps/registry/src/standards/standards.db.test.ts` covers them end to end over HTTP.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:

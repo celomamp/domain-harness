@@ -3,5 +3,8 @@ import type { ErrorEnvelope } from "@domain-harness/contract";
 /** Workspace name of this unit. Pure resolver core: no I/O, no clock reads, no network. */
 export const packageName = "@domain-harness/core";
 
-/** Errors from this unit use the shared envelope; nothing is implemented yet. */
+/** Errors from this unit use the shared envelope. */
 export type CoreError = ErrorEnvelope;
+
+export { codeStackSlot, formatSlot, normalizeSlotName, sameSlot, validatePublication } from "./slots.ts";
+export type { ConflictSlot, PublicationResult, SlotHolder } from "./slots.ts";

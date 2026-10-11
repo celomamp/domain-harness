@@ -209,10 +209,11 @@ export function createModuleService(db: RegistryDb): ModuleService {
   };
 }
 
-type ModuleRow = typeof modules.$inferSelect;
-type AssignmentRow = typeof moduleOwnerAssignments.$inferSelect;
+export type ModuleRow = typeof modules.$inferSelect;
+export type AssignmentRow = typeof moduleOwnerAssignments.$inferSelect;
 
-async function accountNames(tx: RegistryTx, tenantId: UuidV7): Promise<Map<string, string>> {
+/** Every account name of the tenant, by account id. */
+export async function accountNames(tx: RegistryTx, tenantId: UuidV7): Promise<Map<string, string>> {
   const rows = await tx
     .select({ id: accounts.id, name: accounts.name })
     .from(accounts)
@@ -220,11 +221,11 @@ async function accountNames(tx: RegistryTx, tenantId: UuidV7): Promise<Map<strin
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
-function accountRef(id: string, names: ReadonlyMap<string, string>): AccountRef {
+export function accountRef(id: string, names: ReadonlyMap<string, string>): AccountRef {
   return { accountId: toId(id), name: names.get(id) ?? "" };
 }
 
-function ownerOf(row: AssignmentRow, names: ReadonlyMap<string, string>): ModuleOwner {
+export function ownerOf(row: AssignmentRow, names: ReadonlyMap<string, string>): ModuleOwner {
   return {
     ...accountRef(row.ownerAccountId, names),
     assignedAt: row.assignedAt.toISOString(),
@@ -232,11 +233,11 @@ function ownerOf(row: AssignmentRow, names: ReadonlyMap<string, string>): Module
   };
 }
 
-function toModuleInfo(row: ModuleRow, owner: ModuleOwner | null): ModuleInfo {
+export function toModuleInfo(row: ModuleRow, owner: ModuleOwner | null): ModuleInfo {
   return { id: toId(row.id), kind: row.kind, name: row.name, owner, createdAt: row.createdAt.toISOString() };
 }
 
-function toId(value: string): UuidV7 {
+export function toId(value: string): UuidV7 {
   if (!isUuidV7(value)) {
     throw new Error("stored id is not a canonical UUIDv7");
   }

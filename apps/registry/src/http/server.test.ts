@@ -1,13 +1,32 @@
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { isErrorEnvelope, isModuleInfo, isModuleList, isSessionCreated, isSessionInfo } from "@domain-harness/contract";
-import type { ModuleInfo, ModuleList, SessionCreated, SessionInfo } from "@domain-harness/contract";
+import {
+  isErrorEnvelope,
+  isModuleInfo,
+  isModuleList,
+  isSessionCreated,
+  isSessionInfo,
+  isStandardInfo,
+  isStandardList,
+  isStandardVersionList,
+} from "@domain-harness/contract";
+import type {
+  ModuleInfo,
+  ModuleList,
+  SessionCreated,
+  SessionInfo,
+  StandardInfo,
+  StandardList,
+  StandardVersionList,
+} from "@domain-harness/contract";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import { assertBuyer } from "../modules/service.ts";
 import type { ModuleCreateInput, ModuleOwnerAssignInput, ModuleService } from "../modules/service.ts";
 import type { SignInLinkReport, SignInService } from "../sign-in/service.ts";
+import type { StandardService } from "../standards/service.ts";
+import { validatePublishBody } from "../standards/validate.ts";
 import { createRegistryServer, MAX_BODY_BYTES } from "./server.ts";
 import type { LogEvent } from "./server.ts";
 
@@ -25,6 +44,17 @@ const moduleInfo: ModuleInfo = {
   name: "Code stack",
   owner: null,
   createdAt: "2026-10-11T09:00:00.000Z",
+};
+
+const STANDARD_ID = mintUuidV7();
+const standardInfo: StandardInfo = {
+  id: STANDARD_ID,
+  version: 1,
+  module: { id: MODULE_ID, kind: "code-stack", name: "Code stack" },
+  project: { id: mintUuidV7(), name: "Acme" },
+  entry: { category: "library", name: "React", versionConstraint: "^18", status: "approved", correctionInstruction: null },
+  publishedAt: "2026-10-11T09:00:00.000Z",
+  publishedBy: { accountId: OWNER_ID, name: "Sam" },
 };
 
 /** A fake service: one known email, one valid link token, one valid session token. */
@@ -85,15 +115,58 @@ class FakeModules implements ModuleService {
   }
 }
 
+/**
+ * A fake Standards service that records what reached it. One Module and one
+ * Standard exist; the Buyer session publishes as the owner, the Builder is
+ * refused; entry names pick a refusal.
+ */
+class FakeStandards implements StandardService {
+  calls: unknown[] = [];
+  listStandards(caller: SessionInfo, moduleId: string): Promise<StandardList> {
+    this.calls.push(["list", caller.role, moduleId]);
+    if (moduleId !== MODULE_ID) return Promise.reject(notFound("module_not_found", "moduleId"));
+    return Promise.resolve({ module: moduleInfo, standards: [standardInfo] });
+  }
+  listStandardVersions(caller: SessionInfo, standardId: string): Promise<StandardVersionList> {
+    this.calls.push(["versions", caller.role, standardId]);
+    if (standardId !== STANDARD_ID) return Promise.reject(notFound("standard_not_found", "standardId"));
+    return Promise.resolve({ standardId: STANDARD_ID, versions: [standardInfo, { ...standardInfo, version: 2 }] });
+  }
+  publishStandard(caller: SessionInfo, moduleId: string, body: unknown): Promise<StandardInfo> {
+    this.calls.push(["publish", moduleId, body]);
+    if (moduleId !== MODULE_ID) return Promise.reject(notFound("module_not_found", "moduleId"));
+    return this.publishAs(caller, body, 1);
+  }
+  publishStandardVersion(caller: SessionInfo, standardId: string, body: unknown): Promise<StandardInfo> {
+    this.calls.push(["republish", standardId, body]);
+    if (standardId !== STANDARD_ID) return Promise.reject(notFound("standard_not_found", "standardId"));
+    return this.publishAs(caller, body, 2);
+  }
+  private publishAs(caller: SessionInfo, body: unknown, version: number): Promise<StandardInfo> {
+    return Promise.resolve().then(() => {
+      if (caller.role !== "Buyer") throw new EnvelopeError({ code: "not_module_owner", message: "m", subject: "role" });
+      const entry = validatePublishBody(body);
+      if (entry.name === "Ownerless") {
+        throw new EnvelopeError({ code: "module_has_no_owner", message: "m", subject: "moduleId" });
+      }
+      if (entry.name === "Taken") throw new EnvelopeError({ code: "slot_conflict", message: "m", subject: STANDARD_ID });
+      return { ...standardInfo, version, entry };
+    });
+  }
+}
+
+const notFound = (code: string, subject: string) => new EnvelopeError({ code, message: "m", subject });
+
 describe("registry HTTP API", () => {
   const service = new FakeService();
   const modules = new FakeModules();
+  const standards = new FakeStandards();
   const events: LogEvent[] = [];
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
-    server = createRegistryServer({ signIn: service, modules }, (event) => events.push(event));
+    server = createRegistryServer({ signIn: service, modules, standards }, (event) => events.push(event));
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
   });
@@ -105,6 +178,7 @@ describe("registry HTTP API", () => {
   beforeEach(() => {
     service.requested = [];
     modules.calls = [];
+    standards.calls = [];
     events.length = 0;
   });
 
@@ -321,6 +395,108 @@ describe("registry HTTP API", () => {
 
     it("answers 404 not_found for a path beyond the owner route", async () => {
       await expectEnvelope(await fetch(`${base}/v1/modules/${MODULE_ID}/owner/x`, { headers: buyer }), 404, "not_found");
+    });
+  });
+
+  describe("Standards", () => {
+    const owner = { authorization: `Bearer ${GOOD_SESSION}`, "content-type": "application/json" };
+    const builderAuth = { authorization: `Bearer ${BUILDER_SESSION}`, "content-type": "application/json" };
+    const listPath = `/v1/modules/${MODULE_ID}/standards`;
+    const versionsPath = `/v1/standards/${STANDARD_ID}/versions`;
+    const entry = { category: "library", name: " React ", versionConstraint: "^18", status: "approved" };
+
+    it("GET /v1/modules/{id}/standards answers 200 StandardList for any role", async () => {
+      const response = await fetch(`${base}${listPath}`, { headers: builderAuth });
+      expect(response.status).toBe(200);
+      expect(isStandardList(await response.json())).toBe(true);
+      expect(standards.calls).toEqual([["list", "Builder", MODULE_ID]]);
+    });
+
+    it("GET /v1/standards/{id}/versions answers 200 StandardVersionList for any role", async () => {
+      const response = await fetch(`${base}${versionsPath}`, { headers: builderAuth });
+      expect(response.status).toBe(200);
+      const body: unknown = await response.json();
+      expect(isStandardVersionList(body)).toBe(true);
+      expect(standards.calls).toEqual([["versions", "Builder", STANDARD_ID]]);
+    });
+
+    it("POST /v1/modules/{id}/standards answers 201 StandardInfo and passes the body through", async () => {
+      const response = await post(listPath, { entry }, { headers: owner });
+      expect(response.status).toBe(201);
+      const body: unknown = await response.json();
+      expect(isStandardInfo(body)).toBe(true);
+      expect(body).toMatchObject({ version: 1, entry: { name: "React", correctionInstruction: null } });
+      expect(standards.calls).toEqual([["publish", MODULE_ID, { entry }]]);
+    });
+
+    it("POST /v1/standards/{id}/versions answers 201 with the next version", async () => {
+      const response = await post(versionsPath, { entry: { ...entry, status: "required" } }, { headers: owner });
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ id: STANDARD_ID, version: 2, entry: { status: "required" } });
+    });
+
+    it.each([
+      ["GET list", "GET", listPath],
+      ["POST publish", "POST", listPath],
+      ["GET versions", "GET", versionsPath],
+      ["POST republish", "POST", versionsPath],
+    ])("answers 401 session_invalid without a bearer token (%s) and calls no service", async (_label, method, path) => {
+      const init: RequestInit =
+        method === "GET" ? {} : { method, headers: { "content-type": "application/json" }, body: JSON.stringify({ entry }) };
+      await expectEnvelope(await fetch(`${base}${path}`, init), 401, "session_invalid");
+      expect(standards.calls).toEqual([]);
+    });
+
+    it("maps the service's envelopes to 403, 404, 409 and 400", async () => {
+      const cases: [string, unknown, RequestInit, number, Record<string, string>][] = [
+        [listPath, { entry }, { headers: builderAuth }, 403, { code: "not_module_owner", subject: "role" }],
+        [`/v1/modules/${mintUuidV7()}/standards`, { entry }, { headers: owner }, 404, { code: "module_not_found" }],
+        ["/v1/modules/nope/standards", { entry }, { headers: owner }, 404, { code: "module_not_found" }],
+        [`/v1/standards/${mintUuidV7()}/versions`, { entry }, { headers: owner }, 404, { code: "standard_not_found" }],
+        [listPath, { entry: { ...entry, name: "Ownerless" } }, { headers: owner }, 409, { code: "module_has_no_owner" }],
+        [listPath, { entry: { ...entry, name: "Taken" } }, { headers: owner }, 409, { code: "slot_conflict", subject: STANDARD_ID }],
+        [listPath, { entry: { ...entry, name: "" } }, { headers: owner }, 400, { code: "invalid_input", subject: "name" }],
+        [listPath, { entry, id: STANDARD_ID }, { headers: owner }, 400, { code: "invalid_input", subject: "id" }],
+        [listPath, { entry: { ...entry, owner: "x" } }, { headers: owner }, 400, { code: "invalid_input", subject: "owner" }],
+      ];
+      for (const [path, body, init, status, expected] of cases) {
+        const response = await post(path, body, init);
+        expect([path, response.status, await response.json()]).toMatchObject([path, status, expected]);
+      }
+    });
+
+    it("answers 404 for an unknown Module or Standard on GET", async () => {
+      await expectEnvelope(await fetch(`${base}/v1/modules/${mintUuidV7()}/standards`, { headers: owner }), 404, "module_not_found");
+      await expectEnvelope(await fetch(`${base}/v1/standards/nope/versions`, { headers: owner }), 404, "standard_not_found");
+    });
+
+    it("accepts a body above the old 4 KiB limit (Correction instructions) and refuses one over 16 KiB", async () => {
+      expect(MAX_BODY_BYTES).toBe(16 * 1024);
+      // The longest valid entry, in four-byte characters, is over 4 KiB of UTF-8.
+      const long = {
+        entry: { ...entry, name: "\u{1F600}".repeat(200), correctionInstruction: "\u{1F600}".repeat(1000), versionConstraint: "x".repeat(100) },
+      };
+      expect(Buffer.byteLength(JSON.stringify(long))).toBeGreaterThan(4 * 1024);
+      expect((await post(listPath, long, { headers: owner })).status).toBe(201);
+      const huge = JSON.stringify({ entry: { ...entry, correctionInstruction: "x".repeat(MAX_BODY_BYTES) } });
+      await expectEnvelope(await post(listPath, huge, { headers: owner }), 413, "payload_too_large");
+    });
+
+    it("answers 405 with GET, POST in Allow for PUT on both routes", async () => {
+      for (const path of [listPath, versionsPath]) {
+        const response = await fetch(`${base}${path}`, { method: "PUT", headers: owner });
+        expect(response.headers.get("allow")).toBe("GET, POST");
+        await expectEnvelope(response, 405, "method_not_allowed");
+      }
+    });
+
+    it("logs the routes by their patterns, never the ids", async () => {
+      await fetch(`${base}${listPath}`, { headers: owner });
+      await fetch(`${base}${versionsPath}`, { headers: owner });
+      await expect
+        .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
+        .toEqual(["/v1/modules/{id}/standards", "/v1/standards/{id}/versions"]);
+      expect(JSON.stringify(events)).not.toContain(STANDARD_ID);
     });
   });
 

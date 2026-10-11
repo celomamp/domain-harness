@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@domain-harness/contract": "workspace:*",
+    "@domain-harness/core": "workspace:*",
     "drizzle-orm": "catalog:",
     "nodemailer": "catalog:",
     "pg": "catalog:"

@@ -105,14 +105,14 @@ function refusal(intent: "create-module" | "assign-owner", values: ModulesAction
   return reply(503, { status: denial(MODULES_COPY.actionUnavailable), fieldErrors: {} });
 }
 
-/** Standards: the Modules of the Company. Publishing arrives in later stories. */
+/** Standards: the Modules of the Company; each Module name opens its Standards page. */
 export default function Standards() {
   const { list } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   return (
     <>
       <h1 className="type-title">Standards</h1>
-      <p>No Standard is published yet.</p>
+      <p>Open a Module to see and publish its Standards.</p>
       <ModulesSection list={list} actionData={actionData} />
     </>
   );
