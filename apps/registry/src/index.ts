@@ -28,5 +28,13 @@ export { createTransportFromEnv, MAIL_ENV } from "./mail/from-env.ts";
 export { MemoryTransport } from "./mail/memory.ts";
 export { OutboxTransport } from "./mail/outbox.ts";
 export { SmtpTransport } from "./mail/smtp.ts";
+export {
+  assertBuyer,
+  assignModuleOwner,
+  createModule,
+  createModuleService,
+  listModules,
+} from "./modules/service.ts";
+export type { ModuleCreateInput, ModuleOwnerAssignInput, ModuleService } from "./modules/service.ts";
 export { createRegistryServer, MAX_BODY_BYTES, stdoutLogger } from "./http/server.ts";
-export type { LogEvent, Logger } from "./http/server.ts";
+export type { LogEvent, Logger, RegistryServices } from "./http/server.ts";

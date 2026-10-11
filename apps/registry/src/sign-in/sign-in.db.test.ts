@@ -17,6 +17,7 @@ import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
 import { assertRuntimeRoleSafe } from "../db/tenant-scope.ts";
 import { createRegistryServer } from "../http/server.ts";
+import { createModuleService } from "../modules/service.ts";
 import { MemoryTransport } from "../mail/memory.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { consumeSignInLink, createSignInService, getSession, requestSignInLinks } from "./service.ts";
@@ -385,7 +386,10 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
   describe("over HTTP", () => {
     it("answers a known and an unknown address identically, mails only the known one, and signs in", async () => {
       const mail = new MemoryTransport();
-      const server = createRegistryServer(createSignInService(db, mail, config), () => undefined);
+      const server = createRegistryServer(
+        { signIn: createSignInService(db, mail, config), modules: createModuleService(db) },
+        () => undefined,
+      );
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
       const base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
       try {

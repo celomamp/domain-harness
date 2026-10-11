@@ -19,3 +19,27 @@ export {
   SIGN_IN_LINK_TTL_MINUTES,
 } from "./sign-in.ts";
 export type { SessionCreated, SessionCreateRequest, SessionInfo, SignInLinkRequest } from "./sign-in.ts";
+export {
+  isModuleInfo,
+  isModuleKind,
+  isModuleList,
+  isModuleName,
+  MODULE_API_PATHS,
+  MODULE_KIND_LABELS,
+  MODULE_KINDS,
+  MODULE_NAME_MAX,
+  MODULE_NAME_TAKEN,
+  MODULE_NOT_FOUND,
+  moduleOwnerPath,
+  normalizeModuleName,
+  ROLE_DENIED,
+} from "./modules.ts";
+export type {
+  AccountRef,
+  ModuleCreateRequest,
+  ModuleInfo,
+  ModuleKind,
+  ModuleList,
+  ModuleOwner,
+  ModuleOwnerAssignRequest,
+} from "./modules.ts";

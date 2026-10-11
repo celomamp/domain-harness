@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSession, getSession, registryBaseUrl, requestSignInLink } from "./registry.server.ts";
+import {
+  assignModuleOwner,
+  createModule,
+  createSession,
+  getSession,
+  listModules,
+  registryBaseUrl,
+  requestSignInLink,
+} from "./registry.server.ts";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
 const ACCOUNT = "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7";
@@ -59,5 +67,50 @@ describe("registry client", () => {
   ])("reports %s as unavailable without throwing", async (_label, fetch) => {
     vi.stubGlobal("fetch", fetch);
     expect(await getSession("abc")).toEqual({ kind: "unavailable" });
+  });
+
+  describe("Modules", () => {
+    const MODULE = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
+    const module = { id: MODULE, kind: "design-system", name: "DS", owner: null, createdAt: "2026-10-11T09:00:00.000Z" };
+
+    it("lists Modules with a bearer token and validates the list", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const list = { modules: [module], standardOwners: [] };
+      const fetch = respond(200, list);
+      vi.stubGlobal("fetch", fetch);
+      expect(await listModules("abc")).toEqual({ kind: "ok", value: list });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("http://registry.test/v1/modules");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+    });
+
+    it("creates a Module with POST and expects 201", async () => {
+      const fetch = respond(201, module);
+      vi.stubGlobal("fetch", fetch);
+      expect(await createModule("abc", "design-system", "DS")).toEqual({ kind: "ok", value: module });
+      const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe(JSON.stringify({ kind: "design-system", name: "DS" }));
+      const headers = new Headers(init.headers);
+      expect(headers.get("authorization")).toBe("Bearer abc");
+      expect(headers.get("content-type")).toBe("application/json");
+    });
+
+    it("assigns an owner on the Module's owner path, escaping the id", async () => {
+      const fetch = respond(404, { code: "module_not_found", message: "m", subject: "moduleId" });
+      vi.stubGlobal("fetch", fetch);
+      expect(await assignModuleOwner("abc", "a/b", ACCOUNT)).toEqual({
+        kind: "refused",
+        error: { code: "module_not_found", message: "m", subject: "moduleId" },
+      });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toMatch(/\/v1\/modules\/a%2Fb\/owner$/);
+      expect(init.body).toBe(JSON.stringify({ accountId: ACCOUNT }));
+    });
+
+    it("reports a 200 for create (wrong status) as unavailable", async () => {
+      vi.stubGlobal("fetch", respond(200, module));
+      expect(await createModule("abc", "code-stack", "x")).toEqual({ kind: "unavailable" });
+    });
   });
 });

@@ -1,10 +1,12 @@
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { isErrorEnvelope, isSessionCreated, isSessionInfo } from "@domain-harness/contract";
-import type { SessionCreated, SessionInfo } from "@domain-harness/contract";
+import { isErrorEnvelope, isModuleInfo, isModuleList, isSessionCreated, isSessionInfo } from "@domain-harness/contract";
+import type { ModuleInfo, ModuleList, SessionCreated, SessionInfo } from "@domain-harness/contract";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
+import { assertBuyer } from "../modules/service.ts";
+import type { ModuleCreateInput, ModuleOwnerAssignInput, ModuleService } from "../modules/service.ts";
 import type { SignInLinkReport, SignInService } from "../sign-in/service.ts";
 import { createRegistryServer, MAX_BODY_BYTES } from "./server.ts";
 import type { LogEvent } from "./server.ts";
@@ -13,6 +15,17 @@ const tenantId = mintUuidV7();
 const session: SessionInfo = { accountId: mintUuidV7(), tenantId, role: "Buyer" };
 const GOOD_LINK = `${tenantId}.${"L".repeat(43)}`;
 const GOOD_SESSION = `${tenantId}.${"S".repeat(43)}`;
+const BUILDER_SESSION = `${tenantId}.${"B".repeat(43)}`;
+const builder: SessionInfo = { accountId: mintUuidV7(), tenantId, role: "Builder" };
+const MODULE_ID = mintUuidV7();
+const OWNER_ID = mintUuidV7();
+const moduleInfo: ModuleInfo = {
+  id: MODULE_ID,
+  kind: "code-stack",
+  name: "Code stack",
+  owner: null,
+  createdAt: "2026-10-11T09:00:00.000Z",
+};
 
 /** A fake service: one known email, one valid link token, one valid session token. */
 class FakeService implements SignInService {
@@ -30,6 +43,7 @@ class FakeService implements SignInService {
     return Promise.resolve({ sessionToken: GOOD_SESSION, expiresAt: "2026-10-10T12:00:00.000Z", session });
   }
   getSession(token: string): Promise<SessionInfo> {
+    if (token === BUILDER_SESSION) return Promise.resolve(builder);
     if (token !== GOOD_SESSION) {
       return Promise.reject(new EnvelopeError({ code: "session_invalid", message: "invalid", subject: "session" }));
     }
@@ -37,14 +51,49 @@ class FakeService implements SignInService {
   }
 }
 
+/** A fake Module service that records what reached it and enforces the Buyer rule like the real one. */
+class FakeModules implements ModuleService {
+  calls: unknown[] = [];
+  listModules(caller: SessionInfo): Promise<ModuleList> {
+    this.calls.push(["list", caller.role]);
+    return Promise.resolve({ modules: [moduleInfo], standardOwners: [{ accountId: OWNER_ID, name: "Sam" }] });
+  }
+  createModule(caller: SessionInfo, input: ModuleCreateInput): Promise<ModuleInfo> {
+    this.calls.push(["create", input]);
+    assertBuyer(caller);
+    if (input.name === "Taken") {
+      return Promise.reject(new EnvelopeError({ code: "module_name_taken", message: "m", subject: "name" }));
+    }
+    if (input.kind !== "code-stack" && input.kind !== "design-system") {
+      return Promise.reject(new EnvelopeError({ code: "invalid_input", message: "m", subject: "kind" }));
+    }
+    return Promise.resolve(moduleInfo);
+  }
+  assignModuleOwner(caller: SessionInfo, moduleId: string, input: ModuleOwnerAssignInput): Promise<ModuleInfo> {
+    this.calls.push(["assign", moduleId, input]);
+    assertBuyer(caller);
+    if (moduleId !== MODULE_ID) {
+      return Promise.reject(new EnvelopeError({ code: "module_not_found", message: "m", subject: "moduleId" }));
+    }
+    const owner = {
+      accountId: OWNER_ID,
+      name: "Sam",
+      assignedAt: "2026-10-11T09:00:00.000Z",
+      assignedBy: { accountId: session.accountId, name: "Bea" },
+    };
+    return Promise.resolve({ ...moduleInfo, owner });
+  }
+}
+
 describe("registry HTTP API", () => {
   const service = new FakeService();
+  const modules = new FakeModules();
   const events: LogEvent[] = [];
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
-    server = createRegistryServer(service, (event) => events.push(event));
+    server = createRegistryServer({ signIn: service, modules }, (event) => events.push(event));
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
   });
@@ -55,6 +104,7 @@ describe("registry HTTP API", () => {
 
   beforeEach(() => {
     service.requested = [];
+    modules.calls = [];
     events.length = 0;
   });
 
@@ -173,6 +223,104 @@ describe("registry HTTP API", () => {
       ["an unknown token", { authorization: `Bearer ${tenantId}.${"x".repeat(43)}` }],
     ])("answers 401 session_invalid for %s", async (_label, headers) => {
       await expectEnvelope(await fetch(`${base}/v1/session`, { headers }), 401, "session_invalid");
+    });
+  });
+
+  describe("Modules", () => {
+    const buyer = { authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { authorization: `Bearer ${BUILDER_SESSION}` };
+    const ownerPath = `/v1/modules/${MODULE_ID}/owner`;
+
+    it("GET /v1/modules answers 200 ModuleList for any role", async () => {
+      const response = await fetch(`${base}/v1/modules`, { headers: builderAuth });
+      expect(response.status).toBe(200);
+      expect(isModuleList(await response.json())).toBe(true);
+    });
+
+    it("POST /v1/modules answers 201 ModuleInfo for the Buyer and passes kind and name through", async () => {
+      const response = await post("/v1/modules", { kind: "code-stack", name: " Code stack " }, { headers: { ...buyer, "content-type": "application/json" } });
+      expect(response.status).toBe(201);
+      expect(isModuleInfo(await response.json())).toBe(true);
+      expect(modules.calls).toEqual([["create", { kind: "code-stack", name: " Code stack " }]]);
+    });
+
+    it("POST /v1/modules/{id}/owner answers 200 with the owner", async () => {
+      const response = await post(ownerPath, { accountId: OWNER_ID }, { headers: { ...buyer, "content-type": "application/json" } });
+      expect(response.status).toBe(200);
+      const body: unknown = await response.json();
+      expect(isModuleInfo(body)).toBe(true);
+      expect(modules.calls).toEqual([["assign", MODULE_ID, { accountId: OWNER_ID }]]);
+    });
+
+    it.each([
+      ["create", "/v1/modules", { kind: "code-stack", name: "x" }],
+      ["create with a junk body", "/v1/modules", { nope: 1 }],
+      ["assign", `/v1/modules/${MODULE_ID}/owner`, { accountId: OWNER_ID }],
+      ["assign on a malformed id with a junk body", "/v1/modules/nope/owner", ["x"]],
+    ])("answers 403 role_denied to a Builder (%s) before reading the body", async (_label, path, body) => {
+      const response = await post(path, body, { headers: { ...builderAuth, "content-type": "application/json" } });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: "role_denied", subject: "role" });
+      expect(modules.calls).toEqual([]);
+    });
+
+    it.each([
+      ["GET /v1/modules", "GET", "/v1/modules"],
+      ["POST /v1/modules", "POST", "/v1/modules"],
+      ["POST owner", "POST", `/v1/modules/${MODULE_ID}/owner`],
+    ])("answers 401 session_invalid without a bearer token (%s)", async (_label, method, path) => {
+      const init: RequestInit = method === "GET" ? {} : { method, headers: { "content-type": "application/json" }, body: "{}" };
+      await expectEnvelope(await fetch(`${base}${path}`, init), 401, "session_invalid");
+      await expectEnvelope(
+        await fetch(`${base}${path}`, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), authorization: `Bearer ${tenantId}.unknown` } }),
+        401,
+        "session_invalid",
+      );
+      expect(modules.calls).toEqual([]);
+    });
+
+    it.each([
+      ["an extra field", "/v1/modules", { kind: "code-stack", name: "x", id: MODULE_ID }, "id"],
+      ["a non-object", "/v1/modules", ["code-stack"], "body"],
+      ["an extra owner field", `/v1/modules/${MODULE_ID}/owner`, { accountId: OWNER_ID, assignedBy: OWNER_ID }, "assignedBy"],
+    ])("answers 400 invalid_input for %s and calls no service", async (_label, path, body, subject) => {
+      const response = await post(path, body, { headers: { ...buyer, "content-type": "application/json" } });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: "invalid_input", subject });
+      expect(modules.calls).toEqual([]);
+    });
+
+    it("maps the service's envelopes: 400 kind, 409 module_name_taken, 404 module_not_found", async () => {
+      const headers = { ...buyer, "content-type": "application/json" };
+      const badKind = await post("/v1/modules", { kind: "brand", name: "x" }, { headers });
+      expect([badKind.status, await badKind.json()]).toMatchObject([400, { code: "invalid_input", subject: "kind" }]);
+      const missing = await post("/v1/modules", { name: "x" }, { headers });
+      expect([missing.status, await missing.json()]).toMatchObject([400, { subject: "kind" }]);
+      const taken = await post("/v1/modules", { kind: "code-stack", name: "Taken" }, { headers });
+      expect([taken.status, await taken.json()]).toMatchObject([409, { code: "module_name_taken", subject: "name" }]);
+      const unknown = await post(`/v1/modules/${mintUuidV7()}/owner`, { accountId: OWNER_ID }, { headers });
+      expect([unknown.status, await unknown.json()]).toMatchObject([404, { code: "module_not_found" }]);
+    });
+
+    it("answers 405 with both methods in Allow for PUT /v1/modules, and POST only for the owner route", async () => {
+      const modulesPut = await fetch(`${base}/v1/modules`, { method: "PUT", headers: buyer });
+      expect(modulesPut.headers.get("allow")).toBe("GET, POST");
+      await expectEnvelope(modulesPut, 405, "method_not_allowed");
+      const ownerGet = await fetch(`${base}${ownerPath}`, { headers: buyer });
+      expect(ownerGet.headers.get("allow")).toBe("POST");
+      await expectEnvelope(ownerGet, 405, "method_not_allowed");
+    });
+
+    it("logs the owner route by its pattern", async () => {
+      await post(ownerPath, { accountId: OWNER_ID }, { headers: { ...buyer, "content-type": "application/json" } });
+      await expect.poll(() => events.find((e) => e["event"] === "http_request")).toMatchObject({
+        route: "/v1/modules/{id}/owner",
+        status: 200,
+      });
+    });
+
+    it("answers 404 not_found for a path beyond the owner route", async () => {
+      await expectEnvelope(await fetch(`${base}/v1/modules/${MODULE_ID}/owner/x`, { headers: buyer }), 404, "not_found");
     });
   });
 

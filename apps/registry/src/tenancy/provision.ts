@@ -3,6 +3,7 @@ import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb } from "../db/client.ts";
 import { accounts, projects, tenants } from "../db/schema.ts";
+import { isUniqueViolation } from "../db/pg-errors.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { validateProvisionInput } from "./validate.ts";
 import type { ProvisionRequest } from "./validate.ts";
@@ -15,7 +16,6 @@ export interface ProvisionResult {
   readonly accounts: readonly { readonly id: UuidV7; readonly role: Role }[];
 }
 
-const UNIQUE_VIOLATION = "23505";
 const ACCOUNT_EMAIL_UNIQUE = "accounts_tenant_id_email_key";
 
 /**
@@ -78,17 +78,4 @@ export async function writeCompany(db: RegistryDb, request: ProvisionRequest): P
     plan: request.plan,
     accounts: minted.map(({ id, role }) => ({ id, role })),
   };
-}
-
-/** Walk the cause chain (Drizzle wraps driver errors) for a unique violation on `constraint`. */
-function isUniqueViolation(error: unknown, constraint: string): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && typeof current === "object" && current !== null; depth += 1) {
-    const candidate = current as { code?: unknown; constraint?: unknown; cause?: unknown };
-    if (candidate.code === UNIQUE_VIOLATION && candidate.constraint === constraint) {
-      return true;
-    }
-    current = candidate.cause;
-  }
-  return false;
 }

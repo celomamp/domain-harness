@@ -26,7 +26,7 @@ function renderPanel(url: string) {
       Component: Layout,
       children: [
         { path: "/inventory", Component: Inventory },
-        { path: "/standards", Component: Standards },
+        { path: "/standards", Component: Standards, loader: () => ({ list: { modules: [], standardOwners: [] } }) },
       ],
     },
   ]);

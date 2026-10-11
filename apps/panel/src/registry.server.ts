@@ -4,8 +4,23 @@
  * timeout, unexpected status or body) is reported as `unavailable`, never
  * thrown, so a registry outage cannot break a page.
  */
-import { isErrorEnvelope, isSessionCreated, isSessionInfo, REGISTRY_API_PATHS } from "@domain-harness/contract";
-import type { ErrorEnvelope, SessionCreated, SessionInfo } from "@domain-harness/contract";
+import {
+  isErrorEnvelope,
+  isModuleInfo,
+  isModuleList,
+  isSessionCreated,
+  isSessionInfo,
+  MODULE_API_PATHS,
+  moduleOwnerPath,
+  REGISTRY_API_PATHS,
+} from "@domain-harness/contract";
+import type {
+  ErrorEnvelope,
+  ModuleInfo,
+  ModuleList,
+  SessionCreated,
+  SessionInfo,
+} from "@domain-harness/contract";
 
 export const DEFAULT_REGISTRY_URL = "http://127.0.0.1:4100";
 const TIMEOUT_MS = 5_000;
@@ -44,11 +59,13 @@ async function call<T>(
   return { kind: "unavailable" };
 }
 
-const json = (body: unknown): RequestInit => ({
+const json = (body: unknown, headers: Record<string, string> = {}): RequestInit => ({
   method: "POST",
-  headers: { "content-type": "application/json", accept: "application/json" },
+  headers: { "content-type": "application/json", accept: "application/json", ...headers },
   body: JSON.stringify(body),
 });
+
+const bearer = (sessionToken: string): Record<string, string> => ({ authorization: `Bearer ${sessionToken}` });
 
 const isEmptyObject = (value: unknown): value is Record<string, never> =>
   typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 0;
@@ -67,8 +84,35 @@ export function createSession(token: string): Promise<RegistryResult<SessionCrea
 export function getSession(sessionToken: string): Promise<RegistryResult<SessionInfo>> {
   return call(
     REGISTRY_API_PATHS.session,
-    { method: "GET", headers: { authorization: `Bearer ${sessionToken}`, accept: "application/json" } },
+    { method: "GET", headers: { ...bearer(sessionToken), accept: "application/json" } },
     200,
     isSessionInfo,
   );
+}
+
+/** The Company's Modules with their current Standard owners, and the accounts eligible to own one. */
+export function listModules(sessionToken: string): Promise<RegistryResult<ModuleList>> {
+  return call(
+    MODULE_API_PATHS.modules,
+    { method: "GET", headers: { ...bearer(sessionToken), accept: "application/json" } },
+    200,
+    isModuleList,
+  );
+}
+
+/**
+ * Create a Module (the registry allows only the Buyer). `kind` and `name` are
+ * passed as submitted; the registry validates them and answers field errors.
+ */
+export function createModule(sessionToken: string, kind: string, name: string): Promise<RegistryResult<ModuleInfo>> {
+  return call(MODULE_API_PATHS.modules, json({ kind, name }, bearer(sessionToken)), 201, isModuleInfo);
+}
+
+/** Assign a Module's Standard owner (the registry allows only the Buyer). */
+export function assignModuleOwner(
+  sessionToken: string,
+  moduleId: string,
+  accountId: string,
+): Promise<RegistryResult<ModuleInfo>> {
+  return call(moduleOwnerPath(moduleId), json({ accountId }, bearer(sessionToken)), 200, isModuleInfo);
 }

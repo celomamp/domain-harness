@@ -39,7 +39,7 @@ development_status:
   1-1-scaffold-the-monorepo-from-a-researched-open-source-starter: review
   1-2-operator-provisions-a-company-and-its-role-named-accounts: review
   1-3-sign-in-to-a-branded-management-panel: review
-  1-4-buyer-assigns-exactly-one-standard-owner-per-module: backlog
+  1-4-buyer-assigns-exactly-one-standard-owner-per-module: review
   1-5-standard-owner-publishes-a-versioned-code-stack-standard: backlog
   1-6-standard-owner-publishes-design-system-components-tokens-and: backlog
   epic-1-retrospective: optional

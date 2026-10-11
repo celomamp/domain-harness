@@ -1,8 +1,8 @@
-import { foreignKey, index, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { isNull } from "drizzle-orm";
-import { PLANS, ROLES } from "@domain-harness/contract";
+import { foreignKey, index, integer, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { isNull, sql } from "drizzle-orm";
+import { MODULE_KINDS, PLANS, ROLES } from "@domain-harness/contract";
 
-// Drizzle mirror of migrations/0001_tenancy.sql and 0002_sign_in.sql, used for typed queries only.
+// Drizzle mirror of migrations/0001_tenancy.sql, 0002_sign_in.sql and 0003_modules.sql, used for typed queries only.
 // The SQL migration is the source of truth for constraints, RLS and grants.
 
 export const tenants = pgTable("tenants", {
@@ -100,8 +100,74 @@ export const sessions = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 and 0002. */
-export const TENANT_TABLES = ["tenants", "accounts", "projects", "sign_in_links", "sessions"] as const;
+/** Modules. The owner is never a column: it is the latest {@link moduleOwnerAssignments} row. */
+export const modules = pgTable(
+  "modules",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    kind: text("kind", { enum: MODULE_KINDS }).notNull(),
+    name: text("name").notNull(),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("modules_tenant_id_id_key").on(table.tenantId, table.id),
+    uniqueIndex("modules_tenant_id_lower_name_key").on(table.tenantId, sql`lower(${table.name})`),
+    foreignKey({
+      name: "modules_created_by_fkey",
+      columns: [table.tenantId, table.createdBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** Append-only Standard-owner assignments; the current owner has the highest `sequence` for its Module. */
+export const moduleOwnerAssignments = pgTable(
+  "module_owner_assignments",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    moduleId: uuid("module_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    ownerAccountId: uuid("owner_account_id").notNull(),
+    assignedBy: uuid("assigned_by").notNull(),
+    assignedAt: timestamp("assigned_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("module_owner_assignments_module_id_sequence_key").on(table.moduleId, table.sequence),
+    foreignKey({
+      name: "module_owner_assignments_module_fkey",
+      columns: [table.tenantId, table.moduleId],
+      foreignColumns: [modules.tenantId, modules.id],
+    }),
+    foreignKey({
+      name: "module_owner_assignments_owner_fkey",
+      columns: [table.tenantId, table.ownerAccountId],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+    foreignKey({
+      name: "module_owner_assignments_assigned_by_fkey",
+      columns: [table.tenantId, table.assignedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0003. */
+export const TENANT_TABLES = [
+  "tenants",
+  "accounts",
+  "projects",
+  "sign_in_links",
+  "sessions",
+  "modules",
+  "module_owner_assignments",
+] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */
 export const SIGN_IN_LOOKUP_ROLE = "dh_sign_in_lookup";

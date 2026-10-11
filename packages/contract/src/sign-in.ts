@@ -5,6 +5,7 @@
  */
 import { isRole } from "./accounts.ts";
 import type { Role } from "./accounts.ts";
+import { isRecord, isUtcIso } from "./guards.ts";
 import { isUuidV7 } from "./ids.ts";
 import type { UuidV7 } from "./ids.ts";
 
@@ -74,21 +75,13 @@ export function isSessionInfo(value: unknown): value is SessionInfo {
   );
 }
 
-// UTC ISO-8601 as produced by Date#toISOString.
-const UTC_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
-
 /** True when `value` is a {@link SessionCreated}. Never throws. */
 export function isSessionCreated(value: unknown): value is SessionCreated {
   return (
     isRecord(value) &&
     typeof value["sessionToken"] === "string" &&
     value["sessionToken"] !== "" &&
-    typeof value["expiresAt"] === "string" &&
-    UTC_ISO.test(value["expiresAt"]) &&
+    isUtcIso(value["expiresAt"]) &&
     isSessionInfo(value["session"])
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

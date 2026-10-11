@@ -12,6 +12,7 @@ import { createPool, createRegistryDb } from "../db/client.ts";
 import { assertRuntimeRoleSafe } from "../db/tenant-scope.ts";
 import { createTransportFromEnv } from "../mail/from-env.ts";
 import { reportFailure } from "../operator/output.ts";
+import { createModuleService } from "../modules/service.ts";
 import { createSignInService } from "../sign-in/service.ts";
 import { createRegistryServer, stdoutLogger } from "./server.ts";
 
@@ -78,7 +79,10 @@ async function main(): Promise<void> {
     );
   }
 
-  const server = createRegistryServer(createSignInService(db, mailer, config), stdoutLogger);
+  const server = createRegistryServer(
+    { signIn: createSignInService(db, mailer, config), modules: createModuleService(db) },
+    stdoutLogger,
+  );
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(listenPort, host, () => {

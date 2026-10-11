@@ -1,8 +1,19 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { isEmailAddress, REGISTRY_API_PATHS, SESSION_INVALID, SIGN_IN_LINK_INVALID } from "@domain-harness/contract";
-import type { ErrorEnvelope } from "@domain-harness/contract";
+import {
+  isEmailAddress,
+  MODULE_API_PATHS,
+  MODULE_NAME_TAKEN,
+  MODULE_NOT_FOUND,
+  REGISTRY_API_PATHS,
+  ROLE_DENIED,
+  SESSION_INVALID,
+  SIGN_IN_LINK_INVALID,
+} from "@domain-harness/contract";
+import type { ErrorEnvelope, SessionInfo } from "@domain-harness/contract";
 import { isEnvelopeError } from "../errors.ts";
+import { assertBuyer } from "../modules/service.ts";
+import type { ModuleService } from "../modules/service.ts";
 import type { SignInService } from "../sign-in/service.ts";
 
 /** Request bodies larger than this are refused with 413. */
@@ -21,17 +32,55 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
   invalid_input: 400,
   [SIGN_IN_LINK_INVALID]: 401,
   [SESSION_INVALID]: 401,
+  [ROLE_DENIED]: 403,
   not_found: 404,
+  [MODULE_NOT_FOUND]: 404,
   method_not_allowed: 405,
+  [MODULE_NAME_TAKEN]: 409,
   payload_too_large: 413,
   unsupported_media_type: 415,
 };
 
-const ROUTES: Readonly<Record<string, string>> = {
-  [REGISTRY_API_PATHS.signInLinks]: "POST",
-  [REGISTRY_API_PATHS.sessions]: "POST",
-  [REGISTRY_API_PATHS.session]: "GET",
+/** The logged name of the one parameterised route. */
+const MODULE_OWNER_ROUTE = `${MODULE_API_PATHS.modules}/{id}/owner`;
+const MODULE_OWNER_PATH = /^\/v1\/modules\/([^/]+)\/owner$/;
+
+/** Allowed methods per route. */
+const ROUTES: Readonly<Record<string, readonly string[]>> = {
+  [REGISTRY_API_PATHS.signInLinks]: ["POST"],
+  [REGISTRY_API_PATHS.sessions]: ["POST"],
+  [REGISTRY_API_PATHS.session]: ["GET"],
+  [MODULE_API_PATHS.modules]: ["GET", "POST"],
+  [MODULE_OWNER_ROUTE]: ["POST"],
 };
+
+interface RouteMatch {
+  /** A key of {@link ROUTES}, or "unmatched". */
+  readonly route: string;
+  /** The raw `{id}` path segment of the owner route. */
+  readonly moduleId?: string;
+}
+
+function matchRoute(path: string): RouteMatch {
+  if (path in ROUTES) return { route: path };
+  const owner = MODULE_OWNER_PATH.exec(path);
+  if (owner?.[1] !== undefined) {
+    let moduleId: string;
+    try {
+      moduleId = decodeURIComponent(owner[1]);
+    } catch {
+      moduleId = owner[1];
+    }
+    return { route: MODULE_OWNER_ROUTE, moduleId };
+  }
+  return { route: "unmatched" };
+}
+
+/** The services the HTTP API serves. */
+export interface RegistryServices {
+  readonly signIn: SignInService;
+  readonly modules: ModuleService;
+}
 
 class HttpFailure extends Error {
   readonly envelope: ErrorEnvelope;
@@ -42,28 +91,32 @@ class HttpFailure extends Error {
 }
 
 /**
- * The registry's internal JSON API (sign-in only, for now). Every error is
- * one `{ code, message, subject }` envelope.
+ * The registry's internal JSON API: sign-in and Modules. Every error is one
+ * `{ code, message, subject }` envelope. Module calls authenticate with
+ * `Authorization: Bearer <session token>`; creating a Module or assigning its
+ * owner is refused with `role_denied` for any role but the Buyer, before the
+ * body is read.
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
  * finished, so neither the status, the body nor the timing reveals whether an
  * account exists.
  */
-export function createRegistryServer(service: SignInService, log: Logger = stdoutLogger): Server {
+export function createRegistryServer(services: RegistryServices, log: Logger = stdoutLogger): Server {
   return createServer((req, res) => {
     const started = performance.now();
     const path = requestPath(req.url);
+    const match = matchRoute(path);
     res.on("finish", () => {
       log({
         event: "http_request",
         method: req.method ?? "",
-        route: path in ROUTES ? path : "unmatched",
+        route: match.route,
         status: res.statusCode,
         ms: Math.round(performance.now() - started),
       });
     });
-    handle(service, log, req, res, path).catch((error: unknown) => {
+    handle(services, log, req, res, path, match).catch((error: unknown) => {
       if (error instanceof HttpFailure) {
         sendError(res, error.envelope);
         return;
@@ -80,22 +133,25 @@ export function createRegistryServer(service: SignInService, log: Logger = stdou
 }
 
 async function handle(
-  service: SignInService,
+  services: RegistryServices,
   log: Logger,
   req: IncomingMessage,
   res: ServerResponse,
   path: string,
+  match: RouteMatch,
 ): Promise<void> {
-  const method = ROUTES[path];
-  if (method === undefined) {
+  const methods = ROUTES[match.route];
+  if (methods === undefined) {
     throw new HttpFailure({ code: "not_found", message: "no such registry endpoint", subject: path });
   }
-  if (req.method !== method) {
-    res.setHeader("Allow", method);
-    throw new HttpFailure({ code: "method_not_allowed", message: `use ${method}`, subject: path });
+  if (req.method === undefined || !methods.includes(req.method)) {
+    const allowed = methods.join(", ");
+    res.setHeader("Allow", allowed);
+    throw new HttpFailure({ code: "method_not_allowed", message: `use ${allowed}`, subject: path });
   }
+  const service = services.signIn;
 
-  switch (path) {
+  switch (match.route) {
     case REGISTRY_API_PATHS.signInLinks: {
       const body = await readJson(req);
       const email = onlyField(body, "email");
@@ -126,19 +182,57 @@ async function handle(
       sendJson(res, 201, await service.createSession(token));
       return;
     }
-    default: {
-      const header = req.headers.authorization ?? "";
-      const match = /^Bearer +(\S+)$/i.exec(header);
-      if (match?.[1] === undefined) {
-        throw new HttpFailure({
-          code: SESSION_INVALID,
-          message: "the session is not valid or has expired",
-          subject: "session",
-        });
+    case REGISTRY_API_PATHS.session: {
+      sendJson(res, 200, await service.getSession(bearerToken(req)));
+      return;
+    }
+    case MODULE_API_PATHS.modules: {
+      const session = await service.getSession(bearerToken(req));
+      if (req.method === "GET") {
+        sendJson(res, 200, await services.modules.listModules(session));
+        return;
       }
-      sendJson(res, 200, await service.getSession(match[1]));
+      requireBuyer(req, session);
+      const body = fields(await readJson(req), ["kind", "name"]);
+      sendJson(res, 201, await services.modules.createModule(session, { kind: body["kind"], name: body["name"] }));
+      return;
+    }
+    default: {
+      // MODULE_OWNER_ROUTE
+      const session = await service.getSession(bearerToken(req));
+      requireBuyer(req, session);
+      const body = fields(await readJson(req), ["accountId"]);
+      const module = await services.modules.assignModuleOwner(session, match.moduleId ?? "", {
+        accountId: body["accountId"],
+      });
+      sendJson(res, 200, module);
     }
   }
+}
+
+/** `role_denied` before the body is read (it is drained, never parsed) unless the session is the Buyer's. */
+function requireBuyer(req: IncomingMessage, session: SessionInfo): void {
+  try {
+    assertBuyer(session);
+  } catch (error) {
+    req.resume();
+    throw error;
+  }
+}
+
+/** The token of an `Authorization: Bearer <token>` header (scheme in any case), or `session_invalid`. */
+function bearerToken(req: IncomingMessage): string {
+  const header = req.headers.authorization ?? "";
+  const match = /^Bearer +(\S+)$/i.exec(header);
+  if (match?.[1] === undefined) {
+    req.resume();
+    throw new HttpFailure({
+      code: SESSION_INVALID,
+      message: "the session is not valid or has expired",
+      subject: "session",
+    });
+  }
+  return match[1];
 }
 
 /** The request path, or "" (an unmatched route) when the target cannot be parsed. */
@@ -206,6 +300,27 @@ function onlyField(body: unknown, field: string): unknown {
     throw new HttpFailure({ code: "invalid_input", message: "the body has an unsupported field", subject: extra });
   }
   return record[field];
+}
+
+/**
+ * `body` as a record when it is an object whose keys are all among `allowed`;
+ * otherwise `invalid_input`. A missing field is left undefined for the
+ * service to report under its own name.
+ */
+function fields(body: unknown, allowed: readonly string[]): Record<string, unknown> {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new HttpFailure({
+      code: "invalid_input",
+      message: `the body must be an object with ${allowed.join(", ")}`,
+      subject: "body",
+    });
+  }
+  const record = body as Record<string, unknown>;
+  const extra = Object.keys(record).find((key) => !allowed.includes(key));
+  if (extra !== undefined) {
+    throw new HttpFailure({ code: "invalid_input", message: "the body has an unsupported field", subject: extra });
+  }
+  return record;
 }
 
 function sendError(res: ServerResponse, envelope: ErrorEnvelope): void {

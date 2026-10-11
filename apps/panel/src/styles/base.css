@@ -28,6 +28,7 @@ body {
 
 h1,
 h2,
+h3,
 p {
   margin: 0;
 }
@@ -56,6 +57,14 @@ a {
   font-weight: var(--type-title-weight);
   line-height: var(--type-title-line-height);
   letter-spacing: var(--type-title-letter-spacing);
+}
+
+.type-title-sm {
+  font-family: var(--type-title-sm-family);
+  font-size: var(--type-title-sm-size);
+  font-weight: var(--type-title-sm-weight);
+  line-height: var(--type-title-sm-line-height);
+  letter-spacing: var(--type-title-sm-letter-spacing);
 }
 
 .type-body-light {
