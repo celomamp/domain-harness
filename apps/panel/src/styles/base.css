@@ -1,0 +1,75 @@
+/*
+  Base styles for the management panel. Every value is a token custom
+  property from src/design/tokens.ts (emitted by tokenCss in root.tsx):
+  no literal colors or pixel sizes here (a test scans for them).
+*/
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-surface-base);
+  color: var(--color-ink);
+  font-family: var(--type-body-family);
+  font-size: var(--type-body-size);
+  font-weight: var(--type-body-weight);
+  line-height: var(--type-body-line-height);
+  letter-spacing: var(--type-body-letter-spacing);
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--color-ink);
+}
+
+/* The ink focus ring: visible on every focusable element, never gold. */
+:focus-visible {
+  outline: var(--size-focus-ring) solid var(--color-ink);
+  outline-offset: var(--size-focus-offset);
+}
+
+.type-display {
+  font-family: var(--type-display-family);
+  font-size: clamp(var(--type-headline-size), 10vw, var(--type-display-size));
+  font-weight: var(--type-display-weight);
+  line-height: var(--type-display-line-height);
+  letter-spacing: var(--type-display-letter-spacing);
+}
+
+.type-title {
+  font-family: var(--type-title-family);
+  font-size: clamp(var(--type-title-sm-size), 9vw, var(--type-title-size));
+  font-weight: var(--type-title-weight);
+  line-height: var(--type-title-line-height);
+  letter-spacing: var(--type-title-letter-spacing);
+}
+
+.type-body-light {
+  font-family: var(--type-body-light-family);
+  font-size: var(--type-body-light-size);
+  font-weight: var(--type-body-light-weight);
+  line-height: var(--type-body-light-line-height);
+  letter-spacing: var(--type-body-light-letter-spacing);
+}
+
+.type-label {
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  line-height: var(--type-label-line-height);
+  letter-spacing: var(--type-label-letter-spacing);
+}

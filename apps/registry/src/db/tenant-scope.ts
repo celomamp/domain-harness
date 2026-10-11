@@ -3,7 +3,7 @@ import { isUuidV7 } from "@domain-harness/contract";
 import type { UuidV7 } from "@domain-harness/contract";
 import { EnvelopeError } from "../errors.ts";
 import type { RegistryDb, RegistryTx } from "./client.ts";
-import { TENANT_TABLES } from "./schema.ts";
+import { SIGN_IN_LOOKUP_ROLE, TENANT_TABLES } from "./schema.ts";
 
 /**
  * Throw `tenant_required` unless `tenantId` is a canonical UUIDv7.
@@ -39,12 +39,15 @@ interface RoleFacts extends Record<string, unknown> {
   is_superuser: boolean;
   bypasses_rls: boolean;
   owns_tables: boolean;
+  is_lookup_member: boolean;
 }
 
 /**
  * Refuse a runtime connection whose current role would defeat RLS: a
  * superuser, a role with BYPASSRLS, or a role that owns (or is a member of the
- * owner of) any tenant-scoped table. Throws `unsafe_database_role`.
+ * owner of) any tenant-scoped table, or a member of the cross-tenant lookup
+ * role `dh_sign_in_lookup` (its policy sees every account). Throws
+ * `unsafe_database_role`.
  */
 export async function assertRuntimeRoleSafe(db: RegistryDb): Promise<void> {
   const tables = sql.join(
@@ -63,7 +66,13 @@ export async function assertRuntimeRoleSafe(db: RegistryDb): Promise<void> {
         where n.nspname = 'public'
           and c.relname in (${tables})
           and pg_has_role(current_user, c.relowner, 'MEMBER')
-      ) as owns_tables
+      ) as owns_tables,
+      exists (
+        select 1
+        from pg_roles l
+        where l.rolname = ${SIGN_IN_LOOKUP_ROLE}
+          and pg_has_role(current_user, l.oid, 'MEMBER')
+      ) as is_lookup_member
     from pg_roles r
     where r.rolname = current_user
   `);
@@ -77,7 +86,9 @@ export async function assertRuntimeRoleSafe(db: RegistryDb): Promise<void> {
           ? "the current role has BYPASSRLS"
           : facts.owns_tables
             ? "the current role owns a tenant-scoped table"
-            : undefined;
+            : facts.is_lookup_member
+              ? "the current role is a member of dh_sign_in_lookup"
+              : undefined;
   if (reason !== undefined) {
     throw new EnvelopeError({
       code: "unsafe_database_role",

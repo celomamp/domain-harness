@@ -34,7 +34,7 @@ tooling/
 
 ```sh
 pnpm install          # install the workspace
-pnpm run build        # tsc -b in every package (TypeScript 7)
+pnpm run build        # tsc -b in every package (TypeScript 7); react-router build for the panel
 pnpm run typecheck    # typecheck sources and tests
 pnpm run lint         # ESLint with typescript-eslint
 pnpm run boundaries   # dependency-boundary check (.dependency-cruiser.cjs)
@@ -105,6 +105,37 @@ REGISTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres 
 ```
 
 Without it, the suite is skipped with a printed reason; when `CI` is set, a missing URL fails the run.
+
+## Sign-in and the management panel
+
+The registry serves a small internal JSON API that the panel calls over HTTP; the panel never touches the database.
+
+| Variable | Used by | Meaning |
+| --- | --- | --- |
+| `REGISTRY_DATABASE_URL` | registry `serve` | runtime role, as for `provision` |
+| `REGISTRY_HTTP_HOST`, `REGISTRY_HTTP_PORT` | registry `serve` | listen address, default `127.0.0.1:4100` |
+| `REGISTRY_PANEL_URL` | registry `serve` | the panel's public base URL; emailed links point at `<url>/sign-in/verify` |
+| `REGISTRY_SMTP_URL` + `REGISTRY_MAIL_FROM` | registry `serve` | real delivery over SMTP (Nodemailer) |
+| `REGISTRY_MAIL_OUTBOX_DIR` | registry `serve` | local delivery: one JSON file per message, mode 0600 |
+| `PANEL_REGISTRY_URL` | panel | registry API base URL, default `http://127.0.0.1:4100` |
+| `PORT`, `HOST` | panel `start` | where the panel server (`apps/panel/server.js`) listens (default port 3000, all interfaces) |
+
+Set exactly one of SMTP or the outbox; otherwise `serve` refuses to start. Run both locally and sign in through the outbox (after `migrate` and `provision` above):
+
+```sh
+# terminal 1: registry API, mail written to ./.outbox (ignored by git)
+export REGISTRY_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?options=-c%20role%3Ddh_registry_app'
+REGISTRY_PANEL_URL=http://localhost:3000 REGISTRY_MAIL_OUTBOX_DIR="$PWD/.outbox" \
+  pnpm --filter @domain-harness/registry serve
+
+# terminal 2: the panel (production build); `pnpm --filter @domain-harness/panel dev` serves on :5173 instead
+pnpm --filter @domain-harness/panel build
+pnpm --filter @domain-harness/panel start
+```
+
+Open `http://localhost:3000/sign-in`, enter a provisioned address, then open the link in the newest `.outbox/*.json` file. It works once and expires after 15 minutes; the session lasts 12 hours. Any well-formed address shows the same "Check your email for a sign-in link" text. With `pnpm dev`, set `REGISTRY_PANEL_URL=http://localhost:5173`.
+
+The sign-in database suite (`apps/registry/src/sign-in/sign-in.db.test.ts`) runs with the tenancy suite under `REGISTRY_TEST_DATABASE_URL`.
 
 ## Telemetry
 

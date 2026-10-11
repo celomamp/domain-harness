@@ -8,6 +8,10 @@ dist
 *.tsbuildinfo
 .turbo
 coverage
+.react-router
+
+# Local mail outbox for sign-in links (REGISTRY_MAIL_OUTBOX_DIR)
+.outbox
 
 # Local env files (secrets never live in the repository)
 .env

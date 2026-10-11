@@ -1,4 +1,4 @@
-import { DEFAULT_PLAN, isPlan, isRole, PLANS, ROLES } from "@domain-harness/contract";
+import { DEFAULT_PLAN, isEmailAddress, isPlan, isRole, normalizeEmail, PLANS, ROLES } from "@domain-harness/contract";
 import type { ErrorEnvelope, Plan, Role } from "@domain-harness/contract";
 
 /** One account to provision, normalized. */
@@ -22,13 +22,8 @@ export type ValidationResult =
 
 const TOP_LEVEL_KEYS = new Set(["company", "plan", "accounts"]);
 const ACCOUNT_KEYS = new Set(["name", "email", "role"]);
-// Deliberately loose: one "@", no whitespace, a dot in the domain.
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** Trim and lower-case an email; the stored and compared form. */
-export function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
+/** Trim and lower-case an email; the stored and compared form (shared with the panel through contract). */
+export { normalizeEmail };
 
 /**
  * Validate the whole operator input before anything is written. Pure: no I/O.
@@ -81,7 +76,7 @@ export function validateProvisionInput(raw: unknown): ValidationResult {
     }
 
     const rawEmail = entry["email"];
-    if (typeof rawEmail !== "string" || !EMAIL.test(normalizeEmail(rawEmail))) {
+    if (!isEmailAddress(rawEmail)) {
       return fail("invalid_input", `${at}.email must be a non-empty email address`, `${at}.email`);
     }
     const email = normalizeEmail(rawEmail);

@@ -5,7 +5,7 @@
 // may use the shared tooling packages.
 
 /** Tests may also import their runner. */
-const TEST_FILE = "\\.test\\.ts$";
+const TEST_FILE = "\\.test\\.tsx?$";
 const VITEST = "(^|/)node_modules/vitest/";
 
 /** @type {import("dependency-cruiser").IConfiguration} */
@@ -88,7 +88,11 @@ module.exports = {
     doNotFollow: { path: "(^|/)node_modules/" },
     // node_modules is not excluded (that would drop npm edges and silence the npm
     // rules); doNotFollow keeps the cruise from descending into it.
-    exclude: { path: ["(^|/)(dist|coverage)/", "^tooling/boundaries/fixtures/"] },
+    // Build output is excluded only inside workspace units: an npm package whose
+    // entry sits in its own dist/ must stay visible to the npm rules.
+    exclude: {
+      path: ["^(apps|packages|tooling)/[^/]+/(dist|coverage|build|\\.react-router)/", "^tooling/boundaries/fixtures/"],
+    },
     // Type-only imports count: a boundary holds for types as well as values.
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {
@@ -96,7 +100,7 @@ module.exports = {
       // Workspace packages expose their TypeScript source under this condition,
       // so the check runs on a fresh clone before anything is built.
       conditionNames: ["@domain-harness/source", "import", "types", "default"],
-      extensions: [".ts", ".js", ".cjs", ".mjs", ".json"],
+      extensions: [".ts", ".tsx", ".js", ".cjs", ".mjs", ".json"],
     },
   },
 };

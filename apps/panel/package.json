@@ -5,20 +5,39 @@
   "description": "Vendor management panel.",
   "type": "module",
   "scripts": {
-    "build": "tsc -b tsconfig.build.json",
+    "dev": "react-router dev",
+    "build": "react-router build",
+    "start": "node server.js",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run"
   },
   "dependencies": {
-    "@domain-harness/contract": "workspace:*"
+    "@domain-harness/contract": "workspace:*",
+    "@fontsource/poppins": "catalog:",
+    "@fontsource/sora": "catalog:",
+    "@react-router/express": "catalog:",
+    "@react-router/node": "catalog:",
+    "express": "catalog:",
+    "isbot": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-router": "catalog:"
   },
   "devDependencies": {
     "@domain-harness/eslint-config": "workspace:*",
     "@domain-harness/tsconfig": "workspace:*",
+    "@react-router/dev": "catalog:",
+    "@testing-library/dom": "catalog:",
+    "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "eslint": "catalog:",
+    "jsdom": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "yaml": "catalog:"
   }
 }

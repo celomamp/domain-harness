@@ -29,6 +29,7 @@ const inCi = process.env["CI"] !== undefined && process.env["CI"] !== "" && proc
 const APP_ROLE = "dh_registry_app";
 const run = promisify(execFile);
 const REGISTRY_ROOT = resolve(import.meta.dirname, "../..");
+const MIGRATION_SUITE_LOCK = 7_202_610_103;
 
 if (adminUrl === undefined || adminUrl === "") {
   if (inCi) {
@@ -86,7 +87,15 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
     appUrl = withDatabase(adminUrl ?? "", database, APP_ROLE);
     owner = new pg.Client({ connectionString: ownerUrl });
     await owner.connect();
-    await migrate(owner);
+    // Roles are cluster-wide: serialise migrations with any other database
+    // suite running in parallel (advisory locks are per database, and every
+    // suite's admin connection uses the same one).
+    await admin.query("select pg_advisory_lock($1)", [MIGRATION_SUITE_LOCK]);
+    try {
+      await migrate(owner);
+    } finally {
+      await admin.query("select pg_advisory_unlock($1)", [MIGRATION_SUITE_LOCK]);
+    }
     appPool = new pg.Pool({ connectionString: appUrl, max: 4 });
     db = createRegistryDb(appPool);
   }, 60_000);
@@ -99,12 +108,19 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
   }, 60_000);
 
   describe("migration", () => {
-    it("creates only tenants, accounts, projects and registry_migrations", async () => {
+    it("creates only the tenancy and sign-in tables and registry_migrations", async () => {
       const { rows } = await owner.query<{ relname: string }>(
         `select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
          where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm') order by 1`,
       );
-      expect(rows.map((r) => r.relname)).toEqual(["accounts", "projects", "registry_migrations", "tenants"]);
+      expect(rows.map((r) => r.relname)).toEqual([
+        "accounts",
+        "projects",
+        "registry_migrations",
+        "sessions",
+        "sign_in_links",
+        "tenants",
+      ]);
     });
 
     it("enables and forces RLS on every tenant table, owned by someone other than the app role", async () => {
@@ -120,7 +136,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
       }
     });
 
-    it("leaves the app role a NOLOGIN, non-bypassing role that owns nothing and may only SELECT and INSERT", async () => {
+    it("leaves the app role a NOLOGIN, non-bypassing role that owns nothing and may only SELECT and INSERT (whole tables)", async () => {
       const role = await owner.query<{ rolcanlogin: boolean; rolsuper: boolean; rolbypassrls: boolean }>(
         "select rolcanlogin, rolsuper, rolbypassrls from pg_roles where rolname = $1",
         [APP_ROLE],
@@ -139,7 +155,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         [APP_ROLE],
       );
       expect(privileges.rows).toEqual(
-        ["accounts", "projects", "tenants"].flatMap((t) => [
+        ["accounts", "projects", "sessions", "sign_in_links", "tenants"].flatMap((t) => [
           { table_name: t, privilege_type: "INSERT" },
           { table_name: t, privilege_type: "SELECT" },
         ]),
@@ -148,7 +164,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
 
     it("is idempotent: a second run applies nothing", async () => {
       const report = await migrate(owner);
-      expect(report).toEqual({ applied: [], alreadyApplied: 1 });
+      expect(report).toEqual({ applied: [], alreadyApplied: 2 });
     });
 
     it("rejects a misnamed .sql file before applying anything", async () => {
@@ -194,7 +210,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         cwd: REGISTRY_ROOT,
         env: { ...process.env, REGISTRY_MIGRATION_DATABASE_URL: ownerUrl },
       });
-      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 1 });
+      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 2 });
     });
   });
 

@@ -87,6 +87,12 @@ describe("boundary check on fixtures", () => {
     ]);
   });
 
+  it("fails when a panel .tsx source imports core", async () => {
+    expect(lines(await checkBoundaries(fixture("panel-tsx-imports-core")))).toEqual([
+      'panel-imports-only-contract: apps/panel/src/slot.tsx imports "../../../packages/core/src/index.ts" (resolves to packages/core/src/index.ts)',
+    ]);
+  });
+
   it("fails when the registry imports anything beyond core and contract", async () => {
     expect(lines(await checkBoundaries(fixture("registry-imports-extractor")))).toEqual([
       'registry-imports-only-core-and-contract: apps/registry/src/index.ts imports "../../../packages/extractor/src/index.ts" (resolves to packages/extractor/src/index.ts)',

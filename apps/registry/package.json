@@ -10,17 +10,20 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "migrate": "node --conditions=@domain-harness/source src/db/migrate-cli.ts",
-    "provision": "node --conditions=@domain-harness/source src/operator/provision-cli.ts"
+    "provision": "node --conditions=@domain-harness/source src/operator/provision-cli.ts",
+    "serve": "node --conditions=@domain-harness/source src/http/serve-cli.ts"
   },
   "dependencies": {
     "@domain-harness/contract": "workspace:*",
     "drizzle-orm": "catalog:",
+    "nodemailer": "catalog:",
     "pg": "catalog:"
   },
   "devDependencies": {
     "@domain-harness/eslint-config": "workspace:*",
     "@domain-harness/tsconfig": "workspace:*",
     "@types/node": "catalog:",
+    "@types/nodemailer": "catalog:",
     "@types/pg": "catalog:",
     "eslint": "catalog:",
     "typescript": "catalog:",

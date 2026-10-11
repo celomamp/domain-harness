@@ -1,8 +1,8 @@
-import { foreignKey, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { foreignKey, index, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { isNull } from "drizzle-orm";
 import { PLANS, ROLES } from "@domain-harness/contract";
 
-// Drizzle mirror of migrations/0001_tenancy.sql, used for typed queries only.
+// Drizzle mirror of migrations/0001_tenancy.sql and 0002_sign_in.sql, used for typed queries only.
 // The SQL migration is the source of truth for constraints, RLS and grants.
 
 export const tenants = pgTable("tenants", {
@@ -46,8 +46,62 @@ export const accounts = pgTable(
     role: text("role", { enum: ROLES }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
-  (table) => [unique("accounts_tenant_id_email_key").on(table.tenantId, table.email)],
+  (table) => [
+    unique("accounts_tenant_id_email_key").on(table.tenantId, table.email),
+    unique("accounts_tenant_id_id_key").on(table.tenantId, table.id),
+    index("accounts_email_idx").on(table.email),
+  ],
 );
 
-/** The tenant-scoped tables created by migration 0001. */
-export const TENANT_TABLES = ["tenants", "accounts", "projects"] as const;
+/** Single-use sign-in links. Only the SHA-256 (hex) of the token is stored. */
+export const signInLinks = pgTable(
+  "sign_in_links",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    accountId: uuid("account_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true, mode: "date" }),
+  },
+  (table) => [
+    unique("sign_in_links_token_hash_key").on(table.tokenHash),
+    foreignKey({
+      name: "sign_in_links_account_fkey",
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** Panel sessions. Only the SHA-256 (hex) of the token is stored. */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    accountId: uuid("account_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+  },
+  (table) => [
+    unique("sessions_token_hash_key").on(table.tokenHash),
+    foreignKey({
+      name: "sessions_account_fkey",
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 and 0002. */
+export const TENANT_TABLES = ["tenants", "accounts", "projects", "sign_in_links", "sessions"] as const;
+
+/** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */
+export const SIGN_IN_LOOKUP_ROLE = "dh_sign_in_lookup";

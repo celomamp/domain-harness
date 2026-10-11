@@ -2,11 +2,15 @@
   "extends": "@domain-harness/tsconfig/base.json",
   "compilerOptions": {
     "noEmit": true,
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "types": ["node", "vite/client"],
+    "jsx": "react-jsx",
     "customConditions": [
       "@domain-harness/source"
     ]
   },
   "include": [
-    "src"
+    "src",
+    "*.config.ts"
   ]
 }

@@ -1,0 +1,175 @@
+/*
+  Components from DESIGN.md: button-primary, button-inverse, denial,
+  panel-chrome, sign-in (with standard-form fields). Gold (the accent tokens)
+  appears only on button-primary, and only as a fill.
+*/
+
+/* button-primary: gold fill, ink-on-accent text, 4px radius, label-strong, 8px 22px. */
+.button-primary,
+.button-inverse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--size-target-min);
+  min-width: var(--size-target-min);
+  padding: var(--space-2) var(--size-button-padding-inline);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-family: var(--type-label-strong-family);
+  font-size: var(--type-label-strong-size);
+  font-weight: var(--type-label-strong-weight);
+  line-height: var(--type-label-strong-line-height);
+  letter-spacing: var(--type-label-strong-letter-spacing);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-primary {
+  background: var(--color-accent);
+  color: var(--color-ink-on-accent);
+}
+
+/* The only hover: accent-strong fill. */
+.button-primary:hover {
+  background: var(--color-accent-strong);
+}
+
+/* button-inverse: secondary commits only, never publish. */
+.button-inverse {
+  background: var(--color-ink-secondary);
+  color: var(--color-inverse);
+}
+
+/* denial: raised surface, ink body text, hairline border; the word is the state. */
+.denial {
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-form);
+}
+
+/* A status line that is not a denial: plain ink body text on the canvas. */
+.status-text {
+  color: var(--color-ink);
+}
+
+/* panel-chrome: raised band, wordmark, role as text, nav (current = weight 600, not gold). */
+.panel-chrome {
+  padding: var(--space-4) var(--space-5) 0;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border-bottom: var(--size-hairline) solid var(--color-border);
+}
+
+.panel-chrome__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.panel-chrome__wordmark {
+  font-family: var(--type-title-sm-family);
+  font-size: var(--type-title-sm-size);
+  font-weight: var(--type-title-sm-weight);
+  line-height: var(--type-title-sm-line-height);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+}
+
+.panel-chrome__role {
+  color: var(--color-ink-secondary);
+}
+
+.panel-chrome__nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0 0 var(--space-3);
+  list-style: none;
+}
+
+.panel-chrome__nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--size-target-min);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+.panel-chrome__nav a:hover {
+  text-decoration: underline;
+}
+
+.panel-chrome__nav a[aria-current="page"] {
+  font-weight: var(--type-label-strong-weight);
+}
+
+.panel-main {
+  display: grid;
+  gap: var(--space-4);
+  max-width: var(--size-content-measure);
+  padding: var(--space-5);
+}
+
+/* sign-in: cream canvas, one standard-form field. */
+.sign-in {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  max-width: var(--size-form-measure);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-4);
+  background: var(--color-surface-base);
+  color: var(--color-ink);
+}
+
+.sign-in__wordmark {
+  font-family: var(--type-title-sm-family);
+  font-size: var(--type-title-sm-size);
+  font-weight: var(--type-title-sm-weight);
+  line-height: var(--type-title-sm-line-height);
+}
+
+/* standard-form: raised, 8px radius, white inputs with a 1px border, 12px inline padding, Sora 16. */
+.standard-form {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-form);
+}
+
+.standard-form label {
+  color: var(--color-ink-secondary);
+}
+
+.standard-form input {
+  width: 100%;
+  min-height: var(--size-field-min);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-form);
+  font-family: var(--type-body-family);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line-height);
+}
+
+.standard-form .field-error {
+  color: var(--color-ink);
+}
+
+.standard-form .button-primary {
+  justify-self: start;
+}

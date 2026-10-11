@@ -6,18 +6,42 @@ packages:
 # One version per tool across the workspace. See docs/decisions/starter-template.md.
 catalog:
   "@eslint/js": 10.0.1
+  # Self-hosted panel fonts (Story 1.3), OFL-1.1: no runtime font CDN.
+  "@fontsource/poppins": 5.3.0
+  "@fontsource/sora": 5.3.0
+  # Management panel (Story 1.3): React Router 8 framework mode (SSR) on Vite.
+  "@react-router/dev": 8.4.0
+  "@react-router/express": 8.4.0
+  "@react-router/node": 8.4.0
+  "@testing-library/react": 16.3.3
+  "@testing-library/dom": 10.4.2
   "@types/node": 24.19.2
+  "@types/nodemailer": 8.0.2
   "@types/pg": 8.23.1
+  "@types/react": 19.3.0
+  "@types/react-dom": 19.3.0
   dependency-cruiser: 18.5.0
   # Registry database access (Story 1.2): typed queries + node-postgres driver.
   drizzle-orm: 0.45.4
   eslint: 10.12.0
+  # Panel production server (apps/panel/server.js), MIT.
+  express: 5.3.0
   globals: 17.13.0
+  isbot: 5.2.2
+  jsdom: 30.1.2
+  # Registry sign-in mail over SMTP (Story 1.3), MIT-0.
+  nodemailer: 10.1.0
   pg: 8.23.1
+  react: 19.3.0
+  react-dom: 19.3.0
+  react-router: 8.4.0
   # Native compiler for build and typecheck.
   typescript: 7.0.2
   typescript-eslint: 8.71.1
+  vite: 8.3.4
   vitest: 5.0.3
+  # Panel tests parse DESIGN.md front matter.
+  yaml: 2.9.1
 
 catalogs:
   # TypeScript 7.0 has no compiler API (it lands in 7.1), so tools that need it
@@ -32,3 +56,8 @@ packageExtensions:
   dependency-cruiser:
     dependencies:
       typescript: npm:typescript@6.0.3
+
+# nodemailer 10.1.0 (the version recorded for Story 1.3) is younger than pnpm's
+# minimum release age; it is excluded by exact version only.
+minimumReleaseAgeExclude:
+  - nodemailer@10.1.0

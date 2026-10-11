@@ -91,3 +91,26 @@ Tenant isolation, as built:
 - Every tenant table has RLS enabled and forced; each policy compares the row's tenant to `nullif(current_setting('app.tenant_id', true), '')::uuid`, so a connection with no tenant context sees zero rows.
 - Every data-access function goes through `withTenant(db, tenantId, fn)`, which throws `tenant_required` before touching the connection unless the id is a canonical UUIDv7, then sets `app.tenant_id` transaction-locally.
 - Environment variables: `REGISTRY_MIGRATION_DATABASE_URL` (migrator/owner), `REGISTRY_DATABASE_URL` (runtime role), `REGISTRY_TEST_DATABASE_URL` (admin connection for the database test suite).
+
+## Addendum (Story 1.3): sign-in, panel framework and mail as installed
+
+- **Date:** 2026-10-10
+- **Story:** 1.3, Sign in to a branded management panel
+
+| Choice | Decision | Reason |
+| --- | --- | --- |
+| Panel framework | React Router 8.4.0 (MIT) in framework mode with SSR on Vite 8.3.4; React 19.3.0; served in production by `apps/panel/server.js` (Express 5.3.0 with `@react-router/express` 8.4.0), not `react-router-serve`, whose request log prints full URLs and so would write sign-in tokens from `/sign-in/verify?token=...` to stdout. The panel server logs method, path (never the query string), status and duration. | Recorded in Story 1.1. Loaders and actions run on the server, so the session token stays in an HttpOnly cookie and the browser never talks to the registry. `appDirectory` is `src` and `buildDirectory` is `dist`, so the boundary rules and turbo outputs cover the panel unchanged. Routes are plain entries in `src/routes.ts` (no `@react-router/dev/routes` import in shipped source); route types are written by hand, so no `react-router typegen` step exists. |
+| Panel tests | Vitest with jsdom 30.1.2 per file and `@testing-library/react` 16.3.3 over `createRoutesStub` | Exercises real loaders, actions and components without a browser. |
+| Fonts | `@fontsource/sora` and `@fontsource/poppins` 5.3.0 (OFL-1.1), latin subsets, bundled by Vite | Self-hosted; no runtime request to a font CDN. |
+| Email delivery | SMTP through Nodemailer 10.1.0 (MIT-0) for real delivery (`REGISTRY_SMTP_URL`, `REGISTRY_MAIL_FROM`); a file outbox for local development and tests (`REGISTRY_MAIL_OUTBOX_DIR`, one JSON file per message, mode 0600) | Any SMTP relay works (the Company's or a provider's), so no provider SDK or hosted integration is added. Exactly one transport must be configured, or `serve` refuses to start with `missing_configuration`. Tests use an in-memory transport and never send mail. nodemailer 10.1.0 is younger than pnpm's minimum release age and is excluded by exact version in `pnpm-workspace.yaml`. |
+| Registry API | `node:http` JSON API in `apps/registry/src/http/server.ts`, run by `pnpm --filter @domain-harness/registry serve` | Three endpoints; no web framework needed. Wire types and guards live in `contract` (`sign-in.ts`). |
+| Test parsing | `yaml` 2.9.1 (dev only) | The token test parses DESIGN.md front matter. |
+
+Sign-in, as built:
+
+- `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before any lookup, then mints one link per account holding the address (an address in N tenants gets N links) and sends after the response, so status, body and timing are the same whether or not an account exists.
+- Tokens are `<tenantId>.<base64url of 32 random bytes>`. Only SHA-256 of the whole token is stored. Links expire after 15 minutes and are single-use (`UPDATE ... WHERE consumed_at IS NULL AND expires_at > now() RETURNING`); sessions last 12 hours. Every link and session lookup runs in `withTenant` with the tenant parsed from the token.
+- The cross-tenant email lookup is the one RLS exception: the `SECURITY DEFINER` function `sign_in_account_lookup(email)`, owned by the `NOLOGIN` role `dh_sign_in_lookup` (SELECT on `accounts(id, tenant_id, email)` only), returns `(tenant_id, account_id)`; only `dh_registry_app` may execute it. `assertRuntimeRoleSafe` refuses a runtime role that is a member of `dh_sign_in_lookup`. A non-superuser migrator grants itself `SET` on that role in 0002 so it can hand the function over.
+- Opening the link consumes it on GET. Email link scanners that prefetch links can consume a link before the person opens it; this is a known risk, recorded and not mitigated here. Sign-out and rate limiting are out of scope.
+- Known DESIGN.md defect: "`accent` marks on `surface-raised` ≥ 3:1" fails in light mode (1.56:1). The contrast test declares exactly this exception; Epic 6 must give accent marks an ink edge or DESIGN.md must change.
+- The boundary check's `exclude` now applies only to build output inside workspace units. Before, it also matched npm packages whose entry sits in their own `dist/` (vitest, vite, react-router), which silently exempted them from the npm rules.

@@ -12,3 +12,12 @@ export interface ErrorEnvelope {
   /** What the error is about: an id, a slot name or a field name. */
   readonly subject: string;
 }
+
+/** True when `value` carries the envelope's three string fields. Never throws. */
+export function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record["code"] === "string" && typeof record["message"] === "string" && typeof record["subject"] === "string"
+  );
+}

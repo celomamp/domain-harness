@@ -14,10 +14,10 @@ import tseslint from "typescript-eslint";
  */
 export function config(tsconfigRootDir) {
   return defineConfig(
-    { ignores: ["dist/**", "coverage/**", "fixtures/**"] },
+    { ignores: ["dist/**", "coverage/**", "fixtures/**", "build/**", ".react-router/**"] },
     js.configs.recommended,
     {
-      files: ["**/*.ts"],
+      files: ["**/*.{ts,tsx}"],
       extends: [tseslint.configs.strictTypeChecked],
       languageOptions: {
         parserOptions: { projectService: true, tsconfigRootDir },

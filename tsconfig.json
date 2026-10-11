@@ -6,7 +6,6 @@
     { "path": "./packages/extractor/tsconfig.build.json" },
     { "path": "./packages/collector/tsconfig.build.json" },
     { "path": "./apps/registry/tsconfig.build.json" },
-    { "path": "./apps/panel/tsconfig.build.json" },
     { "path": "./apps/service/tsconfig.build.json" },
     { "path": "./apps/cli/tsconfig.build.json" }
   ]
