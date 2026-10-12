@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import {
   isEmailAddress,
+  LOCKED_RULE_CONFLICT,
   MODULE_API_PATHS,
   MODULE_HAS_NO_OWNER,
   MODULE_NAME_TAKEN,
@@ -22,6 +23,7 @@ import {
 import type { ErrorEnvelope, SessionInfo } from "@domain-harness/contract";
 import { isEnvelopeError } from "../errors.ts";
 import { assertBuyer } from "../modules/service.ts";
+import type { LockedRuleService } from "../locked-rules/service.ts";
 import type { ModuleService } from "../modules/service.ts";
 import { assertTreeBuyer } from "../projects/service.ts";
 import type { ProjectService } from "../projects/service.ts";
@@ -60,6 +62,7 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
   [SLOT_CONFLICT]: 409,
   [PROJECT_CYCLE]: 409,
   [ROOT_PROJECT_FIXED]: 409,
+  [LOCKED_RULE_CONFLICT]: 409,
   payload_too_large: 413,
   unsupported_media_type: 415,
 };
@@ -68,6 +71,7 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
 const MODULE_OWNER_ROUTE = `${MODULE_API_PATHS.modules}/{id}/owner`;
 const MODULE_STANDARDS_ROUTE = `${MODULE_API_PATHS.modules}/{id}/standards`;
 const STANDARD_VERSIONS_ROUTE = `${STANDARD_API_PATHS.standards}/{id}/versions`;
+const STANDARD_LOCKED_RULE_ROUTE = `${STANDARD_API_PATHS.standards}/{id}/locked-rule`;
 const PROJECT_ROUTE = `${PROJECT_API_PATHS.projects}/{id}`;
 const PROJECT_PARENT_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/parent`;
 const PROJECT_EFFECTIVE_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/effective-standards`;
@@ -77,6 +81,7 @@ const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
   [MODULE_OWNER_ROUTE, /^\/v1\/modules\/([^/]+)\/owner$/],
   [MODULE_STANDARDS_ROUTE, /^\/v1\/modules\/([^/]+)\/standards$/],
   [STANDARD_VERSIONS_ROUTE, /^\/v1\/standards\/([^/]+)\/versions$/],
+  [STANDARD_LOCKED_RULE_ROUTE, /^\/v1\/standards\/([^/]+)\/locked-rule$/],
   [PROJECT_ROUTE, /^\/v1\/projects\/([^/]+)$/],
   [PROJECT_PARENT_ROUTE, /^\/v1\/projects\/([^/]+)\/parent$/],
   [PROJECT_EFFECTIVE_ROUTE, /^\/v1\/projects\/([^/]+)\/effective-standards$/],
@@ -91,6 +96,7 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [MODULE_OWNER_ROUTE]: ["POST"],
   [MODULE_STANDARDS_ROUTE]: ["GET", "POST"],
   [STANDARD_VERSIONS_ROUTE]: ["GET", "POST"],
+  [STANDARD_LOCKED_RULE_ROUTE]: ["POST"],
   [PROJECT_API_PATHS.projects]: ["GET", "POST"],
   [PROJECT_ROUTE]: ["GET"],
   [PROJECT_PARENT_ROUTE]: ["POST"],
@@ -126,6 +132,7 @@ export interface RegistryServices {
   readonly modules: ModuleService;
   readonly standards: StandardService;
   readonly projects: ProjectService;
+  readonly lockedRules: LockedRuleService;
 }
 
 class HttpFailure extends Error {
@@ -145,7 +152,8 @@ class HttpFailure extends Error {
  * every role and only a Module's current Standard owner may publish into it.
  * Project tree calls authenticate the same way; reading is open to every
  * role and only the Buyer may create a Project or change its parent. The
- * Effective Standard set of a Project is open to every role.
+ * Effective Standard set of a Project is open to every role. Only the Buyer
+ * may mark or remove a Locked rule.
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
@@ -295,6 +303,13 @@ async function handle(
       // The service checks the Project, then the role, then the body and the
       // parent, so the first failure in that order wins.
       sendJson(res, 200, await services.projects.changeParent(session, match.id, await readJson(req)));
+      return;
+    }
+    case STANDARD_LOCKED_RULE_ROUTE: {
+      const session = await service.getSession(bearerToken(req));
+      // The service checks the Standard, then the role, then the body, so the
+      // first failure in that order wins.
+      sendJson(res, 200, await services.lockedRules.setLockedRule(session, match.id, await readJson(req)));
       return;
     }
     default: {

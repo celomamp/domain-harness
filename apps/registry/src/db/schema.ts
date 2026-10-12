@@ -1,9 +1,9 @@
-import { foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { isNull, sql } from "drizzle-orm";
 import { CODE_STACK_CATEGORIES, DESIGN_SYSTEM_ENTRY_KINDS, MODULE_KINDS, PLANS, ROLES } from "@domain-harness/contract";
 import type { StandardEntry } from "@domain-harness/contract";
 
-// Drizzle mirror of migrations/0001_tenancy.sql to 0006_project_tree.sql, used for typed queries only.
+// Drizzle mirror of migrations/0001_tenancy.sql to 0007_locked_rules.sql, used for typed queries only.
 // The SQL migration is the source of truth for constraints, RLS and grants.
 
 export const tenants = pgTable("tenants", {
@@ -278,7 +278,41 @@ export const projectParentChanges = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0006. */
+/**
+ * Append-only Locked-rule marks and unmarks (0007). A Standard's current state
+ * is the `locked` of its highest-`sequence` row; no row means not locked.
+ * `sequence` is per tenant.
+ */
+export const lockedRuleChanges = pgTable(
+  "locked_rule_changes",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    standardId: uuid("standard_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    locked: boolean("locked").notNull(),
+    changedBy: uuid("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("locked_rule_changes_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    index("locked_rule_changes_standard_idx").on(table.tenantId, table.standardId, table.sequence.desc()),
+    foreignKey({
+      name: "locked_rule_changes_standard_fkey",
+      columns: [table.tenantId, table.standardId],
+      foreignColumns: [standards.tenantId, standards.id],
+    }),
+    foreignKey({
+      name: "locked_rule_changes_changed_by_fkey",
+      columns: [table.tenantId, table.changedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0007. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -290,6 +324,7 @@ export const TENANT_TABLES = [
   "standards",
   "standard_versions",
   "project_parent_changes",
+  "locked_rule_changes",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */

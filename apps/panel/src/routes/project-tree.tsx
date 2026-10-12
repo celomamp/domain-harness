@@ -1,8 +1,24 @@
 import { Suspense } from "react";
 import { Await, data, Link, redirect, useActionData, useLoaderData, useNavigate } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { PROJECT_CYCLE, PROJECT_NOT_FOUND, ROLE_DENIED, ROOT_PROJECT_FIXED, SESSION_INVALID } from "@domain-harness/contract";
-import type { EffectiveStandardSet, ErrorEnvelope, ProjectInfo, ProjectTree } from "@domain-harness/contract";
+import {
+  entrySlotKind,
+  entrySlotName,
+  LOCKED_RULE_CONFLICT,
+  PROJECT_CYCLE,
+  PROJECT_NOT_FOUND,
+  ROLE_DENIED,
+  ROOT_PROJECT_FIXED,
+  SESSION_INVALID,
+  STANDARD_NOT_FOUND,
+} from "@domain-harness/contract";
+import type {
+  EffectiveStandardSet,
+  ErrorEnvelope,
+  ProjectInfo,
+  ProjectTree,
+  StandardInfo,
+} from "@domain-harness/contract";
 import {
   ChangeParentForm,
   CreateProjectForm,
@@ -14,7 +30,14 @@ import {
 } from "../components/project-tree.tsx";
 import type { ProjectFormField, ProjectTreeActionData } from "../components/project-tree.tsx";
 import { Status } from "../components/status.tsx";
-import { changeProjectParent, createProject, getEffectiveStandards, getProjectTree } from "../registry.server.ts";
+import {
+  changeProjectParent,
+  createProject,
+  getEffectiveStandards,
+  getProjectTree,
+  getStandardVersions,
+  setLockedRule,
+} from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
 import { readSessionToken } from "../session.server.ts";
 
@@ -71,11 +94,12 @@ const field = (form: FormData, name: string): string => {
 const FORM_FIELDS: readonly ProjectFormField[] = ["name", "levelName", "parentId"];
 
 /**
- * `intent=create` with Name, Level name and Parent, or `intent=parent` with
- * the Project and its new Parent. Values go to the registry as submitted; it
- * checks the session, the Project, the role, the body, the parent, the root
- * and the whole bundle in that order, so a non-Buyer's submit is a denial
- * whatever it holds.
+ * `intent=create` with Name, Level name and Parent, `intent=parent` with
+ * the Project and its new Parent, or `intent=lock` with a Standard and its
+ * new Locked-rule state (`locked` = "true" or "false"). Values go to the
+ * registry as submitted; it checks the session, the Project or Standard, the
+ * role, the body and the whole bundle in that order, so a non-Buyer's submit
+ * is a denial whatever it holds.
  */
 export async function action({ request }: ActionFunctionArgs) {
   const token = readSessionToken(request);
@@ -93,6 +117,22 @@ export async function action({ request }: ActionFunctionArgs) {
     const result = await changeProjectParent(token, values.projectId, values.parentId);
     if (result.kind === "ok") return success(token, "parent", result.value);
     return refusal(token, { intent, values }, result.kind === "refused" ? result.error : undefined);
+  }
+  if (intent === "lock") {
+    const values = { standardId: field(form, "standardId"), locked: field(form, "locked") };
+    if (values.locked === "true" || values.locked === "false") {
+      const result = await setLockedRule(token, values.standardId, values.locked === "true");
+      if (result.kind === "ok") {
+        const { standard, locked } = result.value;
+        const slot = PROJECT_TREE_COPY.effective.slot(slotOf(standard));
+        const message = locked
+          ? PROJECT_TREE_COPY.locked.marked(slot, standard.project.name)
+          : PROJECT_TREE_COPY.locked.unmarked(slot, standard.project.name);
+        return data<ProjectTreeActionData>({ intent, status: { tone: "notice", message }, fieldErrors: {}, values: {} });
+      }
+      return refusal(token, { intent, values }, result.kind === "refused" ? result.error : undefined);
+    }
+    return refusal(token, { intent, values }, undefined);
   }
   return data<ProjectTreeActionData>(
     { intent: "", status: { tone: "denial", message: PROJECT_TREE_COPY.actionUnavailable }, fieldErrors: {}, values: {} },
@@ -120,8 +160,23 @@ async function success(token: string, intent: "create" | "parent", project: Proj
   });
 }
 
+/** The Conflict slot of a Standard's live version. */
+const slotOf = (standard: StandardInfo) => ({
+  moduleKind: standard.module.kind,
+  slotKind: entrySlotKind(standard.entry),
+  name: entrySlotName(standard.entry),
+});
+
+/** "<slot> on <Project>" for a Standard's latest version, or its id when it cannot be read. */
+async function describeRule(token: string, standardId: string): Promise<string> {
+  const versions = await getStandardVersions(token, standardId);
+  const latest = versions.kind === "ok" ? versions.value.versions.at(-1) : undefined;
+  if (latest === undefined) return standardId;
+  return PROJECT_TREE_COPY.locked.rule(PROJECT_TREE_COPY.effective.slot(slotOf(latest)), latest.project.name);
+}
+
 interface Submitted {
-  readonly intent: "create" | "parent";
+  readonly intent: "create" | "parent" | "lock";
   readonly values: ProjectTreeActionData["values"];
 }
 
@@ -131,6 +186,27 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
   const reply = (status: number, rest: Pick<ProjectTreeActionData, "status" | "fieldErrors">) =>
     data<ProjectTreeActionData>({ intent, values, ...rest }, { status });
   const denial = (status: number, message: string) => reply(status, { status: { tone: "denial", message }, fieldErrors: {} });
+
+  if (intent === "lock") {
+    switch (error?.code) {
+      case SESSION_INVALID:
+        return redirect("/sign-in");
+      case ROLE_DENIED:
+        return denial(403, PROJECT_TREE_COPY.locked.roleDenial);
+      case STANDARD_NOT_FOUND:
+        return denial(404, PROJECT_TREE_COPY.locked.standardNotFound);
+      case LOCKED_RULE_CONFLICT: {
+        const [rule, other] = await Promise.all([
+          describeRule(token, values.standardId ?? ""),
+          describeRule(token, error.subject),
+        ]);
+        return denial(409, PROJECT_TREE_COPY.locked.conflict(rule, other));
+      }
+      default:
+        // invalid_input, any other refusal, or an outage.
+        return denial(503, PROJECT_TREE_COPY.actionUnavailable);
+    }
+  }
 
   switch (error?.code) {
     case SESSION_INVALID:

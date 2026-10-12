@@ -14,6 +14,8 @@ import {
 
 const ROOT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
 const CHILD = "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7";
+const STANDARD = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
+const BUYER = "01928c7e-5b2a-7c3d-be4f-a1b2c3d4e5f9";
 const AT = "2026-10-12T09:00:00.000Z";
 
 const root = { id: ROOT, name: "Acme", levelName: null, parentId: null, createdAt: AT };
@@ -50,15 +52,23 @@ describe("Project tree wire contract", () => {
   });
 
   it("accepts a tree whose listed root is the only parentless Project", () => {
-    expect(isProjectTree({ rootId: ROOT, projects: [root, child] })).toBe(true);
+    expect(isProjectTree({ rootId: ROOT, projects: [root, child], lockedRules: [] })).toBe(true);
+  });
+
+  it("accepts Locked rules at listed Projects and rejects one elsewhere", () => {
+    const mark = { standardId: STANDARD, projectId: CHILD, markedAt: AT, markedBy: { accountId: BUYER, name: "Bea" } };
+    expect(isProjectTree({ rootId: ROOT, projects: [root, child], lockedRules: [mark] })).toBe(true);
+    expect(isProjectTree({ rootId: ROOT, projects: [root], lockedRules: [mark] })).toBe(false);
+    expect(isProjectTree({ rootId: ROOT, projects: [root, child], lockedRules: [{ ...mark, markedBy: null }] })).toBe(false);
+    expect(isProjectTree({ rootId: ROOT, projects: [root, child] })).toBe(false);
   });
 
   it.each([
-    ["no root listed", { rootId: ROOT, projects: [child] }],
-    ["another root id", { rootId: CHILD, projects: [root, child] }],
-    ["two roots", { rootId: ROOT, projects: [root, { ...child, parentId: null }] }],
-    ["a bad Project", { rootId: ROOT, projects: [root, { ...child, name: 1 }] }],
-    ["no projects array", { rootId: ROOT }],
+    ["no root listed", { rootId: ROOT, projects: [child], lockedRules: [] }],
+    ["another root id", { rootId: CHILD, projects: [root, child], lockedRules: [] }],
+    ["two roots", { rootId: ROOT, projects: [root, { ...child, parentId: null }], lockedRules: [] }],
+    ["a bad Project", { rootId: ROOT, projects: [root, { ...child, name: 1 }], lockedRules: [] }],
+    ["no projects array", { rootId: ROOT, lockedRules: [] }],
   ])("rejects a tree with %s", (_label, value) => {
     expect(isProjectTree(value)).toBe(false);
   });

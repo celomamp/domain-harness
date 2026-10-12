@@ -31,6 +31,8 @@ export const STANDARDS_COPY = {
   noOwnerDenial:
     "This Module has no owner, so nothing can be published into it. The Buyer assigns its Standard owner. Nothing was published.",
   notOwnerDenial: "Only the Standard owner of this Module can publish into it. Nothing was published.",
+  lockedRuleConflict:
+    "Nothing was published. This version would contradict a Locked rule in the same Conflict slot.",
   loading: "Loading Standards…",
   sessionEnded: "Your session has ended, so the Standards cannot be shown.",
   signInAgain: "Sign in again",

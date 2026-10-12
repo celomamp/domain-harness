@@ -14,7 +14,15 @@ const levelText = (project: ProjectInfo): string => {
   return project.parentId === null ? `root Project, ${level}` : level;
 };
 
-const nodeName = (project: ProjectInfo): string => `${project.name}, ${levelText(project)}`;
+/** "1 Locked rule" / "N Locked rules", or "" for a Project with none. */
+const lockedText = (count: number): string =>
+  count === 0 ? "" : count === 1 ? "1 Locked rule" : `${String(count)} Locked rules`;
+
+/** A node's accessible name: the Project name, its level text, then its Locked rules when it has any. */
+const nodeName = (project: ProjectInfo, lockedCount = 0): string =>
+  lockedCount === 0
+    ? `${project.name}, ${levelText(project)}`
+    : `${project.name}, ${levelText(project)}, ${lockedText(lockedCount)}`;
 
 export const PROJECT_TREE_COPY = {
   heading: "Project tree",
@@ -38,6 +46,7 @@ export const PROJECT_TREE_COPY = {
         ? `${project.name} (no level name)`
         : `${project.name} (level ${project.levelName})`,
   nodeName,
+  lockedText,
   labels: { name: "Name", levelName: "Level name", parentId: "Parent" } satisfies Record<ProjectFormField, string>,
   fieldErrors: {
     name: "Enter a name of 1 to 200 characters.",
@@ -53,13 +62,27 @@ export const PROJECT_TREE_COPY = {
     `Created ${project.name}, level "${project.levelName ?? ""}", under ${parentName}.`,
   moved: (project: ProjectInfo, parentName: string) =>
     `${project.name}, level "${project.levelName ?? ""}", now has the parent ${parentName}.`,
+  /** Locked-rule notices and refusals; `rule` reads "<slot> on <Project>". */
+  locked: {
+    marked: (slot: string, projectName: string) => `Marked ${slot} on ${projectName} as a Locked rule.`,
+    unmarked: (slot: string, projectName: string) => `${slot} on ${projectName} is no longer a Locked rule.`,
+    roleDenial: "Only the Buyer can mark or remove a Locked rule. Nothing was changed.",
+    standardNotFound: "That Standard was not found. Nothing was changed.",
+    rule: (slot: string, projectName: string) => `${slot} on ${projectName}`,
+    conflict: (rule: string, other: string) =>
+      `Nothing was changed. ${rule} contradicts the Locked rule ${other} in the same Conflict slot.`,
+  },
   effective: {
     heading: (name: string) => `Effective Standard set for ${name}`,
     loading: "Loading the Effective Standard set…",
     empty: (name: string) => `No Standard applies to ${name} yet.`,
     unavailable: "The Effective Standard set is unavailable right now. Try again in a few minutes.",
-    headers: ["Conflict slot", "Status", "Version", "Source Project"],
+    headers: ["Conflict slot", "Status", "Version", "Source Project", "Locked rule"],
     none: "None",
+    locked: "Locked rule",
+    notLocked: "Not locked",
+    mark: "Mark as Locked rule",
+    unmark: "Remove Locked rule",
     thisProject: (name: string) => `${name} (this Project)`,
     /** A Conflict slot as the panel writes it, for example `(code stack, library, "React")`. */
     slot: (slot: EffectiveSlot) => `(${MODULE_KIND_LABELS[slot.moduleKind]}, ${slot.slotKind}, "${slot.name.trim()}")`,
@@ -68,14 +91,14 @@ export const PROJECT_TREE_COPY = {
 
 /** What the Project tree action reports back to the page. */
 export interface ProjectTreeActionData {
-  /** The submitted form: `create`, `parent`, or "" for an unknown intent. */
-  readonly intent: "create" | "parent" | "";
+  /** The submitted form: `create`, `parent`, `lock`, or "" for an unknown intent. */
+  readonly intent: "create" | "parent" | "lock" | "";
   /** A status line (notice) or a refusal (denial), announced in the status region. */
   readonly status: { readonly tone: "denial" | "notice"; readonly message: string } | null;
   /** Ink text under the named field of the submitted form. */
   readonly fieldErrors: Readonly<Partial<Record<ProjectFormField, string>>>;
   /** The submitted values, kept in the fields on a refused submit. */
-  readonly values: Readonly<Partial<Record<ProjectFormField | "projectId", string>>>;
+  readonly values: Readonly<Partial<Record<ProjectFormField | "projectId" | "standardId" | "locked", string>>>;
   /** The Project just created or moved. */
   readonly changed?: ProjectInfo;
 }
@@ -148,8 +171,12 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
     if (next === focused) nodes.current.get(next)?.focus();
   };
 
+  const lockedCounts = new Map<string, number>();
+  for (const mark of tree.lockedRules) lockedCounts.set(mark.projectId, (lockedCounts.get(mark.projectId) ?? 0) + 1);
+
   const renderNode = (project: ProjectInfo, level: number) => {
     const kids = children.get(project.id) ?? [];
+    const lockedCount = lockedCounts.get(project.id) ?? 0;
     const selected = project.id === selectedId;
     const onClick = (event: MouseEvent<HTMLLIElement>) => {
       event.stopPropagation();
@@ -167,7 +194,7 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
         role="treeitem"
         aria-level={level}
         aria-selected={selected}
-        aria-label={nodeName(project)}
+        aria-label={nodeName(project, lockedCount)}
         tabIndex={project.id === focused ? 0 : -1}
         className="project-node"
         onClick={onClick}
@@ -176,6 +203,7 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
           <span className="project-node__name">{project.name}</span>{" "}
           <span className="project-node__level type-label">
             {levelText(project)}
+            {lockedCount === 0 ? null : <span className="project-node__locked">, {lockedText(lockedCount)}</span>}
           </span>
         </span>
         {kids.length === 0 ? null : <ul role="group">{kids.map((kid) => renderNode(kid, level + 1))}</ul>}
@@ -357,7 +385,9 @@ export interface EffectiveSetTableProps {
  * The Effective Standard set as a table with header cells: one row per
  * Conflict slot, in the registry's (core's) order, never re-sorted. The
  * source Project reads "(this Project)" when the Standard is scoped to the
- * selected Project.
+ * selected Project. The "Locked rule" column says whether the winner is a
+ * Locked rule; a row scoped to the selected Project also holds the form to
+ * mark or remove it (shown to every role: the registry refuses a non-Buyer).
  */
 export function EffectiveSetTable({ set }: EffectiveSetTableProps) {
   const copy = PROJECT_TREE_COPY.effective;
@@ -384,6 +414,24 @@ export function EffectiveSetTable({ set }: EffectiveSetTableProps) {
                 {entry.sourceProject.id === set.project.id
                   ? copy.thisProject(entry.sourceProject.name)
                   : entry.sourceProject.name}
+              </td>
+              <td>
+                {entry.sourceProject.id === set.project.id ? (
+                  <Form method="post" className="locked-rule-form">
+                    <span>{entry.locked ? copy.locked : copy.notLocked}</span>
+                    <input type="hidden" name="intent" value="lock" />
+                    <input type="hidden" name="standardId" value={entry.standard.id} />
+                    <input type="hidden" name="locked" value={entry.locked ? "false" : "true"} />
+                    <Button variant="inverse" type="submit">
+                      {entry.locked ? copy.unmark : copy.mark}{" "}
+                      <span className="visually-hidden">{copy.slot(entry.slot)}</span>
+                    </Button>
+                  </Form>
+                ) : entry.locked ? (
+                  copy.locked
+                ) : (
+                  copy.notLocked
+                )}
               </td>
             </tr>
           ))}

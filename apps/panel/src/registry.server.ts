@@ -8,6 +8,7 @@ import {
   effectiveStandardsPath,
   isEffectiveStandardSet,
   isErrorEnvelope,
+  isLockedRuleState,
   isModuleInfo,
   isModuleList,
   isProjectInfo,
@@ -17,6 +18,7 @@ import {
   isStandardInfo,
   isStandardList,
   isStandardVersionList,
+  lockedRulePath,
   MODULE_API_PATHS,
   moduleOwnerPath,
   moduleStandardsPath,
@@ -28,6 +30,8 @@ import {
 import type {
   EffectiveStandardSet,
   ErrorEnvelope,
+  LockedRuleRequest,
+  LockedRuleState,
   ModuleInfo,
   ModuleList,
   ProjectInfo,
@@ -215,4 +219,14 @@ export function changeProjectParent(
   parentId: string,
 ): Promise<RegistryResult<ProjectInfo>> {
   return call(projectParentPath(projectId), json({ parentId }, bearer(sessionToken)), 200, isProjectInfo);
+}
+
+/** Mark (`locked: true`) or remove (`locked: false`) a Standard's Locked rule (the registry allows only the Buyer). */
+export function setLockedRule(
+  sessionToken: string,
+  standardId: string,
+  locked: boolean,
+): Promise<RegistryResult<LockedRuleState>> {
+  const body: LockedRuleRequest = { locked };
+  return call(lockedRulePath(standardId), json(body, bearer(sessionToken)), 200, isLockedRuleState);
 }

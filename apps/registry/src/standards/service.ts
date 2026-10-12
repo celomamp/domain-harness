@@ -10,15 +10,17 @@ import {
   STANDARD_NOT_FOUND,
 } from "@domain-harness/contract";
 import type { SessionInfo, StandardInfo, StandardList, StandardVersionList, UuidV7 } from "@domain-harness/contract";
-import { entrySlot, validatePublication } from "@domain-harness/core";
+import { entrySlot, validateBundleInput, validatePublication } from "@domain-harness/core";
 import type { SlotHolder } from "@domain-harness/core";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb, RegistryTx } from "../db/client.ts";
 import { moduleOwnerAssignments, modules, projects, standards, standardVersions } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
+import { currentLockedIds } from "../locked-rules/current.ts";
 import { accountNames, accountRef, ownerOf, toId, toModuleInfo } from "../modules/service.ts";
 import type { ModuleRow } from "../modules/service.ts";
+import { currentProjects, treeNodes } from "../projects/current.ts";
 import { validatePublishBody } from "./validate.ts";
 
 type StandardRow = typeof standards.$inferSelect;
@@ -28,7 +30,7 @@ type ProjectRow = typeof projects.$inferSelect;
 const moduleNotFound = (): EnvelopeError =>
   new EnvelopeError({ code: MODULE_NOT_FOUND, message: "no such Module in this Company", subject: "moduleId" });
 
-const standardNotFound = (): EnvelopeError =>
+export const standardNotFound = (): EnvelopeError =>
   new EnvelopeError({ code: STANDARD_NOT_FOUND, message: "no such Standard in this Company", subject: "standardId" });
 
 /** What a publish targets: a Module (a new Standard) or an existing Standard (its next version). */
@@ -132,7 +134,11 @@ export function publishStandardVersion(
  * `project_not_found`, subject `projectId`; missing means the root Project, a
  * new version keeps its Standard's scope) → the core Conflict slot rule over
  * the whole proposed live set of every scope, so a slot is unique per
- * (slot, Project scope) (409 `slot_conflict`).
+ * (slot, Project scope) (409 `slot_conflict`) → core validation of the whole
+ * proposed bundle input (the current tree, the proposed live set with this
+ * version replacing its Standard's, and the current Locked rules), so a
+ * locked Standard cannot move into a slot that contradicts another Locked
+ * rule on its ancestor/descendant path (409 `locked_rule_conflict`).
  *
  * Publishes in one tenant serialise on a transaction-scoped advisory lock
  * keyed by the root Project id, taken before anything is read, so two
@@ -184,8 +190,15 @@ async function publish(db: RegistryDb, session: SessionInfo, target: PublishTarg
     // The whole live set of every scope: the pair check covers every scope,
     // and `conflicts()` only pairs holders at the same Project scope.
     const live = await liveSet(tx, tenantId);
-    const verdict = validatePublication(live, { standardId, projectId, slot: entrySlot(entry) });
+    const proposed: SlotHolder = { standardId, projectId, slot: entrySlot(entry) };
+    const verdict = validatePublication(live, proposed);
     if (!verdict.ok) throw new EnvelopeError(verdict.error);
+    const bundle = validateBundleInput({
+      projects: treeNodes(await currentProjects(tx, tenantId)),
+      standards: [...live.filter((holder) => holder.standardId !== standardId), proposed],
+      lockedStandardIds: await currentLockedIds(tx, tenantId),
+    });
+    if (!bundle.ok) throw new EnvelopeError(bundle.error);
 
     let standard = existing;
     if (standard === undefined) {
@@ -321,7 +334,7 @@ async function findModule(tx: RegistryTx, tenantId: UuidV7, moduleId: string): P
   return row;
 }
 
-async function findStandard(tx: RegistryTx, tenantId: UuidV7, standardId: string): Promise<StandardRow | undefined> {
+export async function findStandard(tx: RegistryTx, tenantId: UuidV7, standardId: string): Promise<StandardRow | undefined> {
   const [row] = await tx
     .select()
     .from(standards)

@@ -19,8 +19,8 @@ const root = { id: ROOT, name: "Acme", levelName: null, parentId: null, createdA
 const a = { id: A, name: "Platform", levelName: "Division", parentId: ROOT, createdAt: AT };
 const b = { id: B, name: "Web", levelName: "  Product line ", parentId: A, createdAt: AT };
 const c = { id: C, name: "Data", levelName: "Division", parentId: ROOT, createdAt: AT };
-const fullTree = { rootId: ROOT, projects: [root, a, b, c] };
-const onlyRoot = { rootId: ROOT, projects: [root] };
+const fullTree = { rootId: ROOT, projects: [root, a, b, c], lockedRules: [] };
+const onlyRoot = { rootId: ROOT, projects: [root], lockedRules: [] };
 
 /** The real action, with the session cookie a browser would send. */
 async function actionWithCookie(args: ActionFunctionArgs) {
@@ -185,7 +185,7 @@ describe("Project tree page", () => {
   it("labels the root by having no parent, whatever its level name", async () => {
     const named = { ...root, levelName: "Company" };
     const noLevel = { ...c, levelName: null };
-    renderPage("Buyer", ok({ rootId: ROOT, projects: [named, a, b, noLevel] }));
+    renderPage("Buyer", ok({ rootId: ROOT, projects: [named, a, b, noLevel], lockedRules: [] }));
     await screen.findByRole("tree");
     expect(items().map((item) => item.getAttribute("aria-label"))).toEqual([
       "Acme, root Project, level Company",
@@ -360,19 +360,99 @@ describe("Effective Standard set preview", () => {
       "Status",
       "Version",
       "Source Project",
+      "Locked rule",
     ]);
     expect(within(table).getAllByRole("rowheader").map((cell) => cell.textContent)).toEqual([
       '(code stack, library, "x")',
       '(design system, component, "Button")',
     ]);
     const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows.map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent))).toEqual([
+    expect(rows.map((row) => within(row).getAllByRole("cell").slice(0, 3).map((cell) => cell.textContent))).toEqual([
       ["prohibited", "1", "Web (this Project)"],
       ["None", "3", "Platform"],
     ]);
+    // Only the row scoped to the selected Project holds the mark form.
+    expect(within(rows[0] as HTMLElement).getByRole("button", { name: 'Mark as Locked rule (code stack, library, "x")' })).toBeTruthy();
+    expect(within(rows[1] as HTMLElement).queryByRole("button")).toBeNull();
+    expect(within(rows[1] as HTMLElement).getAllByRole("cell")[3]?.textContent).toBe("Not locked");
     // The tree and the forms stay.
     expect(screen.getByRole("tree")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
+  });
+
+  it("marks Locked rules on the tree and shows an ancestor's Locked rule as coming from it", async () => {
+    const STANDARD = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e603";
+    const lockedTree = {
+      ...fullTree,
+      lockedRules: [
+        { standardId: STANDARD, projectId: A, markedAt: AT, markedBy: { accountId: OWNER, name: "Bea" } },
+        { standardId: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e604", projectId: C, markedAt: AT, markedBy: { accountId: OWNER, name: "Bea" } },
+        { standardId: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e605", projectId: C, markedAt: AT, markedBy: { accountId: OWNER, name: "Bea" } },
+      ],
+    };
+    const xEntry = { category: "library", name: "X", versionConstraint: null, status: "prohibited", correctionInstruction: null };
+    const yEntry = { category: "library", name: "y", versionConstraint: null, status: "approved", correctionInstruction: null };
+    const lockedSet = {
+      project: webRef,
+      standards: [
+        {
+          slot: { moduleKind: "code-stack", slotKind: "library", name: "X" },
+          status: "prohibited",
+          standard: standard(STANDARD, platformRef, 1, xEntry),
+          sourceProject: platformRef,
+          locked: true,
+        },
+        {
+          slot: { moduleKind: "code-stack", slotKind: "library", name: "y" },
+          status: "approved",
+          standard: standard("01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e606", webRef, 1, yEntry),
+          sourceProject: webRef,
+          locked: true,
+        },
+      ],
+    };
+    renderPage("Buyer", ok(lockedTree), `/projects?project=${B}`, undefined, () => Promise.resolve(ok(lockedSet)));
+    await screen.findByRole("tree");
+    expect(items().map((item) => item.getAttribute("aria-label"))).toEqual([
+      "Acme, root Project, no level name",
+      "Platform, level Division, 1 Locked rule",
+      "Web, level   Product line ",
+      "Data, level Division, 2 Locked rules",
+    ]);
+    await within(section()).findAllByRole("rowheader");
+    const rows = within(within(section()).getByRole("table")).getAllByRole("row").slice(1);
+    // The parent's Locked rule: prohibited, the parent as Source Project, "Locked rule", no button.
+    expect(within(rows[0] as HTMLElement).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
+      "prohibited",
+      "1",
+      "Platform",
+      "Locked rule",
+    ]);
+    expect(within(rows[0] as HTMLElement).queryByRole("button")).toBeNull();
+    // The visible node text matches its accessible name.
+    expect((items()[1] as HTMLElement).querySelector(".project-node__level")?.textContent).toBe("level Division, 1 Locked rule");
+    expect((items()[3] as HTMLElement).querySelector(".project-node__locked")?.textContent).toBe(", 2 Locked rules");
+    // This Project's own Locked rule can be removed here.
+    const remove = within(rows[1] as HTMLElement).getByRole("button", { name: 'Remove Locked rule (code stack, library, "y")' });
+    const form = remove.closest("form") as HTMLFormElement;
+    expect(Object.fromEntries(new FormData(form))).toEqual({
+      intent: "lock",
+      standardId: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e606",
+      locked: "false",
+    });
+  });
+
+  it("announces the registry's denial when the Standard owner submits a mark, keeping the tree and the table", async () => {
+    const fetch = registry([403, { code: "role_denied", message: "m", subject: "role" }]);
+    renderPage("Standard owner", ok(fullTree), `/projects?project=${B}`, undefined, setsFor);
+    const mark = await screen.findByRole("button", { name: 'Mark as Locked rule (code stack, library, "x")' });
+    fireEvent.click(mark);
+    await waitFor(() => {
+      expect(status().textContent).toBe("Only the Buyer can mark or remove a Locked rule. Nothing was changed.");
+    });
+    expect(fetch).toHaveBeenCalled();
+    expect(screen.getByRole("tree")).toBeTruthy();
+    expect(within(section()).getByRole("table")).toBeTruthy();
   });
 
   it("selects by ?project and shows the empty state for a Project with no Standard", async () => {
@@ -387,7 +467,7 @@ describe("Effective Standard set preview", () => {
     await screen.findByRole("tree");
     expect(await screen.findByText("Loading the Effective Standard set…")).toBeTruthy();
     expect(section().getAttribute("aria-busy")).toBe("true");
-    expect(within(section()).getAllByRole("columnheader")).toHaveLength(4);
+    expect(within(section()).getAllByRole("columnheader")).toHaveLength(5);
     expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
   });
 

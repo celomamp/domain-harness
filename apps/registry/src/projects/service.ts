@@ -1,4 +1,4 @@
-import { desc, eq, max } from "drizzle-orm";
+import { eq, max } from "drizzle-orm";
 import {
   entrySlotKind,
   entrySlotName,
@@ -10,6 +10,7 @@ import {
 import type {
   EffectiveStandard,
   EffectiveStandardSet,
+  LockedRuleMark,
   ProjectInfo,
   ProjectTree,
   SessionInfo,
@@ -22,17 +23,13 @@ import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb, RegistryTx } from "../db/client.ts";
 import { projectParentChanges, projects } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
-import { toId } from "../modules/service.ts";
+import { currentLockedIds, currentLockedMarks } from "../locked-rules/current.ts";
+import type { LockedRuleRow } from "../locked-rules/current.ts";
+import { accountNames, accountRef, toId } from "../modules/service.ts";
 import { liveSet, liveStandardInfos, lockBundle } from "../standards/service.ts";
+import { currentProjects, treeNodes } from "./current.ts";
+import type { CurrentProject } from "./current.ts";
 import { validateCreateBody, validateParentBody } from "./validate.ts";
-
-type ProjectRow = typeof projects.$inferSelect;
-
-/** One Project row with its current parent (the latest change row's parent; the root's stays NULL). */
-interface CurrentProject {
-  readonly row: ProjectRow;
-  readonly parentId: string | null;
-}
 
 const projectNotFound = (subject: "projectId" | "parentId"): EnvelopeError =>
   new EnvelopeError({
@@ -55,31 +52,6 @@ export function assertTreeBuyer(session: SessionInfo): void {
   }
 }
 
-/**
- * Every Project of the tenant with its current parent, by id. The current
- * parent of a non-root Project is the `parent_id` of its highest-sequence
- * change row (DISTINCT ON keeps the first row per Project, ordered by
- * sequence descending), overlaid on `projects`.
- */
-async function currentProjects(tx: RegistryTx, tenantId: UuidV7): Promise<Map<string, CurrentProject>> {
-  const rows = await tx.select().from(projects).where(eq(projects.tenantId, tenantId));
-  const latest = await tx
-    .selectDistinctOn([projectParentChanges.projectId], {
-      projectId: projectParentChanges.projectId,
-      parentId: projectParentChanges.parentId,
-    })
-    .from(projectParentChanges)
-    .where(eq(projectParentChanges.tenantId, tenantId))
-    .orderBy(projectParentChanges.projectId, desc(projectParentChanges.sequence));
-  const parents = new Map(latest.map((row) => [row.projectId, row.parentId]));
-  return new Map(
-    rows.map((row) => [
-      row.id,
-      { row, parentId: row.parentId === null ? null : (parents.get(row.id) ?? row.parentId) },
-    ]),
-  );
-}
-
 function toProjectInfo(project: CurrentProject): ProjectInfo {
   return {
     id: toId(project.row.id),
@@ -93,8 +65,25 @@ function toProjectInfo(project: CurrentProject): ProjectInfo {
 const byCreation = (a: CurrentProject, b: CurrentProject): number =>
   a.row.createdAt.getTime() - b.row.createdAt.getTime() || (a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0);
 
-/** The tree in depth-first order from the root, each Project's children by creation time, then id. */
-function toTree(current: ReadonlyMap<string, CurrentProject>): ProjectTree {
+const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** The current Locked rules as the tree shows them, ordered by Project id, then Standard id. */
+function toLockedRuleMarks(rows: readonly LockedRuleRow[], names: ReadonlyMap<string, string>): LockedRuleMark[] {
+  return [...rows]
+    .sort((a, b) => compare(a.projectId, b.projectId) || compare(a.standardId, b.standardId))
+    .map((row) => ({
+      standardId: toId(row.standardId),
+      projectId: toId(row.projectId),
+      markedAt: row.changedAt.toISOString(),
+      markedBy: accountRef(row.changedBy, names),
+    }));
+}
+
+/**
+ * The tree in depth-first order from the root, each Project's children by
+ * creation time, then id, with the current Locked rules.
+ */
+function toTree(current: ReadonlyMap<string, CurrentProject>, lockedRules: readonly LockedRuleMark[]): ProjectTree {
   const children = new Map<string, CurrentProject[]>();
   let root: CurrentProject | undefined;
   for (const project of current.values()) {
@@ -113,15 +102,13 @@ function toTree(current: ReadonlyMap<string, CurrentProject>): ProjectTree {
     for (const child of (children.get(project.row.id) ?? []).sort(byCreation)) visit(child);
   };
   visit(root);
-  return { rootId: toId(root.row.id), projects: ordered };
+  return { rootId: toId(root.row.id), projects: ordered, lockedRules: [...lockedRules] };
 }
-
-const treeNodes = (current: ReadonlyMap<string, CurrentProject>): TreeNode[] =>
-  [...current.values()].map((project) => ({ id: project.row.id, parentId: project.parentId }));
 
 /**
  * Validate the whole proposed bundle input (the tree with `change` applied,
- * plus every live Standard at every scope) through core; throw its error.
+ * every live Standard at every scope and the current Locked rules) through
+ * core; throw its error.
  */
 async function assertBundleValid(
   tx: RegistryTx,
@@ -129,7 +116,12 @@ async function assertBundleValid(
   nodes: readonly TreeNode[],
   change: ParentChange,
 ): Promise<void> {
-  const verdict = validateBundleInput({ projects: nodes, standards: await liveSet(tx, tenantId), change });
+  const verdict = validateBundleInput({
+    projects: nodes,
+    standards: await liveSet(tx, tenantId),
+    lockedStandardIds: await currentLockedIds(tx, tenantId),
+    change,
+  });
   if (!verdict.ok) throw new EnvelopeError(verdict.error);
 }
 
@@ -142,10 +134,17 @@ async function nextSequence(tx: RegistryTx, tenantId: UuidV7): Promise<number> {
   return (row?.sequence ?? 0) + 1;
 }
 
-/** The tenant's Project tree. Open to every role. */
+/** The tenant's Project tree with its current Locked rules. Open to every role. */
 export async function getTree(db: RegistryDb, session: SessionInfo): Promise<ProjectTree> {
   const { tenantId } = session;
-  return withTenant(db, tenantId, async (tx) => toTree(await currentProjects(tx, tenantId)));
+  return withTenant(db, tenantId, async (tx) => {
+    // The bundle lock keeps the tree and the marks on one consistent state, so
+    // every mark's Project is in the tree.
+    await lockBundle(tx, tenantId);
+    const current = await currentProjects(tx, tenantId);
+    const marks = await currentLockedMarks(tx, tenantId);
+    return toTree(current, toLockedRuleMarks(marks, await accountNames(tx, tenantId)));
+  });
 }
 
 /** One Project of the tenant with its current parent. Open to every role; anything else is `project_not_found`. */
@@ -166,8 +165,8 @@ export async function getProject(db: RegistryDb, session: SessionInfo, projectId
  * current tree and the live Standards of every scope (its error as is, e.g.
  * 409 `slot_conflict`). Each entry of core's answer is joined to the
  * Standard's live `StandardInfo` and its source Project's name; the order
- * and membership are core's, never changed. No Locked rules are stored yet
- * (Story 2.4), so none are passed. Every read runs in one tenant transaction
+ * and membership are core's, never changed. The current Locked rules are
+ * passed to core, so an ancestor's Locked rule is never replaced. Every read runs in one tenant transaction
  * under the tenant's bundle lock, so no publish or tree change commits between
  * the reads.
  */
@@ -193,7 +192,12 @@ export async function getEffectiveSet(
       projectId: info.project.id,
       slot: { moduleKind: info.module.kind, slotKind: entrySlotKind(info.entry), name: entrySlotName(info.entry) },
     }));
-    const resolved = resolveEffectiveSet({ projects: treeNodes(current), standards, lockedStandardIds: [], projectId });
+    const resolved = resolveEffectiveSet({
+      projects: treeNodes(current),
+      standards,
+      lockedStandardIds: await currentLockedIds(tx, tenantId),
+      projectId,
+    });
     if (!resolved.ok) throw new EnvelopeError(resolved.error);
 
     return {
@@ -266,7 +270,8 @@ export async function createProject(db: RegistryDb, session: SessionInfo, body: 
  * (403) → the body (400) → the parent exists in the tenant (404, subject
  * `parentId`) → the Project is not the root (409 `root_project_fixed`) →
  * core validation of the whole proposed bundle input (409 `project_cycle`
- * naming the parent that closes the cycle). Setting the current parent again
+ * naming the parent that closes the cycle, or 409 `locked_rule_conflict`
+ * when the move puts a Locked rule under a contradicting ancestor one). Setting the current parent again
  * writes nothing. Runs under the tenant's bundle lock, so two concurrent
  * changes that together would form a cycle cannot both pass.
  */

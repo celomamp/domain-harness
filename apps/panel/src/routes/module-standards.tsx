@@ -7,6 +7,7 @@ import {
   entrySlotName,
   isCodeStackEntry,
   isDesignSystemEntry,
+  LOCKED_RULE_CONFLICT,
   MODULE_HAS_NO_OWNER,
   MODULE_KIND_LABELS,
   MODULE_NOT_FOUND,
@@ -226,6 +227,8 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
       const holder = versions.kind === "ok" ? (versions.value.versions.at(-1) ?? null) : null;
       return denial(409, STANDARDS_COPY.conflict(proposed, holder, error.subject));
     }
+    case LOCKED_RULE_CONFLICT:
+      return denial(409, STANDARDS_COPY.lockedRuleConflict);
     case "invalid_input": {
       if (error.subject === "projectId") {
         return reply(400, { status: null, fieldErrors: { projectId: STANDARDS_COPY.projectScopeError } });

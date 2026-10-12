@@ -5,6 +5,7 @@ import {
   entrySlotName,
   isEffectiveStandardSet,
   isErrorEnvelope,
+  isLockedRuleState,
   isModuleInfo,
   isModuleList,
   isProjectInfo,
@@ -17,6 +18,7 @@ import {
 } from "@domain-harness/contract";
 import type {
   EffectiveStandardSet,
+  LockedRuleState,
   ModuleInfo,
   ModuleList,
   ProjectInfo,
@@ -29,6 +31,8 @@ import type {
 } from "@domain-harness/contract";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
+import { validateLockedRuleBody } from "../locked-rules/service.ts";
+import type { LockedRuleService } from "../locked-rules/service.ts";
 import { assertBuyer } from "../modules/service.ts";
 import type { ModuleCreateInput, ModuleOwnerAssignInput, ModuleService } from "../modules/service.ts";
 import { assertTreeBuyer } from "../projects/service.ts";
@@ -173,7 +177,18 @@ const ROOT_ID = mintUuidV7();
 const CHILD_ID = mintUuidV7();
 const rootInfo: ProjectInfo = { id: ROOT_ID, name: "Acme", levelName: null, parentId: null, createdAt: "2026-10-12T09:00:00.000Z" };
 const childInfo: ProjectInfo = { ...rootInfo, id: CHILD_ID, name: "Web", levelName: "Product line", parentId: ROOT_ID };
-const tree: ProjectTree = { rootId: ROOT_ID, projects: [rootInfo, childInfo] };
+const tree: ProjectTree = {
+  rootId: ROOT_ID,
+  projects: [rootInfo, childInfo],
+  lockedRules: [
+    {
+      standardId: STANDARD_ID,
+      projectId: CHILD_ID,
+      markedAt: "2026-10-12T09:00:00.000Z",
+      markedBy: { accountId: session.accountId, name: "Bea" },
+    },
+  ],
+};
 
 /**
  * A fake Project service that records what reached it and checks in the real
@@ -236,6 +251,34 @@ class FakeProjects implements ProjectService {
   }
 }
 
+/**
+ * A fake Locked-rule service that records what reached it and checks in the
+ * real order with the real validator: the Standard, the role, the body, then
+ * a contradiction (unlocked state → locked, for the one known Standard, when
+ * `conflict` is set).
+ */
+class FakeLockedRules implements LockedRuleService {
+  calls: unknown[] = [];
+  conflict = false;
+  setLockedRule(caller: SessionInfo, standardId: string, body: unknown): Promise<LockedRuleState> {
+    this.calls.push(["lock", caller.role, standardId, body]);
+    return Promise.resolve().then(() => {
+      if (standardId !== STANDARD_ID) throw notFound("standard_not_found", "standardId");
+      if (caller.role !== "Buyer") throw new EnvelopeError({ code: "role_denied", message: "m", subject: "role" });
+      const { locked } = validateLockedRuleBody(body);
+      if (locked && this.conflict) {
+        throw new EnvelopeError({ code: "locked_rule_conflict", message: "m", subject: mintUuidV7() });
+      }
+      return {
+        standard: standardInfo,
+        locked,
+        changedAt: "2026-10-12T09:00:00.000Z",
+        changedBy: { accountId: caller.accountId, name: "Bea" },
+      };
+    });
+  }
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const notFound = (code: string, subject: string) => new EnvelopeError({ code, message: "m", subject });
@@ -245,12 +288,13 @@ describe("registry HTTP API", () => {
   const modules = new FakeModules();
   const standards = new FakeStandards();
   const projects = new FakeProjects();
+  const lockedRules = new FakeLockedRules();
   const events: LogEvent[] = [];
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
-    server = createRegistryServer({ signIn: service, modules, standards, projects }, (event) => events.push(event));
+    server = createRegistryServer({ signIn: service, modules, standards, projects, lockedRules }, (event) => events.push(event));
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
   });
@@ -264,6 +308,8 @@ describe("registry HTTP API", () => {
     modules.calls = [];
     standards.calls = [];
     projects.calls = [];
+    lockedRules.calls = [];
+    lockedRules.conflict = false;
     events.length = 0;
   });
 
@@ -725,6 +771,59 @@ describe("registry HTTP API", () => {
           "/v1/projects/{id}/effective-standards",
         ]);
       expect(JSON.stringify(events)).not.toContain(CHILD_ID);
+    });
+  });
+
+  describe("Locked rules", () => {
+    const json = { "content-type": "application/json" };
+    const buyerAuth = { ...json, authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { ...json, authorization: `Bearer ${BUILDER_SESSION}` };
+    const path = (id: string) => `/v1/standards/${id}/locked-rule`;
+
+    it("answers 200 with the Locked-rule state on a mark and an unmark", async () => {
+      for (const locked of [true, false]) {
+        const response = await post(path(STANDARD_ID), { locked }, { headers: buyerAuth });
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        expect(isLockedRuleState(body)).toBe(true);
+        expect(body).toMatchObject({ locked });
+      }
+      expect(lockedRules.calls).toEqual([
+        ["lock", "Buyer", STANDARD_ID, { locked: true }],
+        ["lock", "Buyer", STANDARD_ID, { locked: false }],
+      ]);
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(await post(path(STANDARD_ID), { locked: true }), 401, "session_invalid");
+      expect(lockedRules.calls).toEqual([]);
+    });
+
+    it("maps the refusals in the check order to 404, 403, 400 and 409", async () => {
+      lockedRules.conflict = true;
+      const cases: [string, unknown, Record<string, string>, number, Record<string, string>][] = [
+        [path(mintUuidV7()), { locked: true }, builderAuth, 404, { code: "standard_not_found", subject: "standardId" }],
+        [path("nope"), { locked: true }, buyerAuth, 404, { code: "standard_not_found", subject: "standardId" }],
+        [path(STANDARD_ID), { locked: true }, builderAuth, 403, { code: "role_denied", subject: "role" }],
+        [path(STANDARD_ID), {}, buyerAuth, 400, { code: "invalid_input", subject: "locked" }],
+        [path(STANDARD_ID), { locked: "yes" }, buyerAuth, 400, { code: "invalid_input", subject: "locked" }],
+        [path(STANDARD_ID), { locked: true, note: 1 }, buyerAuth, 400, { code: "invalid_input", subject: "note" }],
+        [path(STANDARD_ID), { locked: true }, buyerAuth, 409, { code: "locked_rule_conflict" }],
+      ];
+      for (const [target, body, headers, status, expected] of cases) {
+        const response = await post(target, body, { headers });
+        expect([target, response.status, await response.json()]).toMatchObject([target, status, expected]);
+      }
+    });
+
+    it("answers 405 with Allow for a wrong method and logs the route by its pattern", async () => {
+      const response = await fetch(`${base}${path(STANDARD_ID)}`, { headers: buyerAuth });
+      expect(response.headers.get("allow")).toBe("POST");
+      await expectEnvelope(response, 405, "method_not_allowed");
+      await expect
+        .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
+        .toEqual(["/v1/standards/{id}/locked-rule"]);
+      expect(JSON.stringify(events)).not.toContain(STANDARD_ID);
     });
   });
 

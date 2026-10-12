@@ -24,6 +24,7 @@ const TREE = {
     { id: WEB, name: "Web", levelName: "Product line", parentId: TENANT, createdAt: AT },
     { id: CHECKOUT, name: "Checkout", levelName: "Team", parentId: WEB, createdAt: AT },
   ],
+  lockedRules: [],
 };
 const COOKIE = `dh_session=${TENANT}.${"S".repeat(43)}`;
 

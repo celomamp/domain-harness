@@ -40,6 +40,7 @@ const tree = {
     { id: TENANT, name: "Acme", levelName: null, parentId: null, createdAt: AT },
     { id: WEB, name: "Web", levelName: "Product line", parentId: TENANT, createdAt: AT },
   ],
+  lockedRules: [],
 };
 const list = { module, standards: [info] };
 const form = { intent: "publish", category: "library", name: " React ", versionConstraint: "^18", status: "approved", correctionInstruction: "" };
@@ -223,6 +224,18 @@ describe("Module Standards action: publish", () => {
     });
     expect(data.status?.message).not.toContain("preact");
     expect(call(fetch, 1)[0]).toMatch(new RegExp(`/v1/standards/${HOLDER}/versions$`));
+  });
+
+  it("maps a Locked-rule contradiction on publish to a denial, keeping the values", async () => {
+    const fetch = registryAnswers([409, envelope("locked_rule_conflict", HOLDER)]);
+    const { data, status } = unwrap(await action(actionArgs({ ...form, standardId: STANDARD })));
+    expect(status).toBe(409);
+    expect(data.status).toEqual({
+      tone: "denial",
+      message: "Nothing was published. This version would contradict a Locked rule in the same Conflict slot.",
+    });
+    expect(data.values).toMatchObject({ name: " React ", category: "library" });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("names the holder by id when its versions cannot be read", async () => {

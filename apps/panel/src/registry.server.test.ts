@@ -15,6 +15,7 @@ import {
   publishStandardVersion,
   registryBaseUrl,
   requestSignInLink,
+  setLockedRule,
 } from "./registry.server.ts";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
@@ -218,7 +219,7 @@ describe("registry client", () => {
 
     it("reads the tree with GET and a bearer token", async () => {
       vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
-      const tree = { rootId: ROOT, projects: [root, web] };
+      const tree = { rootId: ROOT, projects: [root, web], lockedRules: [] };
       const fetch = respond(200, tree);
       vi.stubGlobal("fetch", fetch);
       expect(await getProjectTree("abc")).toEqual({ kind: "ok", value: tree });
@@ -298,6 +299,43 @@ describe("registry client", () => {
       expect(await getEffectiveStandards("abc", WEB)).toEqual({ kind: "refused", error: notFound });
       vi.stubGlobal("fetch", respond(200, { ...set, standards: [{ ...set.standards[0], locked: "no" }] }));
       expect(await getEffectiveStandards("abc", WEB)).toEqual({ kind: "unavailable" });
+    });
+
+    it("marks or removes a Locked rule with exactly { locked } on the escaped path and expects 200", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const STANDARD = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f0";
+      const state = {
+        standard: {
+          id: STANDARD,
+          version: 1,
+          module: { id: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f1", kind: "code-stack", name: "Stack" },
+          project: { id: WEB, name: "Web" },
+          entry: { category: "library", name: "X", versionConstraint: null, status: "prohibited", correctionInstruction: null },
+          publishedAt: AT,
+          publishedBy: { accountId: ACCOUNT, name: "Sam" },
+        },
+        locked: true,
+        changedAt: AT,
+        changedBy: { accountId: ACCOUNT, name: "Bea" },
+      };
+      const fetch = respond(200, state);
+      vi.stubGlobal("fetch", fetch);
+      expect(await setLockedRule("abc", STANDARD, true)).toEqual({ kind: "ok", value: state });
+      await setLockedRule("abc", "a/b", false);
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`http://registry.test/v1/standards/${STANDARD}/locked-rule`);
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe(JSON.stringify({ locked: true }));
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+      const [otherUrl, otherInit] = fetch.mock.calls[1] as unknown as [string, RequestInit];
+      expect(otherUrl).toMatch(/\/v1\/standards\/a%2Fb\/locked-rule$/);
+      expect(otherInit.body).toBe(JSON.stringify({ locked: false }));
+
+      const conflict = { code: "locked_rule_conflict", message: "m", subject: STANDARD };
+      vi.stubGlobal("fetch", respond(409, conflict));
+      expect(await setLockedRule("abc", STANDARD, true)).toEqual({ kind: "refused", error: conflict });
+      vi.stubGlobal("fetch", respond(200, { ...state, locked: "yes" }));
+      expect(await setLockedRule("abc", STANDARD, true)).toEqual({ kind: "unavailable" });
     });
   });
 });

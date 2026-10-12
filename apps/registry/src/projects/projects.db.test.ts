@@ -23,6 +23,7 @@ import { consumeSignInLink, createSignInService, requestSignInLinks } from "../s
 import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { createProjectService } from "./service.ts";
+import { createLockedRuleService } from "../locked-rules/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -180,6 +181,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Project tree against
         modules: createModuleService(db),
         standards: createStandardService(db),
         projects: createProjectService(db),
+        lockedRules: createLockedRuleService(db),
       },
       () => undefined,
     );

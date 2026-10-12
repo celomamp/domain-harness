@@ -13,6 +13,7 @@
  */
 import { PROJECT_CYCLE, PROJECT_NOT_FOUND } from "@domain-harness/contract";
 import type { ErrorEnvelope } from "@domain-harness/contract";
+import { validateLockedRules } from "./locked.ts";
 import { validatePublication } from "./slots.ts";
 import type { SlotHolder } from "./slots.ts";
 
@@ -41,6 +42,10 @@ export interface BundleInput {
    * nothing), and a cycle it closes is reported against its parent.
    */
   readonly change?: ParentChange;
+  /** The ids of the Standards that are (or are proposed to be) Locked rules. Ids that match no Standard are ignored. */
+  readonly lockedStandardIds?: readonly string[];
+  /** The id of the Standard being marked as a Locked rule, when the change is a mark; it is reported first. */
+  readonly lockProposal?: string;
 }
 
 const fail = (code: string, message: string, subject: string): TreeResult => ({
@@ -147,8 +152,9 @@ function cycle(parentId: string, projectId: string): TreeResult {
 /**
  * Validate the whole proposed bundle input: the tree rule first, then the
  * Conflict slot rule ({@link validatePublication} semantics) over every pair
- * of live Standards at the same Project scope. Returns `{ ok: true }` or the
- * first error; the answer does not depend on the order of the input.
+ * of live Standards at the same Project scope, then the Locked rule check
+ * ({@link validateLockedRules}). Returns `{ ok: true }` or the first error;
+ * the answer does not depend on the order of the input.
  */
 export function validateBundleInput(input: BundleInput): TreeResult {
   const tree = validateProjectTree(input.projects, input.change);
@@ -159,5 +165,6 @@ export function validateBundleInput(input: BundleInput): TreeResult {
   const [first, ...rest] = standards;
   if (first === undefined) return { ok: true };
   const slots = validatePublication(rest, first);
-  return slots.ok ? { ok: true } : { ok: false, error: slots.error };
+  if (!slots.ok) return { ok: false, error: slots.error };
+  return validateLockedRules(input);
 }

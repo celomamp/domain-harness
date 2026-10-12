@@ -11,6 +11,7 @@
 import { isRecord, isUtcIso } from "./guards.ts";
 import { isUuidV7 } from "./ids.ts";
 import type { UuidV7 } from "./ids.ts";
+import type { AccountRef } from "./modules.ts";
 
 /** A Project name is trimmed and 1 to this many characters long. */
 export const PROJECT_NAME_MAX = 200;
@@ -37,6 +38,25 @@ export interface ProjectInfo {
 export interface ProjectTree {
   readonly rootId: UuidV7;
   readonly projects: readonly ProjectInfo[];
+  /**
+   * The Standards that are Locked rules now (Story 2.4), each at the Project
+   * it is scoped to, ordered by `projectId`, then `standardId`.
+   */
+  readonly lockedRules: readonly LockedRuleMark[];
+}
+
+/**
+ * One current Locked rule: a Standard the Buyer marked on the Project it is
+ * scoped to. A descendant Project can never replace it.
+ */
+export interface LockedRuleMark {
+  readonly standardId: UuidV7;
+  /** The Project the Standard is scoped to. */
+  readonly projectId: UuidV7;
+  /** UTC ISO-8601: when the current mark was made. */
+  readonly markedAt: string;
+  /** The Buyer who made the current mark. */
+  readonly markedBy: AccountRef;
 }
 
 /** Body of `POST /v1/projects` (exactly these keys). */
@@ -86,12 +106,35 @@ export function isProjectInfo(value: unknown): value is ProjectInfo {
   );
 }
 
-/** True when `value` is a {@link ProjectTree} whose root is listed and is the only Project without a parent. Never throws. */
+function isAccountRef(value: unknown): value is AccountRef {
+  return isRecord(value) && isUuidV7(value["accountId"]) && typeof value["name"] === "string";
+}
+
+/** True when `value` is a {@link LockedRuleMark}. Never throws. */
+export function isLockedRuleMark(value: unknown): value is LockedRuleMark {
+  return (
+    isRecord(value) &&
+    isUuidV7(value["standardId"]) &&
+    isUuidV7(value["projectId"]) &&
+    isUtcIso(value["markedAt"]) &&
+    isAccountRef(value["markedBy"])
+  );
+}
+
+/**
+ * True when `value` is a {@link ProjectTree} whose root is listed and is the
+ * only Project without a parent, and whose every Locked rule sits at a listed
+ * Project. Never throws.
+ */
 export function isProjectTree(value: unknown): value is ProjectTree {
   if (!isRecord(value)) return false;
   const rootId = value["rootId"];
   const projects = value["projects"];
+  const lockedRules = value["lockedRules"];
   if (!isUuidV7(rootId) || !Array.isArray(projects) || !projects.every(isProjectInfo)) return false;
+  if (!Array.isArray(lockedRules) || !lockedRules.every(isLockedRuleMark)) return false;
+  const ids = new Set(projects.map((project) => project.id));
+  if (!lockedRules.every((mark) => ids.has(mark.projectId))) return false;
   const roots = projects.filter((project) => project.parentId === null);
   return roots.length === 1 && roots[0]?.id === rootId;
 }

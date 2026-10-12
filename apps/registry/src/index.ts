@@ -58,5 +58,13 @@ export {
 export type { ProjectService } from "./projects/service.ts";
 export { validateCreateBody, validateParentBody } from "./projects/validate.ts";
 export type { ProjectCreateBody, ProjectParentBody } from "./projects/validate.ts";
+export {
+  createLockedRuleService,
+  currentLockedIds,
+  currentLockedMarks,
+  setLockedRule,
+  validateLockedRuleBody,
+} from "./locked-rules/service.ts";
+export type { LockedRuleBody, LockedRuleService } from "./locked-rules/service.ts";
 export { createRegistryServer, MAX_BODY_BYTES, stdoutLogger } from "./http/server.ts";
 export type { LogEvent, Logger, RegistryServices } from "./http/server.ts";

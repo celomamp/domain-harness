@@ -23,6 +23,7 @@ import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { assignModuleOwner, createModule, createModuleService, listModules } from "./service.ts";
 import { createProjectService } from "../projects/service.ts";
+import { createLockedRuleService } from "../locked-rules/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -478,6 +479,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Modules against Post
           modules: createModuleService(db),
           standards: createStandardService(db),
           projects: createProjectService(db),
+          lockedRules: createLockedRuleService(db),
         },
         () => undefined,
       );

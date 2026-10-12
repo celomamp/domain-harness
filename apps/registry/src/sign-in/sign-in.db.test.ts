@@ -24,6 +24,7 @@ import { provisionCompany } from "../tenancy/provision.ts";
 import { consumeSignInLink, createSignInService, getSession, requestSignInLinks } from "./service.ts";
 import { hashToken, mintToken } from "./tokens.ts";
 import { createProjectService } from "../projects/service.ts";
+import { createLockedRuleService } from "../locked-rules/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -394,6 +395,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
           modules: createModuleService(db),
           standards: createStandardService(db),
           projects: createProjectService(db),
+          lockedRules: createLockedRuleService(db),
         },
         () => undefined,
       );

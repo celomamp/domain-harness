@@ -15,7 +15,7 @@ const AT = "2026-10-12T09:00:00.000Z";
 const root = { id: ROOT, name: "Acme", levelName: null, parentId: null, createdAt: AT };
 const a = { id: A, name: "Platform", levelName: "Division", parentId: ROOT, createdAt: AT };
 const b = { id: B, name: "Web", levelName: "  Product line ", parentId: A, createdAt: AT };
-const tree = { rootId: ROOT, projects: [root, a, b] };
+const tree = { rootId: ROOT, projects: [root, a, b], lockedRules: [] };
 
 function loaderArgs(url = "http://x/projects", headers: Record<string, string> = COOKIE): LoaderFunctionArgs {
   return { request: new Request(url, { headers }), params: {}, context: {} } as unknown as LoaderFunctionArgs;
@@ -95,6 +95,101 @@ describe("/projects loader", () => {
     const result = loader(loaderArgs("http://x/projects", {}));
     expect(result).toBeInstanceOf(Response);
     expect((result as Response).headers.get("location")).toBe("/sign-in");
+  });
+});
+
+describe("/projects action: Locked rules", () => {
+  const S = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e601";
+  const T = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e602";
+  const BUYER = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e603";
+  const standard = (id: string, project: { id: string; name: string }, name: string) => ({
+    id,
+    version: 2,
+    module: { id: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e604", kind: "code-stack", name: "Stack" },
+    project,
+    entry: { category: "library", name, versionConstraint: null, status: "prohibited", correctionInstruction: null },
+    publishedAt: AT,
+    publishedBy: { accountId: BUYER, name: "Sam" },
+  });
+  const sAtPlatform = standard(S, { id: A, name: "Platform" }, "X");
+  const tAtWeb = standard(T, { id: B, name: "Web" }, "x");
+  const state = (locked: boolean) => ({ standard: sAtPlatform, locked, changedAt: AT, changedBy: { accountId: BUYER, name: "Bea" } });
+  const lock = (locked: string, standardId = S) => ({ intent: "lock", standardId, locked });
+
+  it("marks a Locked rule with { locked: true } and names the slot and Project", async () => {
+    const fetch = registryAnswers([200, state(true)]);
+    const result = (await action(actionArgs(lock("true")))) as unknown as DataResult;
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(new RegExp(`/v1/standards/${S}/locked-rule$`));
+    expect(init.body).toBe(JSON.stringify({ locked: true }));
+    expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${SESSION_TOKEN}`);
+    expect(result.data).toMatchObject({
+      intent: "lock",
+      status: { tone: "notice", message: 'Marked (code stack, library, "X") on Platform as a Locked rule.' },
+    });
+  });
+
+  it("removes a Locked rule with { locked: false } and says so", async () => {
+    const fetch = registryAnswers([200, state(false)]);
+    const result = (await action(actionArgs(lock("false")))) as unknown as DataResult;
+    expect((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body).toBe(JSON.stringify({ locked: false }));
+    expect(result.data.status).toEqual({
+      tone: "notice",
+      message: '(code stack, library, "X") on Platform is no longer a Locked rule.',
+    });
+  });
+
+  it.each([
+    ["role_denied", "role", 403, "Only the Buyer can mark or remove a Locked rule. Nothing was changed."],
+    ["standard_not_found", "standardId", 404, "That Standard was not found. Nothing was changed."],
+    ["invalid_input", "locked", 503, PROJECT_TREE_COPY.actionUnavailable],
+  ])("maps %s to a denial", async (code, subject, status, message) => {
+    registryAnswers([code === "role_denied" ? 403 : code === "standard_not_found" ? 404 : 400, refused(code, subject)]);
+    const result = (await action(actionArgs(lock("true")))) as unknown as DataResult;
+    expect(result.init?.status).toBe(status);
+    expect(result.data).toMatchObject({ intent: "lock", status: { tone: "denial", message } });
+  });
+
+  it("names both rules, their slots and Projects, on locked_rule_conflict", async () => {
+    const fetch = registryAnswers(
+      [409, refused("locked_rule_conflict", S)],
+      [200, { standardId: T, versions: [tAtWeb] }],
+      [200, { standardId: S, versions: [sAtPlatform] }],
+    );
+    const result = (await action(actionArgs(lock("true", T)))) as unknown as DataResult;
+    expect(result.init?.status).toBe(409);
+    expect(result.data.status).toEqual({
+      tone: "denial",
+      message:
+        'Nothing was changed. (code stack, library, "x") on Web contradicts the Locked rule (code stack, library, "X") on Platform in the same Conflict slot.',
+    });
+    expect((fetch.mock.calls[1] as unknown as [string])[0]).toMatch(new RegExp(`/v1/standards/${T}/versions$`));
+    expect((fetch.mock.calls[2] as unknown as [string])[0]).toMatch(new RegExp(`/v1/standards/${S}/versions$`));
+  });
+
+  it("falls back to the ids when the conflicting rules cannot be read", async () => {
+    registryAnswers([409, refused("locked_rule_conflict", S)], [500, {}], [500, {}]);
+    const result = (await action(actionArgs(lock("true", T)))) as unknown as DataResult;
+    expect(result.data.status?.message).toBe(
+      `Nothing was changed. ${T} contradicts the Locked rule ${S} in the same Conflict slot.`,
+    );
+  });
+
+  it("redirects to sign-in on a lapsed session", async () => {
+    registryAnswers([401, refused("session_invalid", "session")]);
+    const lapsed = await action(actionArgs(lock("true")));
+    expect(lapsed).toBeInstanceOf(Response);
+    expect((lapsed as Response).headers.get("location")).toBe("/sign-in");
+  });
+
+  it("reports an outage, and a malformed locked value without calling the registry", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("down"))));
+    const down = (await action(actionArgs(lock("true")))) as unknown as DataResult;
+    expect(down.data.status).toEqual({ tone: "denial", message: PROJECT_TREE_COPY.actionUnavailable });
+    const fetch = registryAnswers();
+    const malformed = (await action(actionArgs(lock("yes")))) as unknown as DataResult;
+    expect(malformed.data.status).toEqual({ tone: "denial", message: PROJECT_TREE_COPY.actionUnavailable });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

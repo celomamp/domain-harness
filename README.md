@@ -184,7 +184,7 @@ Each Company has exactly one root Project, created by `provision`; it is the onl
 
 | Endpoint | Body | Success | Who |
 |---|---|---|---|
-| `GET /v1/projects` | none | `200 { rootId, projects }`: every Project `{ id, name, levelName, parentId, createdAt }`, depth-first from the root, children by creation time, then id | every role |
+| `GET /v1/projects` | none | `200 { rootId, projects, lockedRules }`: every Project `{ id, name, levelName, parentId, createdAt }`, depth-first from the root, children by creation time, then id; `lockedRules` are the current Locked rules (see below) | every role |
 | `GET /v1/projects/{id}` | none | `200` one Project | every role |
 | `POST /v1/projects` | exactly `{ "name", "levelName", "parentId" }` | `201` the new Project | Buyer |
 | `POST /v1/projects/{id}/parent` | exactly `{ "parentId" }` | `200` the Project with its new parent | Buyer |
@@ -203,7 +203,7 @@ The Effective Standard set of a Project is the set of Standards that Project act
 
 - only Standards scoped to the Project or one of its ancestors count; a sibling's or a descendant's never do;
 - Standards compete only in one Conflict slot: within a slot, the Standard scoped closest to the Project wins (a parent approves library "X" and the child prohibits "x": "x" is prohibited on the child, and still approved on the parent); a token and a library both stay;
-- a Locked rule of an ancestor is never replaced: the locked Standard nearest the root wins its slot. No Locked rules are stored yet (Story 2.4), so the registry passes none;
+- a Locked rule of an ancestor is never replaced: the locked Standard nearest the root wins its slot (see Locked rules below; the registry passes the current marks);
 - two Standards in one slot at one Project scope on the path are an error (`slot_conflict`, naming both Standards), never a guess.
 
 The answer is deterministic: it is ordered by Module kind, slot kind, normalised slot name, then Standard id, and the same inputs in any order give a byte-identical result for every caller. A property test over 300 seeded random trees (`packages/core/src/resolve.property.test.ts`) checks this against a brute-force oracle. The registry and the panel never re-sort, filter or cache the result.
@@ -215,6 +215,22 @@ The answer is deterministic: it is ordered by Module kind, slot kind, normalised
 Refusals: `401 session_invalid` without a valid session → `404 project_not_found` with subject `projectId` for a malformed, unknown or another Company's id → core's error as is (`409 slot_conflict`). Every read runs in one tenant transaction under the Company's bundle lock (the one publishes and tree changes take), so the tree and the Standards are always read in one consistent state.
 
 In the panel, selecting a Project on the Project tree shows its Effective Standard set under the tree (beside it from 1280px wide): a table with the header cells "Conflict slot", "Status", "Version" and "Source Project", the slot written as `(code stack, library, "X")`, "None" for a component's status, and "(this Project)" after the source when the Standard is scoped to the selected Project. The set loads on its own: the tree and forms show first while its section is busy, "No Standard applies to <name> yet." is the empty state, and if the set cannot be read the section says it is unavailable while the tree and forms stay.
+
+### Locked rules
+
+A Locked rule is a Standard the Buyer marks on the Project it is scoped to. In the Effective Standard set of that Project and of every descendant it is never replaced: within its Conflict slot, the locked Standard nearest the root wins, even over a Standard scoped closer to the Project (a parent's Locked rule prohibits library "X" and the child allows "x": "x" stays prohibited on the child, with the parent as source). Only the Buyer marks or removes a Locked rule; a Standard owner or a Builder is refused.
+
+| Endpoint | Body | Success | Who |
+|---|---|---|---|
+| `POST /v1/standards/{id}/locked-rule` | exactly `{ "locked": true \| false }` | `200 { standard, locked, changedAt, changedBy }` (the live version and the current state; `changedAt` and `changedBy` are `null` when the Standard was never marked) | Buyer |
+
+A mark is checked under the Company's bundle lock in this order; the first failure wins and nothing is written: `401 session_invalid` → `404 standard_not_found` (malformed, unknown or another Company's id) → `403 role_denied` → `400 invalid_input` with subject `locked` or the unexpected key → the same state as now answers `200` and writes nothing → for a mark, the whole proposed bundle input (the tree, every live Standard, the current Locked rules plus this one) is validated by `validateBundleInput` in core → `409 locked_rule_conflict`. Removing a Locked rule never conflicts.
+
+Two Locked rules contradict each other when they hold the same Conflict slot and one is scoped to a strict ancestor of the other's Project: the descendant one could never take effect. Core's `validateLockedRules` refuses the pair with `locked_rule_conflict`, naming both Standards, both Projects and the slot; the subject is the other Standard when the pair involves the Standard being marked, otherwise the ancestor's Standard. Locked rules on unrelated branches (siblings) never conflict. Every other bundle validation passes the current Locked rules too: a re-parent that puts a Locked rule under a contradicting ancestor Locked rule, and a new version that moves a locked Standard into a contradicting slot, are both refused with `409 locked_rule_conflict` and write nothing.
+
+Marks are append-only: migration `0007_locked_rules.sql` adds the `locked_rule_changes` table (forced RLS, `SELECT` and `INSERT` only), one row per mark or removal with who made it and when. A Standard's current state is its latest row; no row means not locked. `GET /v1/projects` lists the current Locked rules as `lockedRules`: `{ standardId, projectId, markedAt, markedBy }`, ordered by Project id, then Standard id. `apps/registry/src/locked-rules/locked-rules.db.test.ts` covers them end to end over HTTP.
+
+In the panel, a Project with Locked rules shows "1 Locked rule" or "N Locked rules" after its level name on the tree (part of the node's accessible name). The Effective Standard set table has a fifth column, "Locked rule", reading "Locked rule" or "Not locked"; a row scoped to the selected Project also holds a "Mark as Locked rule" or "Remove Locked rule" button (followed by the slot for assistive technology). The button is shown to every role; the registry's refusals, including a contradiction naming both rules, appear as a status. Publishing a version that would contradict a Locked rule is refused on the Module's Standards page as well.
 
 ## Telemetry
 
