@@ -6,5 +6,13 @@ export const packageName = "@domain-harness/core";
 /** Errors from this unit use the shared envelope. */
 export type CoreError = ErrorEnvelope;
 
-export { codeStackSlot, formatSlot, normalizeSlotName, sameSlot, validatePublication } from "./slots.ts";
+export {
+  codeStackSlot,
+  designSystemSlot,
+  entrySlot,
+  formatSlot,
+  normalizeSlotName,
+  sameSlot,
+  validatePublication,
+} from "./slots.ts";
 export type { ConflictSlot, PublicationResult, SlotHolder } from "./slots.ts";

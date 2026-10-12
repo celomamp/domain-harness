@@ -1,7 +1,14 @@
 import { Form, Link, useNavigate } from "react-router";
 import type { KeyboardEvent } from "react";
-import { CODE_STACK_CATEGORIES, CODE_STACK_STATUSES, MODULE_KIND_LABELS } from "@domain-harness/contract";
-import type { CodeStackEntryField, StandardInfo } from "@domain-harness/contract";
+import {
+  CODE_STACK_CATEGORIES,
+  CODE_STACK_STATUSES,
+  entrySlotKind,
+  entrySlotName,
+  isCodeStackEntry,
+  MODULE_KIND_LABELS,
+} from "@domain-harness/contract";
+import type { CodeStackEntryField, DesignSystemEntryField, StandardInfo } from "@domain-harness/contract";
 import { Button } from "./button.tsx";
 
 export const STANDARDS_COPY = {
@@ -18,8 +25,9 @@ export const STANDARDS_COPY = {
   noOwnerDenial:
     "This Module has no owner, so nothing can be published into it. The Buyer assigns its Standard owner. Nothing was published.",
   notOwnerDenial: "Only the Standard owner of this Module can publish into it. Nothing was published.",
-  designSystemDenial: "Design-system entries are not available yet. Nothing was published.",
-  designSystemNotice: "Design-system entries are not available yet.",
+  loading: "Loading Standards…",
+  sessionEnded: "Your session has ended, so the Standards cannot be shown.",
+  signInAgain: "Sign in again",
   publishHeading: "Publish a code-stack Standard",
   editHeading: (name: string) => `Edit ${name}`,
   editLink: (name: string) => `Edit ${name}`,
@@ -43,30 +51,43 @@ export const STANDARDS_COPY = {
     correctionInstruction: "Enter a Correction instruction of at most 1000 characters, or leave it empty.",
   },
   published: (info: StandardInfo) =>
-    `Published ${info.entry.name}: Standard ${info.id}, version ${String(info.version)}, in Module ${info.module.name}, ` +
+    `Published ${entrySlotName(info.entry)}: Standard ${info.id}, version ${String(info.version)}, in Module ${info.module.name}, ` +
     `Project scope ${info.project.name} (root Project), at ${info.publishedAt}.`,
-  conflict: (proposed: { category: string; name: string; standardId: string }, holder: StandardInfo | null, holderId: string) => {
-    const mine = `The ${proposed.category} "${proposed.name.trim()}"${proposed.standardId === "" ? "" : ` (Standard ${proposed.standardId})`}`;
+  /**
+   * A slot conflict naming both Standards. `proposed` is the submitted slot
+   * kind (category or entry kind) and slot name (name or module specifier).
+   */
+  conflict: (proposed: { slotKind: string; slotName: string; standardId: string }, holder: StandardInfo | null, holderId: string) => {
+    const mine = `The ${proposed.slotKind} "${proposed.slotName.trim()}"${proposed.standardId === "" ? "" : ` (Standard ${proposed.standardId})`}`;
     if (holder === null) {
       return `Nothing was published. ${mine} is in the same Conflict slot as Standard ${holderId} at the root Project.`;
     }
-    const slot = `(${MODULE_KIND_LABELS[holder.module.kind]}, ${holder.entry.category}, "${holder.entry.name}")`;
+    const kind = entrySlotKind(holder.entry);
+    const name = entrySlotName(holder.entry);
+    const slot = `(${MODULE_KIND_LABELS[holder.module.kind]}, ${kind}, "${name}")`;
     return (
       `Nothing was published. ${mine} is in the same Conflict slot ${slot} as Standard ${holder.id}, ` +
-      `${holder.entry.category} "${holder.entry.name}" in Module ${holder.module.name}, at the root Project.`
+      `${kind} "${name}" in Module ${holder.module.name}, at the root Project.`
     );
   },
 } as const;
 
-/** The fields of the code-stack form, as submitted (strings), plus the Standard being edited ("" for a new one). */
-export type StandardFormValues = Readonly<Partial<Record<CodeStackEntryField | "standardId", string>>>;
+/** A field of either Standards form. */
+export type StandardFormField = CodeStackEntryField | DesignSystemEntryField;
+
+/**
+ * The fields of the code-stack or design-system form, as submitted (strings;
+ * a component's tokens as typed, separated by commas), plus the Standard
+ * being edited ("" for a new one).
+ */
+export type StandardFormValues = Readonly<Partial<Record<StandardFormField | "standardId", string>>>;
 
 /** What the Module Standards action reports back to the page. */
 export interface StandardFormActionData {
   /** A status line (notice) or a refusal (denial), announced in the status region. */
   readonly status: { readonly tone: "denial" | "notice"; readonly message: string } | null;
   /** Ink text under the named field. */
-  readonly fieldErrors: Readonly<Partial<Record<CodeStackEntryField, string>>>;
+  readonly fieldErrors: Readonly<Partial<Record<StandardFormField, string>>>;
   /** The submitted values, kept in the fields on a refused submit. */
   readonly values: StandardFormValues;
   /** The version just published. */
@@ -103,8 +124,8 @@ export function StandardForm({ action, editing, submitted }: StandardFormProps) 
   const value = (field: CodeStackEntryField): string => {
     const kept = submitted?.values[field];
     if (kept !== undefined) return kept;
-    const current = editing?.entry[field];
-    return current ?? "";
+    const entry = editing?.entry;
+    return entry !== undefined && isCodeStackEntry(entry) ? (entry[field] ?? "") : "";
   };
   const describedBy = (field: CodeStackEntryField) =>
     errors[field] === undefined ? {} : { "aria-invalid": true as const, "aria-describedby": `${FIELD_IDS[field]}-error` };
@@ -126,7 +147,8 @@ export function StandardForm({ action, editing, submitted }: StandardFormProps) 
     void navigate(action, { state: { focusEdit: editing.id }, preventScrollReset: true });
   };
 
-  const heading = editing === null ? STANDARDS_COPY.publishHeading : STANDARDS_COPY.editHeading(editing.entry.name);
+  const heading =
+    editing === null ? STANDARDS_COPY.publishHeading : STANDARDS_COPY.editHeading(entrySlotName(editing.entry));
   return (
     <Form
       method="post"

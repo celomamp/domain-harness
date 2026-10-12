@@ -41,7 +41,7 @@ development_status:
   1-3-sign-in-to-a-branded-management-panel: review
   1-4-buyer-assigns-exactly-one-standard-owner-per-module: review
   1-5-standard-owner-publishes-a-versioned-code-stack-standard: review
-  1-6-standard-owner-publishes-design-system-components-tokens-and: backlog
+  1-6-standard-owner-publishes-design-system-components-tokens-and: review
   epic-1-retrospective: optional
 
   epic-2: backlog

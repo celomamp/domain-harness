@@ -1,6 +1,7 @@
 /**
- * The registry's Standards wire contract (Story 1.5): the code-stack entry
- * shape (kept stable for the Epic 5 Gate checks), the HTTP paths, request and
+ * The registry's Standards wire contract (Stories 1.5 and 1.6): the
+ * code-stack and design-system entry shapes (kept stable for the Epic 5 Gate
+ * checks), the HTTP paths, request and
  * response bodies, error codes and runtime guards shared by the registry
  * (which serves them) and the panel (which calls them over HTTP with the
  * session as a Bearer token).
@@ -59,19 +60,107 @@ export interface CodeStackEntry {
   readonly correctionInstruction: string | null;
 }
 
+/** The entry kinds of a design-system Module; the entry kind is its slot kind. */
+export const DESIGN_SYSTEM_ENTRY_KINDS = ["component", "token", "import"] as const;
+export type DesignSystemEntryKind = (typeof DESIGN_SYSTEM_ENTRY_KINDS)[number];
+
+/** What a design-system token or import Standard says about its entry. */
+export const DESIGN_SYSTEM_STATUSES = ["required", "prohibited"] as const;
+export type DesignSystemStatus = (typeof DESIGN_SYSTEM_STATUSES)[number];
+
+/** A component's usage rule is trimmed and 1 to this many characters long. */
+export const USAGE_RULE_MAX = 1000;
+/** A component depends on at most this many tokens (each 1 to {@link STANDARD_NAME_MAX} characters). */
+export const COMPONENT_TOKENS_MAX = 50;
+
+/** The keys a component entry may carry, in form order; any other key is refused. */
+export const COMPONENT_ENTRY_FIELDS = ["kind", "name", "usageRule", "tokens", "correctionInstruction"] as const;
+/** The keys a token entry may carry, in form order. */
+export const TOKEN_ENTRY_FIELDS = ["kind", "name", "status"] as const;
+/** The keys an import entry may carry, in form order. */
+export const IMPORT_ENTRY_FIELDS = ["kind", "specifier", "status"] as const;
+export type DesignSystemEntryField =
+  | (typeof COMPONENT_ENTRY_FIELDS)[number]
+  | (typeof TOKEN_ENTRY_FIELDS)[number]
+  | (typeof IMPORT_ENTRY_FIELDS)[number];
+
+/** The allowed keys of each design-system entry kind, in form order. */
+export const DESIGN_SYSTEM_ENTRY_FIELDS: Readonly<Record<DesignSystemEntryKind, readonly DesignSystemEntryField[]>> = {
+  component: COMPONENT_ENTRY_FIELDS,
+  token: TOKEN_ENTRY_FIELDS,
+  import: IMPORT_ENTRY_FIELDS,
+};
+
+/** True when `value` is exactly one of {@link DESIGN_SYSTEM_ENTRY_KINDS}. Never throws. */
+export function isDesignSystemEntryKind(value: unknown): value is DesignSystemEntryKind {
+  return typeof value === "string" && (DESIGN_SYSTEM_ENTRY_KINDS as readonly string[]).includes(value);
+}
+
+/** True when `value` is exactly one of {@link DESIGN_SYSTEM_STATUSES}. Never throws. */
+export function isDesignSystemStatus(value: unknown): value is DesignSystemStatus {
+  return typeof value === "string" && (DESIGN_SYSTEM_STATUSES as readonly string[]).includes(value);
+}
+
+/** A design-system component, as stored and served (normalised). */
+export interface ComponentEntry {
+  readonly kind: "component";
+  /** The Conflict slot name, in the Standard owner's spelling. */
+  readonly name: string;
+  readonly usageRule: string;
+  /** Names of the tokens the component depends on (not checked against token Standards). */
+  readonly tokens: readonly string[];
+  readonly correctionInstruction: string | null;
+}
+
+/** A design-system token, as stored and served (normalised). */
+export interface TokenEntry {
+  readonly kind: "token";
+  /** The Conflict slot name. */
+  readonly name: string;
+  readonly status: DesignSystemStatus;
+}
+
+/** A design-system import, as stored and served (normalised). */
+export interface ImportEntry {
+  readonly kind: "import";
+  /** The module specifier; the Conflict slot name. */
+  readonly specifier: string;
+  readonly status: DesignSystemStatus;
+}
+
+export type DesignSystemEntry = ComponentEntry | TokenEntry | ImportEntry;
+
+/** Any Standard's entry. Code-stack entries carry `category` and never `kind`. */
+export type StandardEntry = CodeStackEntry | DesignSystemEntry;
+
+/** The code-stack entry as a client sends it. */
+export interface CodeStackEntryRequest {
+  readonly category: string;
+  readonly name: string;
+  readonly versionConstraint?: string | null;
+  readonly status: string;
+  readonly correctionInstruction?: string | null;
+}
+
+/** A design-system entry as a client sends it. */
+export type DesignSystemEntryRequest =
+  | {
+      readonly kind: "component";
+      readonly name: string;
+      readonly usageRule: string;
+      readonly tokens: readonly string[];
+      readonly correctionInstruction?: string | null;
+    }
+  | { readonly kind: "token"; readonly name: string; readonly status: string }
+  | { readonly kind: "import"; readonly specifier: string; readonly status: string };
+
 /**
  * Body of `POST /v1/modules/{id}/standards` and `POST /v1/standards/{id}/versions`.
- * The registry trims the text; `versionConstraint` and `correctionInstruction`
- * may be missing, `null` or `""` (stored as `null`).
+ * The registry trims the text; optional text may be missing, `null` or `""`
+ * (stored as `null`). The entry shape must match the Module's kind.
  */
 export interface StandardPublishRequest {
-  readonly entry: {
-    readonly category: string;
-    readonly name: string;
-    readonly versionConstraint?: string | null;
-    readonly status: string;
-    readonly correctionInstruction?: string | null;
-  };
+  readonly entry: CodeStackEntryRequest | DesignSystemEntryRequest;
 }
 
 /** A Project as a Standard shows its scope. */
@@ -96,7 +185,7 @@ export interface StandardInfo {
   readonly module: StandardModuleRef;
   /** The Project scope: the tenant's root Project in this release. */
   readonly project: ProjectRef;
-  readonly entry: CodeStackEntry;
+  readonly entry: StandardEntry;
   /** UTC ISO-8601. */
   readonly publishedAt: string;
   readonly publishedBy: AccountRef;
@@ -159,6 +248,46 @@ export function isCodeStackEntry(value: unknown): value is CodeStackEntry {
   );
 }
 
+/** True when `value` is a normalised {@link DesignSystemEntry} with no other key. Never throws. */
+export function isDesignSystemEntry(value: unknown): value is DesignSystemEntry {
+  if (!isRecord(value)) return false;
+  const kind = value["kind"];
+  if (!isDesignSystemEntryKind(kind)) return false;
+  const allowed = DESIGN_SYSTEM_ENTRY_FIELDS[kind] as readonly string[];
+  if (!Object.keys(value).every((key) => allowed.includes(key))) return false;
+  switch (kind) {
+    case "component": {
+      const tokens = value["tokens"];
+      return (
+        typeof value["name"] === "string" &&
+        typeof value["usageRule"] === "string" &&
+        Array.isArray(tokens) &&
+        tokens.every((token) => typeof token === "string") &&
+        isNullableString(value["correctionInstruction"])
+      );
+    }
+    case "token":
+      return typeof value["name"] === "string" && isDesignSystemStatus(value["status"]);
+    case "import":
+      return typeof value["specifier"] === "string" && isDesignSystemStatus(value["status"]);
+  }
+}
+
+/** True when `value` is a {@link StandardEntry} of either Module kind. Never throws. */
+export function isStandardEntry(value: unknown): value is StandardEntry {
+  return isCodeStackEntry(value) || isDesignSystemEntry(value);
+}
+
+/** The slot kind of an entry: the code-stack category, or the design-system entry kind. */
+export function entrySlotKind(entry: StandardEntry): CodeStackCategory | DesignSystemEntryKind {
+  return "kind" in entry ? entry.kind : entry.category;
+}
+
+/** The slot name of an entry: its name, or an import's module specifier. */
+export function entrySlotName(entry: StandardEntry): string {
+  return "kind" in entry && entry.kind === "import" ? entry.specifier : entry.name;
+}
+
 function isRef(value: unknown): value is { id: UuidV7; name: string } {
   return isRecord(value) && isUuidV7(value["id"]) && typeof value["name"] === "string";
 }
@@ -180,7 +309,7 @@ export function isStandardInfo(value: unknown): value is StandardInfo {
     isRef(module) &&
     isModuleKind((module as Record<string, unknown>)["kind"]) &&
     isRef(value["project"]) &&
-    isCodeStackEntry(value["entry"]) &&
+    isStandardEntry(value["entry"]) &&
     isUtcIso(value["publishedAt"]) &&
     isAccountRef(value["publishedBy"])
   );

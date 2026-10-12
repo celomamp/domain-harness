@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codeStackSlot, formatSlot, normalizeSlotName, sameSlot, validatePublication } from "./index.ts";
+import { codeStackSlot, designSystemSlot, entrySlot, formatSlot, normalizeSlotName, sameSlot, validatePublication } from "./index.ts";
 import type { ConflictSlot, SlotHolder } from "./index.ts";
 
 const ROOT = "root-project";
@@ -97,5 +97,51 @@ describe("validatePublication", () => {
     const result = validatePublication(live, holder("c", library("vue")));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.subject).toBe("a");
+  });
+});
+
+describe("Design-system slots (Story 1.6)", () => {
+  const button = { kind: "component", name: "Button", usageRule: "Use", tokens: [], correctionInstruction: null } as const;
+  const token = { kind: "token", name: "primary", status: "required" } as const;
+  const muiImport = { kind: "import", specifier: "@mui/material", status: "prohibited" } as const;
+
+  it("is (design system, entry kind, name or specifier)", () => {
+    expect(designSystemSlot(button)).toEqual({ moduleKind: "design-system", slotKind: "component", name: "Button" });
+    expect(designSystemSlot(muiImport)).toEqual({ moduleKind: "design-system", slotKind: "import", name: "@mui/material" });
+  });
+
+  it("dispatches on the entry shape", () => {
+    expect(entrySlot(token)).toEqual({ moduleKind: "design-system", slotKind: "token", name: "primary" });
+    expect(
+      entrySlot({ category: "library", name: "primary", versionConstraint: null, status: "approved", correctionInstruction: null }),
+    ).toEqual(library("primary"));
+  });
+
+  it("lets token primary and library primary be live together", () => {
+    expect(validatePublication([holder("a", library("primary"))], holder("b", entrySlot(token)))).toEqual({ ok: true });
+  });
+
+  it("lets a component and a token share a name", () => {
+    const live = [holder("a", entrySlot({ ...button, name: "primary" }))];
+    expect(validatePublication(live, holder("b", entrySlot(token)))).toEqual({ ok: true });
+  });
+
+  it("fails two components Button and button in different Standards, naming both", () => {
+    const result = validatePublication([holder("a", entrySlot(button))], holder("b", entrySlot({ ...button, name: "button" })));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.standards).toEqual(["b", "a"]);
+      expect(result.error.subject).toBe("a");
+      expect(result.error.message).toContain('(design system, component, "Button")');
+    }
+  });
+
+  it("fails an import specifier clash", () => {
+    const result = validatePublication(
+      [holder("a", entrySlot(muiImport))],
+      holder("b", entrySlot({ ...muiImport, specifier: " @MUI/material ", status: "required" })),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.standards).toEqual(["b", "a"]);
   });
 });

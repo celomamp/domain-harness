@@ -22,8 +22,12 @@ import type { ModuleService } from "../modules/service.ts";
 import type { SignInService } from "../sign-in/service.ts";
 import type { StandardService } from "../standards/service.ts";
 
-/** Request bodies larger than this are refused with 413. */
-export const MAX_BODY_BYTES = 16 * 1024;
+/**
+ * Request bodies larger than this are refused with 413. 64 KiB holds the
+ * longest valid design-system component (50 token names of 200 characters
+ * each, plus its usage rule and Correction instruction) in four-byte UTF-8.
+ */
+export const MAX_BODY_BYTES = 64 * 1024;
 
 /** One structured log line: ids, codes, statuses and counts only, never emails, tokens or links. */
 export type LogEvent = Readonly<Record<string, string | number>>;

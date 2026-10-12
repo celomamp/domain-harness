@@ -1,5 +1,7 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import {
+  entrySlotKind,
+  entrySlotName,
   isUuidV7,
   MODULE_HAS_NO_OWNER,
   MODULE_NOT_FOUND,
@@ -7,7 +9,7 @@ import {
   STANDARD_NOT_FOUND,
 } from "@domain-harness/contract";
 import type { SessionInfo, StandardInfo, StandardList, StandardVersionList, UuidV7 } from "@domain-harness/contract";
-import { codeStackSlot, validatePublication } from "@domain-harness/core";
+import { entrySlot, validatePublication } from "@domain-harness/core";
 import type { SlotHolder } from "@domain-harness/core";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
@@ -114,9 +116,10 @@ export function publishStandardVersion(
  * The one publish path. Checks, first failure wins and nothing is written:
  * the Module or Standard exists in the tenant (404) → the Module has an owner
  * (409 `module_has_no_owner`) → the session is that owner (403
- * `not_module_owner`) → the body and entry are valid (400) → the Module is a
- * code-stack Module (400 on `entry`) → the core Conflict slot rule over the
- * whole proposed live set at the root Project (409 `slot_conflict`).
+ * `not_module_owner`) → the body and entry are valid for the Module's kind
+ * (400; a code-stack Module takes code-stack entries, a design-system Module
+ * takes components, tokens and imports) → the core Conflict slot rule over
+ * the whole proposed live set at the root Project (409 `slot_conflict`).
  *
  * Publishes in one tenant serialise on a transaction-scoped advisory lock
  * keyed by the root Project id, taken before anything is read, so two
@@ -164,19 +167,12 @@ async function publish(db: RegistryDb, session: SessionInfo, target: PublishTarg
       });
     }
 
-    const entry = validatePublishBody(body);
-    if (module.kind !== "code-stack") {
-      throw new EnvelopeError({
-        code: "invalid_input",
-        message: "this Module is a design-system Module; code-stack entries cannot be published into it; nothing was published",
-        subject: "entry",
-      });
-    }
+    const entry = validatePublishBody(body, module.kind);
 
     const standardId = existing?.id ?? mintUuidV7();
     const projectId = existing?.projectId ?? root.id;
     const live = await liveSet(tx, tenantId, projectId);
-    const verdict = validatePublication(live, { standardId, projectId, slot: codeStackSlot(entry) });
+    const verdict = validatePublication(live, { standardId, projectId, slot: entrySlot(entry) });
     if (!verdict.ok) throw new EnvelopeError(verdict.error);
 
     let standard = existing;
@@ -200,8 +196,9 @@ async function publish(db: RegistryDb, session: SessionInfo, target: PublishTarg
         tenantId,
         standardId,
         version: (latest?.version ?? 0) + 1,
-        category: entry.category,
-        name: entry.name,
+        // The slot kind and slot name, mirrored from the entry.
+        category: entrySlotKind(entry),
+        name: entrySlotName(entry),
         entry,
         publishedBy: session.accountId,
       })
@@ -280,13 +277,13 @@ function toStandardInfo(
 ): StandardInfo {
   const project = projectRows.get(standard.projectId);
   if (project === undefined) throw new Error("a Standard's Project is missing");
-  const { category, name, versionConstraint, status, correctionInstruction } = version.entry;
   return {
     id: toId(standard.id),
     version: version.version,
     module: { id: toId(module.id), kind: module.kind, name: module.name },
     project: { id: toId(project.id), name: project.name },
-    entry: { category, name, versionConstraint, status, correctionInstruction },
+    // Stored normalised by the validator, so it is served exactly as stored.
+    entry: version.entry,
     publishedAt: version.publishedAt.toISOString(),
     publishedBy: accountRef(version.publishedBy, names),
   };

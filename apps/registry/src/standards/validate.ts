@@ -2,13 +2,27 @@ import {
   CODE_STACK_CATEGORIES,
   CODE_STACK_ENTRY_FIELDS,
   CODE_STACK_STATUSES,
+  COMPONENT_TOKENS_MAX,
   CORRECTION_INSTRUCTION_MAX,
+  DESIGN_SYSTEM_ENTRY_FIELDS,
+  DESIGN_SYSTEM_ENTRY_KINDS,
+  DESIGN_SYSTEM_STATUSES,
   isCodeStackCategory,
   isCodeStackStatus,
+  isDesignSystemEntryKind,
+  isDesignSystemStatus,
   STANDARD_NAME_MAX,
+  USAGE_RULE_MAX,
   VERSION_CONSTRAINT_MAX,
 } from "@domain-harness/contract";
-import type { CodeStackEntry } from "@domain-harness/contract";
+import type {
+  CodeStackEntry,
+  DesignSystemEntry,
+  DesignSystemStatus,
+  ModuleKind,
+  StandardEntry,
+} from "@domain-harness/contract";
+import { normalizeSlotName } from "@domain-harness/core";
 import { EnvelopeError } from "../errors.ts";
 
 const invalid = (subject: string, message: string): EnvelopeError =>
@@ -31,6 +45,16 @@ function optionalText(entry: Record<string, unknown>, field: string, max: number
   return trimmed;
 }
 
+/** Required text: trimmed, 1 to `max` characters. */
+function requiredText(entry: Record<string, unknown>, field: string, max: number): string {
+  const value = entry[field];
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (trimmed === "" || length(trimmed) > max) {
+    throw invalid(field, `${field} must be 1 to ${String(max)} characters once trimmed`);
+  }
+  return trimmed;
+}
+
 /**
  * Validate and normalise a code-stack entry: fields are checked in form order
  * (category, name, versionConstraint, status, correctionInstruction) after any
@@ -45,11 +69,7 @@ export function validateCodeStackEntry(entry: unknown): CodeStackEntry {
   if (!isCodeStackCategory(category)) {
     throw invalid("category", `category must be one of ${CODE_STACK_CATEGORIES.join(", ")}`);
   }
-  const rawName = entry["name"];
-  const name = typeof rawName === "string" ? rawName.trim() : "";
-  if (name === "" || length(name) > STANDARD_NAME_MAX) {
-    throw invalid("name", `name must be 1 to ${String(STANDARD_NAME_MAX)} characters once trimmed`);
-  }
+  const name = requiredText(entry, "name", STANDARD_NAME_MAX);
   const versionConstraint = optionalText(entry, "versionConstraint", VERSION_CONSTRAINT_MAX);
   const status = entry["status"];
   if (!isCodeStackStatus(status)) {
@@ -59,13 +79,80 @@ export function validateCodeStackEntry(entry: unknown): CodeStackEntry {
   return { category, name, versionConstraint, status, correctionInstruction };
 }
 
+function designSystemStatus(entry: Record<string, unknown>): DesignSystemStatus {
+  const status = entry["status"];
+  if (!isDesignSystemStatus(status)) {
+    throw invalid("status", `status must be one of ${DESIGN_SYSTEM_STATUSES.join(", ")}`);
+  }
+  return status;
+}
+
+/** A component's token names: an array of 0 to 50 texts, each 1 to 200 characters, no two equal as slot names. */
+function componentTokens(entry: Record<string, unknown>): string[] {
+  const value = entry["tokens"];
+  if (!Array.isArray(value)) throw invalid("tokens", "tokens must be a list of token names");
+  if (value.length > COMPONENT_TOKENS_MAX) {
+    throw invalid("tokens", `a component depends on at most ${String(COMPONENT_TOKENS_MAX)} tokens`);
+  }
+  const tokens: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value as unknown[]) {
+    const token = typeof item === "string" ? item.trim() : "";
+    if (token === "" || length(token) > STANDARD_NAME_MAX) {
+      throw invalid("tokens", `each token name must be 1 to ${String(STANDARD_NAME_MAX)} characters once trimmed`);
+    }
+    const key = normalizeSlotName(token);
+    if (seen.has(key)) throw invalid("tokens", "a token is listed more than once");
+    seen.add(key);
+    tokens.push(token);
+  }
+  return tokens;
+}
+
+/**
+ * Validate and normalise a design-system entry: `kind` first (subject
+ * `kind`), then any key not allowed for that kind (subject = that key), then
+ * the fields in form order (subject = the field). Throws `invalid_input`.
+ */
+export function validateDesignSystemEntry(entry: unknown): DesignSystemEntry {
+  if (!isRecord(entry)) throw invalid("entry", "entry must be an object");
+  const kind = entry["kind"];
+  if (!isDesignSystemEntryKind(kind)) {
+    throw invalid("kind", `kind must be one of ${DESIGN_SYSTEM_ENTRY_KINDS.join(", ")}`);
+  }
+  const allowed = DESIGN_SYSTEM_ENTRY_FIELDS[kind] as readonly string[];
+  const extra = Object.keys(entry).find((key) => !allowed.includes(key));
+  if (extra !== undefined) throw invalid(extra, `a ${kind} entry has no such field`);
+
+  switch (kind) {
+    case "component": {
+      const name = requiredText(entry, "name", STANDARD_NAME_MAX);
+      const usageRule = requiredText(entry, "usageRule", USAGE_RULE_MAX);
+      const tokens = componentTokens(entry);
+      const correctionInstruction = optionalText(entry, "correctionInstruction", CORRECTION_INSTRUCTION_MAX);
+      return { kind, name, usageRule, tokens, correctionInstruction };
+    }
+    case "token": {
+      const name = requiredText(entry, "name", STANDARD_NAME_MAX);
+      return { kind, name, status: designSystemStatus(entry) };
+    }
+    case "import": {
+      const specifier = requiredText(entry, "specifier", STANDARD_NAME_MAX);
+      return { kind, specifier, status: designSystemStatus(entry) };
+    }
+  }
+}
+
 /**
  * The entry of a publish body, which must be exactly `{ entry }`: any other
- * key is refused with that key as the subject. Throws `invalid_input`.
+ * key is refused with that key as the subject. The entry is validated as the
+ * Module's kind requires. Throws `invalid_input`.
  */
-export function validatePublishBody(body: unknown): CodeStackEntry {
+export function validatePublishBody(body: unknown, moduleKind: ModuleKind): StandardEntry {
   if (!isRecord(body)) throw invalid("body", "the body must be { \"entry\": { ... } }");
   const extra = Object.keys(body).find((key) => key !== "entry");
   if (extra !== undefined) throw invalid(extra, "the body has an unsupported field");
-  return validateCodeStackEntry(body["entry"]);
+  return moduleKind === "design-system"
+    ? validateDesignSystemEntry(body["entry"])
+    : validateCodeStackEntry(body["entry"]);
 }

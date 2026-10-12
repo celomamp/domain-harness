@@ -47,7 +47,28 @@ async function actionWithCookie(args: ActionFunctionArgs) {
   return action({ ...args, request });
 }
 
-function renderPage(role: Role, list: unknown, url = `/standards/${MODULE}`, state = list === null ? "unavailable" : "ok") {
+type LoadState = "ok" | "unavailable" | "not-found" | "session-ended";
+
+function resultOf(list: unknown, state: LoadState): unknown {
+  switch (state) {
+    case "ok":
+      return { kind: "ok", value: list };
+    case "not-found":
+      return { kind: "refused", error: { code: "module_not_found", message: "m", subject: "moduleId" } };
+    case "session-ended":
+      return { kind: "refused", error: { code: "session_invalid", message: "m", subject: "session" } };
+    case "unavailable":
+      return { kind: "unavailable" };
+  }
+}
+
+function renderPage(
+  role: Role,
+  list: unknown,
+  url = `/standards/${MODULE}`,
+  state: LoadState = list === null ? "unavailable" : "ok",
+  standards?: Promise<unknown>,
+) {
   const Layout = () => (
     <>
       <PanelChrome role={role} />
@@ -58,9 +79,8 @@ function renderPage(role: Role, list: unknown, url = `/standards/${MODULE}`, sta
   );
   const loader = ({ request, params }: LoaderFunctionArgs) => ({
     moduleId: params["moduleId"] ?? "",
-    list,
-    state,
-    editId: new URL(request.url).searchParams.get("edit"),
+    editParam: new URL(request.url).searchParams.get("edit"),
+    standards: standards ?? Promise.resolve(resultOf(list, state)),
   });
   const Stub = createRoutesStub([
     {
@@ -295,17 +315,12 @@ describe("Module Standards page", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("shows plain text instead of the form for a design-system Module", async () => {
-    renderPage("Standard owner", { module: { ...module, kind: "design-system", name: "Design system" }, standards: [] });
-    expect(await screen.findByText("Design-system entries are not available yet.")).toBeTruthy();
-    expect(screen.getByText("Kind: design system")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
-  });
-
   it("keeps the structure and says Standards are unavailable when the registry is down", async () => {
     renderPage("Buyer", null);
-    expect(await screen.findByRole("heading", { level: 1, name: "Standards" })).toBeTruthy();
-    expect(status().textContent).toBe("Standards are unavailable right now. Try again in a few minutes.");
+    await waitFor(() => {
+      expect(status().textContent).toBe("Standards are unavailable right now. Try again in a few minutes.");
+    });
+    expect(screen.getByRole("heading", { level: 1, name: "Standards" })).toBeTruthy();
     expect(status().querySelector(".denial")).not.toBeNull();
     expect(screen.getByRole("link", { name: "All Modules" })).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
@@ -320,7 +335,7 @@ describe("Module Standards page", () => {
 
   it("keeps tab order equal to reading order with no positive tabindex", async () => {
     renderPage("Standard owner", { module, standards: [react] });
-    await screen.findByRole("table");
+    await screen.findByRole("button", { name: "Publish" });
     expect(document.querySelectorAll("[tabindex]").length).toBe(0);
     const focusables = [
       ...document.querySelectorAll<HTMLElement>("main a[href], main button, main input:not([type=hidden]), main select, main textarea"),
@@ -335,5 +350,238 @@ describe("Module Standards page", () => {
       "correctionInstruction",
       "Publish",
     ]);
+  });
+});
+
+const designModule = { ...module, kind: "design-system", name: "Design system" };
+const button = {
+  ...react,
+  module: { id: MODULE, kind: "design-system", name: "Design system" },
+  entry: {
+    kind: "component",
+    name: "Button",
+    usageRule: "Use for primary actions",
+    tokens: ["primary", "spacing-4"],
+    correctionInstruction: null,
+  },
+};
+const primary = { ...button, id: HOLDER, entry: { kind: "token", name: "primary", status: "prohibited" } };
+const mui = {
+  ...button,
+  id: BEA,
+  entry: { kind: "import", specifier: "@mui/material", status: "required" },
+};
+
+const labels = () => [...document.querySelectorAll("form.standard-form label")].map((l) => l.textContent);
+
+describe("Module Standards page: cold-load and session", () => {
+  it("shows the structure, the table header cells and a busy row, and no form, while the list loads", async () => {
+    let resolve: (value: unknown) => void = () => undefined;
+    const pending = new Promise((done) => {
+      resolve = done;
+    });
+    renderPage("Standard owner", null, `/standards/${MODULE}`, "ok", pending);
+    expect(await screen.findByRole("heading", { level: 1, name: "Standards" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Standards" })).toBeTruthy();
+    const table = screen.getByRole("table");
+    expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+      "Standard",
+      "Status",
+      "Version",
+      "Published (UTC)",
+      "Standard id",
+    ]);
+    const busy = within(table).getByText("Loading Standards…");
+    expect(busy.closest("[aria-busy='true']")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    expect(document.querySelector("form.standard-form")).toBeNull();
+    expect(screen.getByRole("status")).toBeTruthy();
+
+    resolve({ kind: "ok", value: { module, standards: [react] } });
+    expect(await screen.findByRole("heading", { level: 1, name: "Frontend stack" })).toBeTruthy();
+    expect(screen.queryByText("Loading Standards…")).toBeNull();
+    expect(document.querySelector("[aria-busy='true']")).toBeNull();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+  });
+
+  it("shows a denial with a Sign in again link when the session has ended", async () => {
+    renderPage("Buyer", null, `/standards/${MODULE}`, "session-ended");
+    await waitFor(() => {
+      expect(status().textContent).toBe("Your session has ended, so the Standards cannot be shown.");
+    });
+    expect(status().querySelector(".denial")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Sign in again" }).getAttribute("href")).toBe("/sign-in");
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+});
+
+describe("Module Standards page: design system", () => {
+  it("shows the design-system table with header cells, one row per entry kind, and its Edit links", async () => {
+    renderPage("Builder", { module: designModule, standards: [button, primary, mui] });
+    expect(await screen.findByText("Kind: design system")).toBeTruthy();
+    const table = screen.getByRole("table");
+    expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+      "Standard",
+      "Entry kind",
+      "Status",
+      "Usage rule",
+      "Tokens",
+      "Version",
+      "Published (UTC)",
+      "Standard id",
+    ]);
+    const cells = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => [...row.querySelectorAll("td")].slice(0, 4).map((td) => td.textContent));
+    expect(cells).toEqual([
+      ["component", "None", "Use for primary actions", "primary, spacing-4"],
+      ["token", "prohibited", "None", "None"],
+      ["import", "required", "None", "None"],
+    ]);
+    expect(within(table).getAllByRole("rowheader").map((th) => th.querySelector("p")?.textContent)).toEqual([
+      "Button",
+      "primary",
+      "@mui/material",
+    ]);
+    expect(screen.getByRole("link", { name: "Edit @mui/material" }).getAttribute("href")).toBe(
+      `/standards/${MODULE}?edit=${BEA}`,
+    );
+  });
+
+  it("shows the empty state and the design-system form with the component field set first", async () => {
+    renderPage("Standard owner", { module: designModule, standards: [] });
+    expect(await screen.findByText("No Standard is published in this Module yet.")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Publish a design-system Standard" })).toBeTruthy();
+    expect(document.querySelectorAll("form")).toHaveLength(1);
+    expect(labels()).toEqual([
+      "Entry kind",
+      "Name",
+      "Usage rule",
+      "Tokens it depends on (optional, separated by commas)",
+      "Correction instruction (optional)",
+    ]);
+    expect([...screen.getByLabelText<HTMLSelectElement>("Entry kind").options].map((o) => o.value)).toEqual([
+      "component",
+      "token",
+      "import",
+    ]);
+    expect(screen.getByLabelText("Usage rule").tagName).toBe("TEXTAREA");
+    expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
+  });
+
+  it("switches the field set with the entry kind", async () => {
+    renderPage("Standard owner", { module: designModule, standards: [] });
+    const kind = await screen.findByLabelText("Entry kind");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "primary" } });
+    fireEvent.change(kind, { target: { value: "token" } });
+    expect(labels()).toEqual(["Entry kind", "Name", "Status"]);
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("primary");
+    expect([...screen.getByLabelText<HTMLSelectElement>("Status").options].map((o) => o.value)).toEqual([
+      "",
+      "required",
+      "prohibited",
+    ]);
+    fireEvent.change(kind, { target: { value: "import" } });
+    expect(labels()).toEqual(["Entry kind", "Module specifier", "Status"]);
+    fireEvent.change(kind, { target: { value: "component" } });
+    expect(labels()).toHaveLength(5);
+  });
+
+  it("publishes a component and shows the five published facts", async () => {
+    const fetch = registry([201, { ...button, publishedAt: LATER }]);
+    renderPage("Standard owner", { module: designModule, standards: [] });
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: " Button " } });
+    fireEvent.change(screen.getByLabelText("Usage rule"), { target: { value: "Use for primary actions" } });
+    fireEvent.change(screen.getByLabelText("Tokens it depends on (optional, separated by commas)"), {
+      target: { value: "primary, spacing-4" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const heading = await screen.findByRole("heading", { level: 2, name: "Published" });
+    const facts = [...(heading.parentElement?.querySelectorAll("dt") ?? [])].map((dt) => dt.textContent);
+    expect(facts).toEqual(["Standard id", "Module", "Project scope", "Version", "Published (UTC)"]);
+    expect(status().textContent).toMatch(/^Published Button: Standard /);
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ entry: { kind: "component", tokens: ["primary", "spacing-4"] } });
+  });
+
+  it("keeps every value and puts ink text under the field on an invalid submit", async () => {
+    registry([400, { code: "invalid_input", message: "m", subject: "tokens" }]);
+    renderPage("Standard owner", { module: designModule, standards: [] });
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Button" } });
+    fireEvent.change(screen.getByLabelText("Usage rule"), { target: { value: "Use it" } });
+    fireEvent.change(screen.getByLabelText("Tokens it depends on (optional, separated by commas)"), {
+      target: { value: "a, A" },
+    });
+    fireEvent.change(screen.getByLabelText("Correction instruction (optional)"), { target: { value: "Fix it." } });
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    const error = await screen.findByText(
+      "List at most 50 different token names of 1 to 200 characters each, separated by commas, or leave it empty.",
+    );
+    const tokens = screen.getByLabelText<HTMLInputElement>("Tokens it depends on (optional, separated by commas)");
+    expect(tokens.value).toBe("a, A");
+    expect(tokens.getAttribute("aria-describedby")).toBe(error.id);
+    expect(error.className).toBe("field-error");
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("Button");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Usage rule").value).toBe("Use it");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Correction instruction (optional)").value).toBe("Fix it.");
+    expect(screen.getByLabelText<HTMLSelectElement>("Entry kind").value).toBe("component");
+  });
+
+  it("keeps a refused token's kind and values", async () => {
+    registry([400, { code: "invalid_input", message: "m", subject: "status" }]);
+    renderPage("Standard owner", { module: designModule, standards: [] });
+    fireEvent.change(await screen.findByLabelText("Entry kind"), { target: { value: "token" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "primary" } });
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(await screen.findByText("Choose a status: required or prohibited.")).toBeTruthy();
+    expect(screen.getByLabelText<HTMLSelectElement>("Entry kind").value).toBe("token");
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("primary");
+  });
+
+  it("names both Standards and the component slot on a slot conflict", async () => {
+    const holder = { ...button, id: HOLDER, module: { id: BEA, kind: "design-system", name: "Brand design system" } };
+    registry([409, { code: "slot_conflict", message: "m", subject: HOLDER }], [200, { standardId: HOLDER, versions: [holder] }]);
+    renderPage("Standard owner", { module: designModule, standards: [] });
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "button" } });
+    fireEvent.change(screen.getByLabelText("Usage rule"), { target: { value: "Use it" } });
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => {
+      expect(status().textContent).toBe(
+        `Nothing was published. The component "button" is in the same Conflict slot (design system, component, "Button") ` +
+          `as Standard ${HOLDER}, component "Button" in Module Brand design system, at the root Project.`,
+      );
+    });
+    expect(status().querySelector(".denial")).not.toBeNull();
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("button");
+  });
+
+  it("edits a component: its kind and values are prefilled and the first field is focused; Esc leaves", async () => {
+    const fetch = registry();
+    renderPage("Standard owner", { module: designModule, standards: [button, primary] }, `/standards/${MODULE}?edit=${STANDARD}`);
+    expect(await screen.findByRole("heading", { level: 2, name: "Edit Button" })).toBeTruthy();
+    const kind = screen.getByLabelText<HTMLSelectElement>("Entry kind");
+    expect(document.activeElement).toBe(kind);
+    expect(kind.value).toBe("component");
+    expect(screen.getByLabelText<HTMLInputElement>("Tokens it depends on (optional, separated by commas)").value).toBe(
+      "primary, spacing-4",
+    );
+    fireEvent.keyDown(screen.getByLabelText("Usage rule"), { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 2, name: "Publish a design-system Standard" })).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole("link", { name: "Edit Button" }));
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("edits a token with its own field set", async () => {
+    renderPage("Standard owner", { module: designModule, standards: [button, primary] }, `/standards/${MODULE}?edit=${HOLDER}`);
+    expect(await screen.findByRole("heading", { level: 2, name: "Edit primary" })).toBeTruthy();
+    expect(labels()).toEqual(["Entry kind", "Name", "Status"]);
+    expect(screen.getByLabelText<HTMLSelectElement>("Status").value).toBe("prohibited");
+    expect(screen.getByRole("link", { name: "Cancel edit" })).toBeTruthy();
   });
 });

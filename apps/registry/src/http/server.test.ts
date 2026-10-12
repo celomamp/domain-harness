@@ -2,6 +2,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  entrySlotName,
   isErrorEnvelope,
   isModuleInfo,
   isModuleList,
@@ -145,15 +146,19 @@ class FakeStandards implements StandardService {
   private publishAs(caller: SessionInfo, body: unknown, version: number): Promise<StandardInfo> {
     return Promise.resolve().then(() => {
       if (caller.role !== "Buyer") throw new EnvelopeError({ code: "not_module_owner", message: "m", subject: "role" });
-      const entry = validatePublishBody(body);
-      if (entry.name === "Ownerless") {
+      const designSystem = isRecord(body) && isRecord(body["entry"]) && "kind" in body["entry"];
+      const entry = validatePublishBody(body, designSystem ? "design-system" : "code-stack");
+      const name = entrySlotName(entry);
+      if (name === "Ownerless") {
         throw new EnvelopeError({ code: "module_has_no_owner", message: "m", subject: "moduleId" });
       }
-      if (entry.name === "Taken") throw new EnvelopeError({ code: "slot_conflict", message: "m", subject: STANDARD_ID });
+      if (name === "Taken") throw new EnvelopeError({ code: "slot_conflict", message: "m", subject: STANDARD_ID });
       return { ...standardInfo, version, entry };
     });
   }
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const notFound = (code: string, subject: string) => new EnvelopeError({ code, message: "m", subject });
 
@@ -470,8 +475,26 @@ describe("registry HTTP API", () => {
       await expectEnvelope(await fetch(`${base}/v1/standards/nope/versions`, { headers: owner }), 404, "standard_not_found");
     });
 
-    it("accepts a body above the old 4 KiB limit (Correction instructions) and refuses one over 16 KiB", async () => {
-      expect(MAX_BODY_BYTES).toBe(16 * 1024);
+    it("accepts the longest valid design-system component in four-byte characters", async () => {
+      const wide = "\u{1F600}";
+      const component = {
+        entry: {
+          kind: "component",
+          name: wide.repeat(200),
+          usageRule: wide.repeat(1000),
+          tokens: Array.from({ length: 50 }, (_, i) => `${String(i).padStart(2, "0")}${wide.repeat(198)}`),
+          correctionInstruction: wide.repeat(1000),
+        },
+      };
+      expect(Buffer.byteLength(JSON.stringify(component))).toBeGreaterThan(16 * 1024);
+      expect(Buffer.byteLength(JSON.stringify(component))).toBeLessThan(MAX_BODY_BYTES);
+      const response = await post(listPath, component, { headers: owner });
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ entry: { kind: "component" } });
+    });
+
+    it("accepts a body above the old 4 KiB limit (Correction instructions) and refuses one over 64 KiB", async () => {
+      expect(MAX_BODY_BYTES).toBe(64 * 1024);
       // The longest valid entry, in four-byte characters, is over 4 KiB of UTF-8.
       const long = {
         entry: { ...entry, name: "\u{1F600}".repeat(200), correctionInstruction: "\u{1F600}".repeat(1000), versionConstraint: "x".repeat(100) },

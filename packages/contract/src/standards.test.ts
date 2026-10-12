@@ -3,10 +3,22 @@ import {
   CODE_STACK_CATEGORIES,
   CODE_STACK_ENTRY_FIELDS,
   CODE_STACK_STATUSES,
+  COMPONENT_ENTRY_FIELDS,
+  COMPONENT_TOKENS_MAX,
   CORRECTION_INSTRUCTION_MAX,
+  DESIGN_SYSTEM_ENTRY_FIELDS,
+  DESIGN_SYSTEM_ENTRY_KINDS,
+  DESIGN_SYSTEM_STATUSES,
+  entrySlotKind,
+  entrySlotName,
+  IMPORT_ENTRY_FIELDS,
   isCodeStackCategory,
   isCodeStackEntry,
   isCodeStackStatus,
+  isDesignSystemEntry,
+  isDesignSystemEntryKind,
+  isDesignSystemStatus,
+  isStandardEntry,
   isStandardInfo,
   isStandardList,
   isStandardVersionList,
@@ -18,6 +30,8 @@ import {
   STANDARD_NAME_MAX,
   STANDARD_NOT_FOUND,
   standardVersionsPath,
+  TOKEN_ENTRY_FIELDS,
+  USAGE_RULE_MAX,
   VERSION_CONSTRAINT_MAX,
 } from "./index.ts";
 
@@ -109,5 +123,73 @@ describe("Standards wire contract", () => {
     expect(isStandardList({ module: moduleInfo, standards: [{ ...info, version: 0 }] })).toBe(false);
     expect(isStandardVersionList({ standardId: STANDARD, versions: [info, { ...info, version: 2 }] })).toBe(true);
     expect(isStandardVersionList({ standardId: "x", versions: [] })).toBe(false);
+  });
+});
+
+describe("Design-system entries (Story 1.6)", () => {
+  const component = {
+    kind: "component",
+    name: "Button",
+    usageRule: "Use for primary actions",
+    tokens: ["primary", "spacing-4"],
+    correctionInstruction: null,
+  };
+  const token = { kind: "token", name: "primary", status: "prohibited" };
+  const importEntry = { kind: "import", specifier: "@mui/material", status: "required" };
+
+  it("names the vocabulary, limits and field lists once", () => {
+    expect(DESIGN_SYSTEM_ENTRY_KINDS).toEqual(["component", "token", "import"]);
+    expect(DESIGN_SYSTEM_STATUSES).toEqual(["required", "prohibited"]);
+    expect([USAGE_RULE_MAX, COMPONENT_TOKENS_MAX]).toEqual([1000, 50]);
+    expect(COMPONENT_ENTRY_FIELDS).toEqual(["kind", "name", "usageRule", "tokens", "correctionInstruction"]);
+    expect(TOKEN_ENTRY_FIELDS).toEqual(["kind", "name", "status"]);
+    expect(IMPORT_ENTRY_FIELDS).toEqual(["kind", "specifier", "status"]);
+    expect(DESIGN_SYSTEM_ENTRY_FIELDS.import).toBe(IMPORT_ENTRY_FIELDS);
+  });
+
+  it("guards kinds and statuses exactly", () => {
+    expect(DESIGN_SYSTEM_ENTRY_KINDS.every(isDesignSystemEntryKind)).toBe(true);
+    expect(DESIGN_SYSTEM_STATUSES.every(isDesignSystemStatus)).toBe(true);
+    for (const bad of ["Component", "approved", "", undefined, 1]) {
+      expect(isDesignSystemEntryKind(bad)).toBe(false);
+      expect(isDesignSystemStatus(bad)).toBe(false);
+    }
+  });
+
+  it("accepts each normalised design-system entry", () => {
+    for (const value of [component, { ...component, tokens: [] }, token, importEntry]) {
+      expect(isDesignSystemEntry(value)).toBe(true);
+      expect(isStandardEntry(value)).toBe(true);
+      expect(isCodeStackEntry(value)).toBe(false);
+    }
+    expect(isDesignSystemEntry(entry)).toBe(false);
+    expect(isStandardEntry(entry)).toBe(true);
+    expect(isStandardInfo({ ...info, module: { ...info.module, kind: "design-system" }, entry: component })).toBe(true);
+  });
+
+  it.each([
+    ["an unknown kind", { ...token, kind: "brand" }],
+    ["a missing kind", { name: "primary", status: "required" }],
+    ["an extra key", { ...token, usageRule: "x" }],
+    ["a token with status approved", { ...token, status: "approved" }],
+    ["an import without a specifier", { kind: "import", name: "x", status: "required" }],
+    ["tokens not an array", { ...component, tokens: "primary" }],
+    ["a numeric token", { ...component, tokens: [1] }],
+    ["a missing usage rule", { kind: "component", name: "Button", tokens: [], correctionInstruction: null }],
+    ["a code-stack key", { ...component, category: "library" }],
+    ["not an object", "Button"],
+  ])("rejects a design-system entry with %s", (_label, value) => {
+    expect(isDesignSystemEntry(value)).toBe(false);
+  });
+
+  it("reads the slot kind and slot name of every entry", () => {
+    expect(entrySlotKind(entry as never)).toBe("library");
+    expect(entrySlotName(entry as never)).toBe("React");
+    expect(entrySlotKind(component as never)).toBe("component");
+    expect(entrySlotName(component as never)).toBe("Button");
+    expect(entrySlotKind(token as never)).toBe("token");
+    expect(entrySlotName(token as never)).toBe("primary");
+    expect(entrySlotKind(importEntry as never)).toBe("import");
+    expect(entrySlotName(importEntry as never)).toBe("@mui/material");
   });
 });

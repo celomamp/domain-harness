@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { STANDARDS_COPY } from "../components/standard-form.tsx";
 import type { StandardFormActionData } from "../components/standard-form.tsx";
+import { DESIGN_SYSTEM_COPY } from "../components/design-system-form.tsx";
 import { action, loader } from "./module-standards.tsx";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
@@ -77,39 +78,42 @@ afterEach(() => {
 });
 
 describe("Module Standards loader", () => {
-  it("lists the Module's Standards with the session as a Bearer token", async () => {
+  it("returns the Standards list as a pending promise, with the session as a Bearer token", async () => {
     const fetch = registryAnswers([200, list]);
-    expect(await loader(loaderArgs())).toEqual({ moduleId: MODULE, list, state: "ok", editId: null });
+    const result = loader(loaderArgs(`http://x/standards/${MODULE}?edit=${STANDARD}`));
+    if (result instanceof Response) throw new Error("expected loader data");
+    expect(result.moduleId).toBe(MODULE);
+    expect(result.editParam).toBe(STANDARD);
+    expect(result.standards).toBeInstanceOf(Promise);
+    expect(await result.standards).toEqual({ kind: "ok", value: list });
     const [url, init] = call(fetch);
     expect(url).toMatch(new RegExp(`/v1/modules/${MODULE}/standards$`));
     expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${SESSION_TOKEN}`);
   });
 
-  it("selects the Standard named by ?edit only when it is in the Module", async () => {
-    registryAnswers([200, list], [200, list]);
-    expect(await loader(loaderArgs(`http://x/standards/${MODULE}?edit=${STANDARD}`))).toMatchObject({ editId: STANDARD });
-    expect(await loader(loaderArgs(`http://x/standards/${MODULE}?edit=${HOLDER}`))).toMatchObject({ editId: null });
-  });
-
-  it("reports an unknown Module as not found", async () => {
-    registryAnswers([404, envelope("module_not_found", "moduleId")]);
-    expect(await loader(loaderArgs())).toEqual({ moduleId: MODULE, list: null, state: "not-found", editId: null });
+  it("does not wait for the registry before returning", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    const result = loader(loaderArgs());
+    expect(result).not.toBeInstanceOf(Response);
+    expect((result as { editParam: unknown }).editParam).toBeNull();
   });
 
   it.each([
-    ["an outage", () => vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("fetch failed"))))],
-    ["a malformed list", () => registryAnswers([200, { module, standards: [{ ...info, version: 0 }] }])],
-    ["a 500", () => registryAnswers([500, envelope("internal_error", "request")])],
-  ])("keeps the structure for %s: state unavailable", async (_label, arrange) => {
+    ["an unknown Module", () => registryAnswers([404, envelope("module_not_found", "moduleId")]), "refused"],
+    ["a lapsed session", () => registryAnswers([401, envelope("session_invalid", "session")]), "refused"],
+    ["an outage", () => vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("fetch failed")))), "unavailable"],
+    ["a malformed list", () => registryAnswers([200, { module, standards: [{ ...info, version: 0 }] }]), "unavailable"],
+  ])("resolves %s to a result the page shows, never throwing", async (_label, arrange, kind) => {
     arrange();
-    expect(await loader(loaderArgs())).toEqual({ moduleId: MODULE, list: null, state: "unavailable", editId: null });
+    const result = loader(loaderArgs());
+    if (result instanceof Response) throw new Error("expected loader data");
+    expect((await result.standards).kind).toBe(kind);
   });
 
-  it("sends a lapsed session, or no session, to sign-in", async () => {
-    const fetch = registryAnswers([401, envelope("session_invalid", "session")]);
-    expectRedirect(await loader(loaderArgs()), "/sign-in");
-    expectRedirect(await loader(loaderArgs(undefined, {})), "/sign-in");
-    expect(fetch).toHaveBeenCalledTimes(1);
+  it("sends a request without a session cookie to sign-in without calling the registry", () => {
+    const fetch = registryAnswers();
+    expectRedirect(loader(loaderArgs(undefined, {})), "/sign-in");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -146,7 +150,6 @@ describe("Module Standards action: publish", () => {
     ["a non-owner", 403, envelope("not_module_owner", "role"), 403, STANDARDS_COPY.notOwnerDenial],
     ["an unknown Module", 404, envelope("module_not_found", "moduleId"), 404, STANDARDS_COPY.moduleNotFound],
     ["an unknown Standard", 404, envelope("standard_not_found", "standardId"), 404, STANDARDS_COPY.standardNotFound],
-    ["a design-system Module", 400, envelope("invalid_input", "entry"), 400, STANDARDS_COPY.designSystemDenial],
   ])("announces %s as a denial and keeps the values", async (_label, registryStatus, body, status, message) => {
     registryAnswers([registryStatus, body]);
     const result = unwrap(await action(actionArgs(form)));
@@ -201,6 +204,8 @@ describe("Module Standards action: publish", () => {
     ["an outage", () => vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("fetch failed"))))],
     ["a 404 from a misrouted registry URL", () => registryAnswers([404, envelope("not_found", "/v1/x")])],
     ["an unexpected field subject", () => registryAnswers([400, envelope("invalid_input", "body")])],
+    ["subject entry on the code-stack form", () => registryAnswers([400, envelope("invalid_input", "entry")])],
+    ["subject kind on the code-stack form", () => registryAnswers([400, envelope("invalid_input", "kind")])],
     ["a 500", () => registryAnswers([500, envelope("internal_error", "request")])],
   ])("says Standards are unavailable for %s", async (_label, arrange) => {
     arrange();
@@ -221,5 +226,109 @@ describe("Module Standards action: publish", () => {
     const { status } = unwrap(await action(actionArgs({ ...form, intent: "delete-standard" })));
     expect(status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("Module Standards action: design-system publish", () => {
+  const DESIGN = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5fc";
+  const button = {
+    ...info,
+    module: { id: DESIGN, kind: "design-system", name: "Design system" },
+    entry: { kind: "component", name: "Button", usageRule: "Use for primary actions", tokens: ["primary", "spacing-4"], correctionInstruction: null },
+  };
+  const componentForm = {
+    intent: "publish",
+    kind: "component",
+    name: " Button ",
+    usageRule: "Use for primary actions",
+    tokens: " primary , ,spacing-4,",
+    correctionInstruction: "",
+  };
+
+  it("posts a component with its tokens split on commas, trimmed and blanks dropped", async () => {
+    const fetch = registryAnswers([201, button]);
+    const { data, status } = unwrap(await action(actionArgs(componentForm)));
+    expect(status).toBe(200);
+    expect(data.published).toEqual(button);
+    expect(data.status?.message).toMatch(/^Published Button: Standard /);
+    expect(JSON.parse(call(fetch)[1].body as string)).toEqual({
+      entry: {
+        kind: "component",
+        name: " Button ",
+        usageRule: "Use for primary actions",
+        tokens: ["primary", "spacing-4"],
+        correctionInstruction: "",
+      },
+    });
+  });
+
+  it("posts a token and an import with only their own fields", async () => {
+    const fetch = registryAnswers(
+      [201, { ...button, entry: { kind: "token", name: "primary", status: "prohibited" } }],
+      [201, { ...button, entry: { kind: "import", specifier: "@mui/material", status: "required" } }],
+    );
+    await action(actionArgs({ intent: "publish", kind: "token", name: "primary", status: "prohibited", usageRule: "stale" }));
+    await action(actionArgs({ intent: "publish", kind: "import", specifier: "@mui/material", status: "required", name: "stale" }));
+    expect(JSON.parse(call(fetch, 0)[1].body as string)).toEqual({ entry: { kind: "token", name: "primary", status: "prohibited" } });
+    expect(JSON.parse(call(fetch, 1)[1].body as string)).toEqual({
+      entry: { kind: "import", specifier: "@mui/material", status: "required" },
+    });
+  });
+
+  it("publishes the next version of an edited design-system Standard", async () => {
+    const fetch = registryAnswers([201, { ...button, version: 2 }]);
+    const { data } = unwrap(await action(actionArgs({ ...componentForm, standardId: STANDARD })));
+    expect(data.published?.version).toBe(2);
+    expect(call(fetch)[0]).toMatch(new RegExp(`/v1/standards/${STANDARD}/versions$`));
+  });
+
+  it.each([["kind"], ["name"], ["usageRule"], ["tokens"], ["correctionInstruction"], ["specifier"], ["status"]] as const)(
+    "puts ink text under %s and keeps every value",
+    async (subject) => {
+      registryAnswers([400, envelope("invalid_input", subject)]);
+      const { data, status } = unwrap(await action(actionArgs(componentForm)));
+      expect(status).toBe(400);
+      expect(data.status).toBeNull();
+      expect(data.fieldErrors).toEqual({ [subject]: DESIGN_SYSTEM_COPY.fieldErrors[subject] });
+      expect(data.values).toEqual({
+        kind: "component",
+        name: " Button ",
+        usageRule: "Use for primary actions",
+        tokens: " primary , ,spacing-4,",
+        correctionInstruction: "",
+        specifier: "",
+        status: "",
+        standardId: "",
+      });
+    },
+  );
+
+  it("says Standards are unavailable for a code-stack subject on the design-system form", async () => {
+    registryAnswers([400, envelope("invalid_input", "versionConstraint")]);
+    const { status } = unwrap(await action(actionArgs(componentForm)));
+    expect(status).toBe(503);
+  });
+
+  it("names both Standards and the component slot on a slot conflict", async () => {
+    const holderButton = { ...button, id: HOLDER, module: { id: OTHER_MODULE, kind: "design-system", name: "Brand design system" } };
+    registryAnswers([409, envelope("slot_conflict", HOLDER)], [200, { standardId: HOLDER, versions: [holderButton] }]);
+    const { data, status } = unwrap(await action(actionArgs({ ...componentForm, name: "button" })));
+    expect(status).toBe(409);
+    expect(data.status).toEqual({
+      tone: "denial",
+      message:
+        `Nothing was published. The component "button" is in the same Conflict slot ` +
+        `(design system, component, "Button") as Standard ${HOLDER}, component "Button" in Module Brand design system, at the root Project.`,
+    });
+  });
+
+  it("names an import by its module specifier on a slot conflict", async () => {
+    registryAnswers([409, envelope("slot_conflict", HOLDER)], [500, {}]);
+    const { data } = unwrap(
+      await action(actionArgs({ intent: "publish", kind: "import", specifier: "@MUI/material", status: "required" })),
+    );
+    expect(data.status?.message).toBe(
+      `Nothing was published. The import "@MUI/material" is in the same Conflict slot as Standard ${HOLDER} at the root Project.`,
+    );
   });
 });

@@ -8,13 +8,22 @@
  * live set and asks {@link validatePublication}; it never re-implements or
  * post-processes the answer.
  */
-import { MODULE_KIND_LABELS, SLOT_CONFLICT } from "@domain-harness/contract";
-import type { CodeStackEntry, ErrorEnvelope, ModuleKind } from "@domain-harness/contract";
+import { entrySlotKind, entrySlotName, MODULE_KIND_LABELS, SLOT_CONFLICT } from "@domain-harness/contract";
+import type {
+  CodeStackEntry,
+  DesignSystemEntry,
+  ErrorEnvelope,
+  ModuleKind,
+  StandardEntry,
+} from "@domain-harness/contract";
 
 /** The Conflict slot of one Standard. */
 export interface ConflictSlot {
   readonly moduleKind: ModuleKind;
-  /** For code stack: the entry's category (language, framework or library). */
+  /**
+   * For code stack: the entry's category (language, framework or library).
+   * For design system: the entry kind (component, token or import).
+   */
   readonly slotKind: string;
   /** The slot name in the Standard owner's spelling; compared through {@link normalizeSlotName}. */
   readonly name: string;
@@ -47,6 +56,20 @@ export function normalizeSlotName(name: string): string {
 /** The Conflict slot of a code-stack entry: (code stack, category, name). */
 export function codeStackSlot(entry: Pick<CodeStackEntry, "category" | "name">): ConflictSlot {
   return { moduleKind: "code-stack", slotKind: entry.category, name: entry.name };
+}
+
+/**
+ * The Conflict slot of a design-system entry: (design system, entry kind,
+ * name), where an import's name is its module specifier.
+ */
+export function designSystemSlot(entry: DesignSystemEntry): ConflictSlot {
+  return { moduleKind: "design-system", slotKind: entry.kind, name: entrySlotName(entry) };
+}
+
+/** The Conflict slot of any entry, chosen by its shape (`kind` marks a design-system entry). */
+export function entrySlot(entry: StandardEntry): ConflictSlot {
+  if ("kind" in entry) return designSystemSlot(entry);
+  return { moduleKind: "code-stack", slotKind: entrySlotKind(entry), name: entrySlotName(entry) };
 }
 
 /** True when both slots have the same Module kind, slot kind and normalised name. */

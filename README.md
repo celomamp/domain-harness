@@ -153,11 +153,19 @@ Every Module endpoint can also answer `401 session_invalid`, `405 method_not_all
 
 The management panel's Standards page lists the Modules and shows both forms to every role; the registry decides. The Modules database suite (`apps/registry/src/modules/modules.db.test.ts`) runs with the other suites under `REGISTRY_TEST_DATABASE_URL`.
 
-## Code-stack Standards
+## Standards: code stack and design system
 
 A Standard is one entry in one Module at one Project scope (the Company's root Project for now). Its id is minted by the registry and stays the same across versions. Every publish appends a new, immutable version (`1`, `2`, ...) recording who published it and when (UTC); earlier versions are never changed, and the highest version is the one in force. **Only the current Standard owner of a Module can publish into it.** Every role can read.
 
 A code-stack entry has `category` (`language`, `framework` or `library`), `name` (1 to 200 characters, trimmed), an optional `versionConstraint` (at most 100), `status` (`approved`, `prohibited` or `required`) and an optional `correctionInstruction` (at most 1000). Its Conflict slot is (code stack, category, name), with names compared trimmed, NFC and regardless of case. Two different live Standards in one slot at one Project scope are refused across Modules (`409 slot_conflict`, subject: the Standard already holding the slot). The check is the pure rule in `@domain-harness/core`, run over the whole proposed live set; publishes in one Company are serialised, so two concurrent publishes into one slot cannot both succeed.
+
+A design-system Module takes three entry kinds, told apart by `kind` (code-stack entries carry `category` and never `kind`). Text is trimmed; an empty optional text is stored as `null`.
+
+- Component: `{ "kind": "component", "name", "usageRule", "tokens", "correctionInstruction" }`. `name` is 1 to 200 characters, `usageRule` 1 to 1000, `tokens` a list of 0 to 50 token names (each 1 to 200, no two equal regardless of case), `correctionInstruction` optional (at most 1000). Token names are not checked against published token Standards.
+- Token: `{ "kind": "token", "name", "status" }`, with `status` `required` or `prohibited`.
+- Import: `{ "kind": "import", "specifier", "status" }`, where `specifier` is the module specifier (1 to 200) and `status` is `required` or `prohibited`.
+
+The entry kind is the slot kind: a design-system Conflict slot is (design system, component | token | import, name), and an import's name is its specifier. Different slot kinds and Module kinds never compete, so a token `primary` and a code-stack library `primary` can both be live, while a second component `button` next to a live component `Button` is refused in any design-system Module. A new version may change the entry kind; the slot moves and is checked again. Design-system entries are checked in this order: `kind` (subject `kind`) → any key that kind does not allow (subject: that key) → the fields in form order (subject: the field). The entry must match the Module's kind: a code-stack entry in a design-system Module is refused on `kind` (it has none), and a design-system entry in a code-stack Module is refused on `kind` (an unexpected key).
 
 | Endpoint | Body | Success | Refusals |
 |---|---|---|---|
@@ -166,9 +174,9 @@ A code-stack entry has `category` (`language`, `framework` or `library`), `name`
 | `GET /v1/standards/{id}/versions` | none | `200 { standardId, versions }`, oldest first | `404 standard_not_found` |
 | `POST /v1/standards/{id}/versions` | `{ "entry": { ... } }` | `201` the next version, same id (the entry may move to another slot; it is checked again) | see below |
 
-A publish is checked in this order; the first failure wins and nothing is written: `401 session_invalid` → `404 module_not_found` / `404 standard_not_found` (also for malformed or another Company's ids) → `409 module_has_no_owner` → `403 not_module_owner` (Buyer, Builder or the owner of another Module) → `400 invalid_input` with the field name as subject (or an unexpected key; `entry` for a design-system Module, which accepts no code-stack entry) → `409 slot_conflict`. Transport refusals come before that order, because the body is read first: `415 unsupported_media_type`, `413 payload_too_large`, and `400 invalid_input` with subject `body` for malformed JSON. Request bodies may be up to 16 KiB.
+A publish is checked in this order; the first failure wins and nothing is written: `401 session_invalid` → `404 module_not_found` / `404 standard_not_found` (also for malformed or another Company's ids) → `409 module_has_no_owner` → `403 not_module_owner` (Buyer, Builder or the owner of another Module) → `400 invalid_input` with the field name as subject (or an unexpected key, or `kind` for an entry of the other Module kind) → `409 slot_conflict`. Transport refusals come before that order, because the body is read first: `415 unsupported_media_type`, `413 payload_too_large`, and `400 invalid_input` with subject `body` for malformed JSON. Request bodies may be up to 64 KiB, enough for the longest valid component.
 
-In the panel, each Module name on the Standards page opens that Module's page (`/standards/{moduleId}`): its Standards table, the code-stack form (shown to every role) and, after a publish, the Standard id, Module, Project scope, version and UTC time. Migration `0004_standards.sql` adds the append-only `standards` and `standard_versions` tables under the same forced RLS; `apps/registry/src/standards/standards.db.test.ts` covers them end to end over HTTP.
+In the panel, each Module name on the Standards page opens that Module's page (`/standards/{moduleId}`): its Standards table, the form for its kind (shown to every role) and, after a publish, the Standard id, Module, Project scope, version and UTC time. The design-system form has one "Entry kind" choice that switches between the component, token and import field sets; a component's tokens are typed separated by commas. While the Standards list loads, the page shows its structure and the table header cells with a busy row. Migration `0004_standards.sql` adds the append-only `standards` and `standard_versions` tables under the same forced RLS, and `0005_design_system_entries.sql` widens their checks to the design-system entries (`category` holds the slot kind, `name` the slot name); `apps/registry/src/standards/standards.db.test.ts` covers them end to end over HTTP.
 
 ## Telemetry
 

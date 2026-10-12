@@ -1,9 +1,9 @@
 import { foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { isNull, sql } from "drizzle-orm";
-import { CODE_STACK_CATEGORIES, MODULE_KINDS, PLANS, ROLES } from "@domain-harness/contract";
-import type { CodeStackEntry } from "@domain-harness/contract";
+import { CODE_STACK_CATEGORIES, DESIGN_SYSTEM_ENTRY_KINDS, MODULE_KINDS, PLANS, ROLES } from "@domain-harness/contract";
+import type { StandardEntry } from "@domain-harness/contract";
 
-// Drizzle mirror of migrations/0001_tenancy.sql to 0004_standards.sql, used for typed queries only.
+// Drizzle mirror of migrations/0001_tenancy.sql to 0005_design_system_entries.sql, used for typed queries only.
 // The SQL migration is the source of truth for constraints, RLS and grants.
 
 export const tenants = pgTable("tenants", {
@@ -193,6 +193,9 @@ export const standards = pgTable(
   ],
 );
 
+/** Every slot kind `standard_versions.category` may hold. */
+const SLOT_KINDS = [...CODE_STACK_CATEGORIES, ...DESIGN_SYSTEM_ENTRY_KINDS] as const;
+
 /** Append-only published versions; a Standard's live version has the highest `version`. */
 export const standardVersions = pgTable(
   "standard_versions",
@@ -203,9 +206,11 @@ export const standardVersions = pgTable(
       .references(() => tenants.id),
     standardId: uuid("standard_id").notNull(),
     version: integer("version").notNull(),
-    category: text("category", { enum: CODE_STACK_CATEGORIES }).notNull(),
+    // The slot kind: a code-stack category or a design-system entry kind (0005).
+    category: text("category", { enum: SLOT_KINDS }).notNull(),
+    // The slot name: the entry's name, or an import's module specifier.
     name: text("name").notNull(),
-    entry: jsonb("entry").$type<CodeStackEntry>().notNull(),
+    entry: jsonb("entry").$type<StandardEntry>().notNull(),
     publishedBy: uuid("published_by").notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },

@@ -177,6 +177,11 @@
   justify-self: start;
 }
 
+/* The design-system field set of the chosen entry kind: laid out by the form's own grid. */
+.standard-form__fields {
+  display: contents;
+}
+
 /* Publish, then (while editing) the Cancel edit link. */
 .standard-form__actions {
   display: flex;

@@ -181,7 +181,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
 
     it("is idempotent: a second run applies nothing", async () => {
       const report = await migrate(owner);
-      expect(report).toEqual({ applied: [], alreadyApplied: 4 });
+      expect(report).toEqual({ applied: [], alreadyApplied: 5 });
     });
 
     it("rejects a misnamed .sql file before applying anything", async () => {
@@ -227,7 +227,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         cwd: REGISTRY_ROOT,
         env: { ...process.env, REGISTRY_MIGRATION_DATABASE_URL: ownerUrl },
       });
-      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 4 });
+      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 5 });
     });
   });
 

@@ -167,6 +167,16 @@ describe("registry client", () => {
       expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
     });
 
+    it("publishes a design-system entry as { entry } and accepts its StandardInfo", async () => {
+      const component = { kind: "component", name: "Button", usageRule: "Use it", tokens: ["primary"], correctionInstruction: null } as const;
+      const designInfo = { ...info, module: { ...info.module, kind: "design-system" }, entry: component };
+      const fetch = respond(201, designInfo);
+      vi.stubGlobal("fetch", fetch);
+      expect(await publishStandard("abc", MODULE, component)).toEqual({ kind: "ok", value: designInfo });
+      const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(init.body).toBe(JSON.stringify({ entry: component }));
+    });
+
     it("publishes a new version on the Standard's versions path", async () => {
       const fetch = respond(201, { ...info, version: 2 });
       vi.stubGlobal("fetch", fetch);

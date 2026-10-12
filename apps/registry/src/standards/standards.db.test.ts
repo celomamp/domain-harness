@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isStandardInfo, isStandardList, isStandardVersionList, isUuidV7 } from "@domain-harness/contract";
+import { entrySlotName, isStandardInfo, isStandardList, isStandardVersionList, isUuidV7 } from "@domain-harness/contract";
 import type { ModuleInfo, SessionInfo, StandardInfo, UuidV7 } from "@domain-harness/contract";
 import { createRegistryDb } from "../db/client.ts";
 import type { RegistryDb } from "../db/client.ts";
@@ -31,6 +31,7 @@ const inCi = process.env["CI"] !== undefined && process.env["CI"] !== "" && proc
 const APP_ROLE = "dh_registry_app";
 const MIGRATION_SUITE_LOCK = 7_202_610_103;
 const INSUFFICIENT_PRIVILEGE = "42501";
+const CHECK_VIOLATION = "23514";
 const PANEL = { panelUrl: "http://panel.test" };
 
 if (adminUrl === undefined || adminUrl === "") {
@@ -93,11 +94,13 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
   const auth: Record<string, Record<string, string>> = {};
 
   // Code-stack Modules: m1 owned by Sam, m2 owned by Sue, unowned has no owner.
-  // design is a design-system Module owned by Sam. foreign is tenant B's, owned by Tom.
+  // design is a design-system Module owned by Sam; design2 one owned by Sue.
+  // foreign is tenant B's, owned by Tom.
   let m1: ModuleInfo;
   let m2: ModuleInfo;
   let unowned: ModuleInfo;
   let design: ModuleInfo;
+  let design2: ModuleInfo;
   let foreign: ModuleInfo;
 
   async function counts(): Promise<{ standards: number; versions: number }> {
@@ -199,6 +202,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
     await assignModuleOwner(db, buyer, m1.id, { accountId: sam.accountId });
     await assignModuleOwner(db, buyer, m2.id, { accountId: sue.accountId });
     await assignModuleOwner(db, buyer, design.id, { accountId: sam.accountId });
+    design2 = await createModule(db, buyer, { kind: "design-system", name: "Brand design system" });
+    await assignModuleOwner(db, buyer, design2.id, { accountId: sue.accountId });
     foreign = await createModule(db, buyerB, { kind: "code-stack", name: "Frontend stack" });
     await assignModuleOwner(db, buyerB, foreign.id, { accountId: tomB.accountId });
 
@@ -402,11 +407,17 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
       expect(await counts()).toEqual(before);
     });
 
-    it("refuses a code-stack entry in a design-system Module with invalid_input on entry", async () => {
+    it("refuses a code-stack entry in a design-system Module, and the reverse, with invalid_input on kind", async () => {
       const before = await counts();
-      await expectRefused(await publishNew(design.id, "sam", library(fresh())), 400, "invalid_input", "entry");
-      // Entry validation comes before the Module-kind check.
-      await expectRefused(await publishNew(design.id, "sam", library("")), 400, "invalid_input", "name");
+      await expectRefused(await publishNew(design.id, "sam", library(fresh())), 400, "invalid_input", "kind");
+      await expectRefused(await publishNew(design.id, "sam", library("")), 400, "invalid_input", "kind");
+      await expectRefused(
+        await publishNew(m1.id, "sam", { kind: "token", name: fresh("tok"), status: "required" }),
+        400,
+        "invalid_input",
+        "kind",
+      );
+      await expectRefused(await republish(live.id, "sam", { kind: "token", name: "x", status: "required" }), 400, "invalid_input", "kind");
       expect(await counts()).toEqual(before);
     });
 
@@ -445,6 +456,169 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
     });
   });
 
+  describe("design-system entries (Story 1.6)", () => {
+    const component = (name: string, rest: Entry = {}): Entry => ({
+      kind: "component",
+      name,
+      usageRule: "Use for primary actions",
+      tokens: [],
+      ...rest,
+    });
+    let button: StandardInfo;
+
+    it("publishes a component, a token and an import at the root Project, normalised", async () => {
+      const before = await counts();
+      button = await published(
+        await publishNew(design.id, "sam", component(" Button ", { tokens: [" primary ", "spacing-4"] })),
+      );
+      expect(button).toMatchObject({
+        version: 1,
+        module: { id: design.id, kind: "design-system" },
+        project: { id: rootA, name: "Acme" },
+        entry: {
+          kind: "component",
+          name: "Button",
+          usageRule: "Use for primary actions",
+          tokens: ["primary", "spacing-4"],
+          correctionInstruction: null,
+        },
+      });
+      const token = await published(await publishNew(design.id, "sam", { kind: "token", name: "primary", status: "prohibited" }));
+      expect(token.entry).toEqual({ kind: "token", name: "primary", status: "prohibited" });
+      const mui = await published(
+        await publishNew(design.id, "sam", { kind: "import", specifier: "@mui/material", status: "required" }),
+      );
+      expect(mui.entry).toEqual({ kind: "import", specifier: "@mui/material", status: "required" });
+      expect(await counts()).toEqual({ standards: before.standards + 3, versions: before.versions + 3 });
+
+      const { rows } = await owner.query<{ category: string; name: string }>(
+        "select category, name from standard_versions where standard_id = any($1::uuid[]) order by category",
+        [[button.id, token.id, mui.id]],
+      );
+      expect(rows).toEqual([
+        { category: "component", name: "Button" },
+        { category: "import", name: "@mui/material" },
+        { category: "token", name: "primary" },
+      ]);
+
+      const list: unknown = await (await get(`/v1/modules/${design.id}/standards`, "builder")).json();
+      if (!isStandardList(list)) throw new Error("not a StandardList");
+      expect(list.standards.map((standard) => standard.id)).toEqual([button.id, token.id, mui.id]);
+    });
+
+    it("lets a code-stack library and a design-system token named primary be live together", async () => {
+      await published(await publishNew(m2.id, "sue", library("primary")));
+      // The token "primary" above is still live; a component "primary" is another slot kind too.
+      await published(await publishNew(design.id, "sam", component("primary")));
+    });
+
+    it("refuses a second component with the same name, in either design-system Module, naming the holder", async () => {
+      const before = await counts();
+      for (const [moduleId, who] of [
+        [design.id, "sam"],
+        [design2.id, "sue"],
+      ] as const) {
+        const response = await publishNew(moduleId, who, component("button"));
+        const body: unknown = await response.json();
+        expect([response.status, body]).toMatchObject([409, { code: "slot_conflict", subject: button.id }]);
+        expect(JSON.stringify(body)).toContain('(design system, component, \\"Button\\")');
+      }
+      await expectRefused(
+        await publishNew(design2.id, "sue", { kind: "import", specifier: " @MUI/material ", status: "prohibited" }),
+        409,
+        "slot_conflict",
+      );
+      expect(await counts()).toEqual(before);
+    });
+
+    it("re-publishes an edited component as version 2 with the same id; version 1 is unchanged", async () => {
+      const second = await published(
+        await republish(button.id, "sam", component("Button", { usageRule: "Use for the main action only", tokens: ["primary"] })),
+      );
+      expect(second).toMatchObject({ id: button.id, version: 2, entry: { usageRule: "Use for the main action only" } });
+      const versions: unknown = await (await get(`/v1/standards/${button.id}/versions`, "builder")).json();
+      if (!isStandardVersionList(versions)) throw new Error("not a StandardVersionList");
+      expect(versions.versions).toEqual([button, second]);
+    });
+
+    it("lets a new version change the entry kind; the slot moves and is re-validated", async () => {
+      const moving = await published(await publishNew(design.id, "sam", component(fresh("Card"))));
+      const asToken = await published(
+        await republish(moving.id, "sam", { kind: "token", name: fresh("tok"), status: "required" }),
+      );
+      expect(asToken).toMatchObject({ id: moving.id, version: 2, entry: { kind: "token" } });
+      // Moving onto the held token "primary" is refused.
+      await expectRefused(
+        await republish(moving.id, "sam", { kind: "token", name: "PRIMARY", status: "required" }),
+        409,
+        "slot_conflict",
+      );
+    });
+
+    it.each([
+      ["a missing kind", { name: "x", usageRule: "x", tokens: [] }, "kind"],
+      ["a bad kind", { kind: "brand", name: "x" }, "kind"],
+      ["a blank name", component(" "), "name"],
+      ["a 201-character name", component("x".repeat(201)), "name"],
+      ["a blank usage rule", component("x", { usageRule: " " }), "usageRule"],
+      ["a 1001-character usage rule", component("x", { usageRule: "x".repeat(1001) }), "usageRule"],
+      ["51 tokens", component("x", { tokens: Array.from({ length: 51 }, (_, i) => `t${String(i)}`) }), "tokens"],
+      ["a blank token", component("x", { tokens: [" "] }), "tokens"],
+      ["duplicate tokens", component("x", { tokens: ["a", "A"] }), "tokens"],
+      ["tokens not an array", component("x", { tokens: "a" }), "tokens"],
+      ["a token with status approved", { kind: "token", name: "x", status: "approved" }, "status"],
+      ["a blank specifier", { kind: "import", specifier: " ", status: "required" }, "specifier"],
+      ["a 201-character specifier", { kind: "import", specifier: "x".repeat(201), status: "required" }, "specifier"],
+      ["versionConstraint on a component", component("x", { versionConstraint: "^1" }), "versionConstraint"],
+      ["an extra key", { kind: "token", name: "x", status: "required", owner: "x" }, "owner"],
+    ])("refuses %s with invalid_input on that field", async (_label, entry, subject) => {
+      const before = await counts();
+      await expectRefused(await publishNew(design.id, "sam", entry), 400, "invalid_input", subject);
+      await expectRefused(await republish(button.id, "sam", entry), 400, "invalid_input", subject);
+      expect(await counts()).toEqual(before);
+    });
+
+    it("refuses non-owners, the ownerless check and unknown ids as for code stack", async () => {
+      const before = await counts();
+      for (const who of ["builder", "buyer", "sue"]) {
+        await expectRefused(await publishNew(design.id, who, component(fresh("C"))), 403, "not_module_owner", "role");
+        await expectRefused(await republish(button.id, who, component("Button")), 403, "not_module_owner", "role");
+      }
+      const ownerless = await createModule(db, buyer, { kind: "design-system", name: "Ownerless design system" });
+      await expectRefused(await publishNew(ownerless.id, "sam", component(fresh("C"))), 409, "module_has_no_owner");
+      await expectRefused(await publishNew(mintUuidV7(), "sam", component(fresh("C"))), 404, "module_not_found");
+      await expectRefused(await republish(mintUuidV7(), "sam", component(fresh("C"))), 404, "standard_not_found");
+      expect(await counts()).toEqual(before);
+    });
+
+    it.each([
+      ["a token row with status approved", "token", "primary", { kind: "token", name: "primary", status: "approved" }],
+      ["a component row without a usage rule", "component", "Chip", { kind: "component", name: "Chip", tokens: [] }],
+      ["an import row whose specifier is not the name", "import", "a", { kind: "import", specifier: "b", status: "required" }],
+      ["a code-stack row with a token entry", "library", "x", { kind: "token", name: "x", status: "required" }],
+      ["an unknown slot kind", "brand", "x", { kind: "brand", name: "x" }],
+    ] as const)("refuses at the database %s (check constraint)", async (_label, category, name, entry) => {
+      const before = await counts();
+      const error: unknown = await withTenant(db, tenantA, (tx) =>
+        tx.insert(standardVersions).values({
+          id: mintUuidV7(),
+          tenantId: tenantA,
+          standardId: button.id,
+          version: 99,
+          category: category as never,
+          name,
+          entry: entry as never,
+          publishedBy: sam.accountId,
+        }),
+      ).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(pgCode(error)).toBe(CHECK_VIOLATION);
+      expect(await counts()).toEqual(before);
+    });
+  });
+
   describe("concurrency", () => {
     it("lets exactly one of two concurrent publishes into one slot succeed", async () => {
       for (let round = 0; round < 3; round += 1) {
@@ -466,8 +640,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
       const standard = await publishStandard(db, sam, m1.id, { entry: library(fresh()) });
       await Promise.all([
         publishStandard(db, sam, m1.id, { entry: library(fresh()) }),
-        republish(standard.id, "sam", { ...library(standard.entry.name), status: "required" }),
-        republish(standard.id, "sam", { ...library(standard.entry.name), status: "prohibited" }),
+        republish(standard.id, "sam", { ...library(entrySlotName(standard.entry)), status: "required" }),
+        republish(standard.id, "sam", { ...library(entrySlotName(standard.entry)), status: "prohibited" }),
       ]);
       const { rows } = await owner.query<{ version: number }>(
         "select version from standard_versions where standard_id = $1 order by version",
