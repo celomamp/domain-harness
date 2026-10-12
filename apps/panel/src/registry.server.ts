@@ -153,14 +153,18 @@ export function getStandardVersions(
 /**
  * Publish version 1 of a new Standard into a Module (the registry allows only
  * the Module's Standard owner). The entry is passed as submitted; the registry
- * trims, validates and answers field errors.
+ * trims, validates and answers field errors. `projectId` is the Standard's
+ * Project scope, sent only when defined (the registry defaults to the root
+ * Project); it is fixed for the Standard's life.
  */
 export function publishStandard(
   sessionToken: string,
   moduleId: string,
   entry: StandardPublishRequest["entry"],
+  projectId?: string,
 ): Promise<RegistryResult<StandardInfo>> {
-  return call(moduleStandardsPath(moduleId), json({ entry }, bearer(sessionToken)), 201, isStandardInfo);
+  const body: StandardPublishRequest = projectId === undefined ? { entry } : { entry, projectId };
+  return call(moduleStandardsPath(moduleId), json(body, bearer(sessionToken)), 201, isStandardInfo);
 }
 
 /** Publish the next version of an existing Standard (its Module's Standard owner only). */

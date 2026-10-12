@@ -11,13 +11,16 @@ import {
   MODULE_KIND_LABELS,
   MODULE_NOT_FOUND,
   NOT_MODULE_OWNER,
+  PROJECT_NOT_FOUND,
   SESSION_INVALID,
   SLOT_CONFLICT,
   STANDARD_NOT_FOUND,
 } from "@domain-harness/contract";
 import type {
+  DesignSystemEntryField,
   DesignSystemEntryRequest,
   ErrorEnvelope,
+  ProjectTree,
   StandardInfo,
   StandardList,
   StandardPublishRequest,
@@ -26,7 +29,13 @@ import { DESIGN_SYSTEM_COPY, DesignSystemForm, splitTokens } from "../components
 import { StandardForm, STANDARDS_COPY } from "../components/standard-form.tsx";
 import type { StandardFormActionData, StandardFormField, StandardFormValues } from "../components/standard-form.tsx";
 import { Status } from "../components/status.tsx";
-import { getStandardVersions, listStandards, publishStandard, publishStandardVersion } from "../registry.server.ts";
+import {
+  getProjectTree,
+  getStandardVersions,
+  listStandards,
+  publishStandard,
+  publishStandardVersion,
+} from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
 import { readSessionToken } from "../session.server.ts";
 
@@ -38,6 +47,8 @@ export interface ModuleStandardsLoaderData {
   readonly editParam: string | null;
   /** The Standards list, not awaited: the page structure shows (cold-load) while it loads. */
   readonly standards: Promise<RegistryResult<StandardList>>;
+  /** The Project tree for the Project scope picker, not awaited; it never rejects (a failure is `unavailable`). */
+  readonly tree: Promise<RegistryResult<ProjectTree>>;
 }
 
 /** The Module's Standards page path, without `?edit`. */
@@ -54,7 +65,12 @@ export function loader({ request, params }: LoaderFunctionArgs): Response | Modu
   if (token === undefined) return redirect("/sign-in");
   const moduleId = params["moduleId"] ?? "";
   const editParam = new URL(request.url).searchParams.get("edit");
-  return { moduleId, editParam, standards: listStandards(token, moduleId) };
+  return {
+    moduleId,
+    editParam,
+    standards: listStandards(token, moduleId),
+    tree: getProjectTree(token).catch((): RegistryResult<ProjectTree> => ({ kind: "unavailable" })),
+  };
 }
 
 const field = (form: FormData, name: string): string => {
@@ -63,7 +79,7 @@ const field = (form: FormData, name: string): string => {
 };
 
 /** The design-system entry the form describes; a component's tokens are split on commas. */
-function designSystemEntry(values: Required<StandardFormValues>): DesignSystemEntryRequest {
+function designSystemEntry(values: Required<Omit<StandardFormValues, "projectId">>): DesignSystemEntryRequest {
   switch (values.kind) {
     case "component":
       return {
@@ -85,7 +101,10 @@ function designSystemEntry(values: Required<StandardFormValues>): DesignSystemEn
 
 /**
  * `intent=publish` with the code-stack fields, or with the design-system
- * fields when `kind` is present, plus `standardId` when editing. Values go to
+ * fields when `kind` is present, plus `standardId` when editing, or the
+ * Project scope `projectId` when publishing a new Standard (read only then;
+ * missing when the Project tree was unavailable, so the registry uses the
+ * root Project). Values go to
  * the registry as submitted (tokens split on commas): it checks the Module,
  * its owner and the session first, then the entry, then the Conflict slot,
  * so a non-owner's submit is a denial whatever it holds.
@@ -102,7 +121,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   }
   const moduleId = params["moduleId"] ?? "";
   const designSystem = form.has("kind");
-  let values: Required<StandardFormValues>;
+  let values: Required<Omit<StandardFormValues, "projectId">>;
   let entry: StandardPublishRequest["entry"];
   let proposed: { slotKind: string; slotName: string };
   if (designSystem) {
@@ -139,9 +158,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
     proposed = { slotKind: kept.category, slotName: kept.name };
   }
   const standardId = values.standardId;
+  // The Project scope is fixed once published, so only a new Standard sends one.
+  const projectId = standardId === "" && form.has("projectId") ? field(form, "projectId") : undefined;
   const result =
     standardId === ""
-      ? await publishStandard(token, moduleId, entry)
+      ? await publishStandard(token, moduleId, entry, projectId)
       : await publishStandardVersion(token, standardId, entry);
   if (result.kind === "ok") {
     return data<StandardFormActionData>({
@@ -151,18 +172,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
       published: result.value,
     });
   }
-  const shown = designSystem ? pick(values, DESIGN_SYSTEM_FORM_FIELDS) : pick(values, CODE_STACK_ENTRY_FIELDS);
+  const picked = designSystem ? pick(values, DESIGN_SYSTEM_FORM_FIELDS) : pick(values, CODE_STACK_ENTRY_FIELDS);
+  const shown: StandardFormValues = projectId === undefined ? picked : { ...picked, projectId };
   const error = result.kind === "refused" ? result.error : undefined;
   return refusal(token, { values: shown, designSystem, proposed: { ...proposed, standardId } }, error);
 }
 
 /** Every field of the design-system form (the union of the three field sets). */
-const DESIGN_SYSTEM_FORM_FIELDS: readonly StandardFormField[] = [
+const DESIGN_SYSTEM_FORM_FIELDS: readonly DesignSystemEntryField[] = [
   ...new Set(Object.values(DESIGN_SYSTEM_ENTRY_FIELDS).flat()),
 ];
 
 /** The kept values of one form: its own fields and `standardId`. */
-function pick(values: Required<StandardFormValues>, fields: readonly StandardFormField[]): StandardFormValues {
+function pick(
+  values: Required<Omit<StandardFormValues, "projectId">>,
+  fields: readonly Exclude<StandardFormField, "projectId">[],
+): StandardFormValues {
   const kept: Partial<Record<StandardFormField | "standardId", string>> = { standardId: values.standardId };
   for (const name of fields) kept[name] = values[name];
   return kept;
@@ -194,17 +219,20 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
       return denial(404, STANDARDS_COPY.moduleNotFound);
     case STANDARD_NOT_FOUND:
       return denial(404, STANDARDS_COPY.standardNotFound);
+    case PROJECT_NOT_FOUND:
+      return reply(404, { status: null, fieldErrors: { projectId: STANDARDS_COPY.projectScopeError } });
     case SLOT_CONFLICT: {
       const versions = await getStandardVersions(token, error.subject);
       const holder = versions.kind === "ok" ? (versions.value.versions.at(-1) ?? null) : null;
       return denial(409, STANDARDS_COPY.conflict(proposed, holder, error.subject));
     }
     case "invalid_input": {
+      if (error.subject === "projectId") {
+        return reply(400, { status: null, fieldErrors: { projectId: STANDARDS_COPY.projectScopeError } });
+      }
       // Field errors of the submitted form only; `entry` or `kind` on the code-stack form is unexpected.
       if (designSystem) {
-        const subject = DESIGN_SYSTEM_FORM_FIELDS.find((name) => name === error.subject) as
-          | keyof typeof DESIGN_SYSTEM_COPY.fieldErrors
-          | undefined;
+        const subject = DESIGN_SYSTEM_FORM_FIELDS.find((name) => name === error.subject);
         if (subject !== undefined) {
           return reply(400, { status: null, fieldErrors: { [subject]: DESIGN_SYSTEM_COPY.fieldErrors[subject] } });
         }
@@ -225,11 +253,27 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
 
 /** A Module's Standards: who owns it, its live Standards, and the form for its kind. */
 export default function ModuleStandards() {
-  const { moduleId, editParam, standards } = useLoaderData<ModuleStandardsLoaderData>();
+  const { moduleId, editParam, standards, tree } = useLoaderData<ModuleStandardsLoaderData>();
+  // Both promises suspend to the one boundary, so the cold-load shows until both have settled.
+  const withTree = (result: RegistryResult<StandardList>) => (
+    <Await
+      resolve={tree}
+      errorElement={<Loaded moduleId={moduleId} editParam={editParam} result={result} projectTree={null} />}
+    >
+      {(treeResult: RegistryResult<ProjectTree>) => (
+        <Loaded
+          moduleId={moduleId}
+          editParam={editParam}
+          result={result}
+          projectTree={treeResult.kind === "ok" ? treeResult.value : null}
+        />
+      )}
+    </Await>
+  );
   return (
     <Suspense fallback={<ColdLoad />}>
-      <Await resolve={standards} errorElement={<Loaded moduleId={moduleId} editParam={editParam} result={UNAVAILABLE} />}>
-        {(result: RegistryResult<StandardList>) => <Loaded moduleId={moduleId} editParam={editParam} result={result} />}
+      <Await resolve={standards} errorElement={withTree(UNAVAILABLE)}>
+        {(result: RegistryResult<StandardList>) => withTree(result)}
       </Await>
     </Suspense>
   );
@@ -274,15 +318,17 @@ function ColdLoad() {
 }
 
 /** The Module's kind is not known until the list arrives, so the cold-load table shows the header cells both tables share. */
-const COLD_LOAD_HEADERS = ["Standard", "Status", "Version", "Published (UTC)", "Standard id"] as const;
+const COLD_LOAD_HEADERS = ["Standard", "Project scope", "Status", "Version", "Published (UTC)", "Standard id"] as const;
 
 interface LoadedProps {
   readonly moduleId: string;
   readonly editParam: string | null;
   readonly result: RegistryResult<StandardList>;
+  /** The Project tree for the Project scope picker, or null when it is unavailable. */
+  readonly projectTree: ProjectTree | null;
 }
 
-function Loaded({ moduleId, editParam, result }: LoadedProps) {
+function Loaded({ moduleId, editParam, result, projectTree }: LoadedProps) {
   const actionData = useActionData<StandardFormActionData>();
   const location = useLocation();
   const page = moduleStandardsPage(moduleId);
@@ -347,9 +393,15 @@ function Loaded({ moduleId, editParam, result }: LoadedProps) {
             )}
           </section>
           {list.module.kind === "code-stack" ? (
-            <StandardForm key={formKey} action={page} editing={editing} submitted={refused} />
+            <StandardForm key={formKey} action={page} editing={editing} submitted={refused} projectTree={projectTree} />
           ) : (
-            <DesignSystemForm key={formKey} action={page} editing={editing} submitted={refused} />
+            <DesignSystemForm
+              key={formKey}
+              action={page}
+              editing={editing}
+              submitted={refused}
+              projectTree={projectTree}
+            />
           )}
         </>
       )}
@@ -384,7 +436,7 @@ function PublishedFacts({ info }: { readonly info: StandardInfo }) {
         <dt>Module</dt>
         <dd>{info.module.name}</dd>
         <dt>Project scope</dt>
-        <dd>{info.project.name} (root Project)</dd>
+        <dd>{info.project.name}</dd>
         <dt>Version</dt>
         <dd>{info.version}</dd>
         <dt>Published (UTC)</dt>
@@ -403,6 +455,7 @@ function StandardsTable({ standards }: { readonly standards: readonly StandardIn
         <thead>
           <tr>
             <th scope="col">Standard</th>
+            <th scope="col">Project scope</th>
             <th scope="col">Category</th>
             <th scope="col">Status</th>
             <th scope="col">Version constraint</th>
@@ -417,6 +470,7 @@ function StandardsTable({ standards }: { readonly standards: readonly StandardIn
             return (
               <tr key={standard.id}>
                 <StandardCell standard={standard} />
+                <td>{standard.project.name}</td>
                 <td>{entry?.category ?? STANDARDS_COPY.none}</td>
                 <td>{entry?.status ?? STANDARDS_COPY.none}</td>
                 <td>{entry?.versionConstraint ?? STANDARDS_COPY.none}</td>
@@ -442,6 +496,7 @@ function DesignSystemTable({ standards }: { readonly standards: readonly Standar
         <thead>
           <tr>
             <th scope="col">Standard</th>
+            <th scope="col">Project scope</th>
             <th scope="col">Entry kind</th>
             <th scope="col">Status</th>
             <th scope="col">Usage rule</th>
@@ -460,6 +515,7 @@ function DesignSystemTable({ standards }: { readonly standards: readonly Standar
             return (
               <tr key={standard.id}>
                 <StandardCell standard={standard} />
+                <td>{standard.project.name}</td>
                 <td>{entry?.kind ?? STANDARDS_COPY.none}</td>
                 <td>{status}</td>
                 <td>{component?.usageRule ?? STANDARDS_COPY.none}</td>

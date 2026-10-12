@@ -15,6 +15,16 @@ const STANDARD = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5fa";
 const HOLDER = "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5fb";
 const AT = "2026-10-11T09:00:00.000Z";
 const LATER = "2026-10-11T10:30:00.000Z";
+const WEB = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5fc";
+const CHECKOUT = "01928c7e-5b2a-7c3d-be4f-a1b2c3d4e5fd";
+const TREE = {
+  rootId: TENANT,
+  projects: [
+    { id: TENANT, name: "Acme", levelName: null, parentId: null, createdAt: AT },
+    { id: WEB, name: "Web", levelName: "Product line", parentId: TENANT, createdAt: AT },
+    { id: CHECKOUT, name: "Checkout", levelName: "Team", parentId: WEB, createdAt: AT },
+  ],
+};
 const COOKIE = `dh_session=${TENANT}.${"S".repeat(43)}`;
 
 const module = {
@@ -68,6 +78,7 @@ function renderPage(
   url = `/standards/${MODULE}`,
   state: LoadState = list === null ? "unavailable" : "ok",
   standards?: Promise<unknown>,
+  tree: Promise<unknown> = Promise.resolve({ kind: "ok", value: TREE }),
 ) {
   const Layout = () => (
     <>
@@ -81,6 +92,7 @@ function renderPage(
     moduleId: params["moduleId"] ?? "",
     editParam: new URL(request.url).searchParams.get("edit"),
     standards: standards ?? Promise.resolve(resultOf(list, state)),
+    tree,
   });
   const Stub = createRoutesStub([
     {
@@ -123,6 +135,7 @@ describe("Module Standards page", () => {
     const table = screen.getByRole("table");
     expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
       "Standard",
+      "Project scope",
       "Category",
       "Status",
       "Version constraint",
@@ -132,6 +145,7 @@ describe("Module Standards page", () => {
     ]);
     const rows = within(table).getAllByRole("row").slice(1);
     expect([...(rows[0]?.querySelectorAll("td") ?? [])].map((td) => td.textContent)).toEqual([
+      "Acme",
       "library",
       "approved",
       "^18",
@@ -139,13 +153,14 @@ describe("Module Standards page", () => {
       AT,
       STANDARD,
     ]);
-    expect(rows[1]?.querySelectorAll("td")[2]?.textContent).toBe("None");
+    expect(rows[1]?.querySelectorAll("td")[3]?.textContent).toBe("None");
     expect(within(rows[0] as HTMLElement).getByRole("link", { name: "Edit React" }).getAttribute("href")).toBe(
       `/standards/${MODULE}?edit=${STANDARD}`,
     );
 
     const labels = [...document.querySelectorAll("form.standard-form label")].map((l) => l.textContent);
     expect(labels).toEqual([
+      "Project scope",
       "Category",
       "Name",
       "Version constraint (optional)",
@@ -241,12 +256,12 @@ describe("Module Standards page", () => {
     expect(pairs).toEqual([
       ["Standard id", STANDARD],
       ["Module", "Frontend stack"],
-      ["Project scope", "Acme (root Project)"],
+      ["Project scope", "Acme"],
       ["Version", "1"],
       ["Published (UTC)", LATER],
     ]);
     expect(status().textContent).toBe(
-      `Published React: Standard ${STANDARD}, version 1, in Module Frontend stack, Project scope Acme (root Project), at ${LATER}.`,
+      `Published React: Standard ${STANDARD}, version 1, in Module Frontend stack, Project scope Acme, at ${LATER}.`,
     );
     expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("");
     const [url] = fetch.mock.calls[0] as unknown as [string];
@@ -263,7 +278,7 @@ describe("Module Standards page", () => {
     await waitFor(() => {
       expect(status().textContent).toBe(
         `Nothing was published. The library "VUE" is in the same Conflict slot (code stack, library, "Vue") as Standard ${HOLDER}, ` +
-          'library "Vue" in Module Backend stack, at the root Project.',
+          'library "Vue" in Module Backend stack, at Project Acme.',
       );
     });
     expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("VUE");
@@ -343,6 +358,7 @@ describe("Module Standards page", () => {
     expect(focusables.map((el) => el.getAttribute("name") ?? el.textContent)).toEqual([
       "All Modules",
       "Edit React",
+      "projectId",
       "category",
       "name",
       "versionConstraint",
@@ -386,6 +402,7 @@ describe("Module Standards page: cold-load and session", () => {
     const table = screen.getByRole("table");
     expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
       "Standard",
+      "Project scope",
       "Status",
       "Version",
       "Published (UTC)",
@@ -422,6 +439,7 @@ describe("Module Standards page: design system", () => {
     const table = screen.getByRole("table");
     expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
       "Standard",
+      "Project scope",
       "Entry kind",
       "Status",
       "Usage rule",
@@ -433,7 +451,7 @@ describe("Module Standards page: design system", () => {
     const cells = within(table)
       .getAllByRole("row")
       .slice(1)
-      .map((row) => [...row.querySelectorAll("td")].slice(0, 4).map((td) => td.textContent));
+      .map((row) => [...row.querySelectorAll("td")].slice(1, 5).map((td) => td.textContent));
     expect(cells).toEqual([
       ["component", "None", "Use for primary actions", "primary, spacing-4"],
       ["token", "prohibited", "None", "None"],
@@ -455,6 +473,7 @@ describe("Module Standards page: design system", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Publish a design-system Standard" })).toBeTruthy();
     expect(document.querySelectorAll("form")).toHaveLength(1);
     expect(labels()).toEqual([
+      "Project scope",
       "Entry kind",
       "Name",
       "Usage rule",
@@ -475,7 +494,7 @@ describe("Module Standards page: design system", () => {
     const kind = await screen.findByLabelText("Entry kind");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "primary" } });
     fireEvent.change(kind, { target: { value: "token" } });
-    expect(labels()).toEqual(["Entry kind", "Name", "Status"]);
+    expect(labels()).toEqual(["Project scope", "Entry kind", "Name", "Status"]);
     expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("primary");
     expect([...screen.getByLabelText<HTMLSelectElement>("Status").options].map((o) => o.value)).toEqual([
       "",
@@ -483,9 +502,9 @@ describe("Module Standards page: design system", () => {
       "prohibited",
     ]);
     fireEvent.change(kind, { target: { value: "import" } });
-    expect(labels()).toEqual(["Entry kind", "Module specifier", "Status"]);
+    expect(labels()).toEqual(["Project scope", "Entry kind", "Module specifier", "Status"]);
     fireEvent.change(kind, { target: { value: "component" } });
-    expect(labels()).toHaveLength(5);
+    expect(labels()).toHaveLength(6);
   });
 
   it("publishes a component and shows the five published facts", async () => {
@@ -550,7 +569,7 @@ describe("Module Standards page: design system", () => {
     await waitFor(() => {
       expect(status().textContent).toBe(
         `Nothing was published. The component "button" is in the same Conflict slot (design system, component, "Button") ` +
-          `as Standard ${HOLDER}, component "Button" in Module Brand design system, at the root Project.`,
+          `as Standard ${HOLDER}, component "Button" in Module Brand design system, at Project Acme.`,
       );
     });
     expect(status().querySelector(".denial")).not.toBeNull();
@@ -583,5 +602,141 @@ describe("Module Standards page: design system", () => {
     expect(labels()).toEqual(["Entry kind", "Name", "Status"]);
     expect(screen.getByLabelText<HTMLSelectElement>("Status").value).toBe("prohibited");
     expect(screen.getByRole("link", { name: "Cancel edit" })).toBeTruthy();
+  });
+});
+
+describe("Module Standards page: Project scope", () => {
+  const scope = () => screen.getByLabelText<HTMLSelectElement>("Project scope");
+  const fill = async () => {
+    fireEvent.change(await screen.findByLabelText("Category"), { target: { value: "library" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Vue" } });
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "approved" } });
+  };
+
+  it("lists every Project in tree order with level names, the root selected, before the entry fields", async () => {
+    renderPage("Standard owner", { module, standards: [] });
+    await screen.findByLabelText("Category");
+    expect(scope().id).toBe("standard-project");
+    expect(scope().name).toBe("projectId");
+    expect([...scope().options].map((o) => [o.value, o.textContent])).toEqual([
+      [TENANT, "Acme"],
+      [WEB, "Web (level Product line)"],
+      [CHECKOUT, "Checkout (level Team)"],
+    ]);
+    expect(scope().value).toBe(TENANT);
+    expect(scope().compareDocumentPosition(screen.getByLabelText("Category")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the picker on the design-system form too, before the entry kind", async () => {
+    renderPage("Standard owner", { module: designModule, standards: [] });
+    await screen.findByLabelText("Entry kind");
+    expect(scope().value).toBe(TENANT);
+    expect(labels().slice(0, 2)).toEqual(["Project scope", "Entry kind"]);
+  });
+
+  it("keeps the chosen scope and shows ink text under the picker on the design-system form", async () => {
+    const fetch = registry([404, { code: "project_not_found", message: "m", subject: "projectId" }]);
+    renderPage("Standard owner", { module: designModule, standards: [] });
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Button" } });
+    fireEvent.change(screen.getByLabelText("Usage rule"), { target: { value: "Use it" } });
+    fireEvent.change(scope(), { target: { value: CHECKOUT } });
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const error = await screen.findByText("Choose a Project in this Company's Project tree.");
+    expect(error.className).toBe("field-error");
+    expect(scope().getAttribute("aria-invalid")).toBe("true");
+    expect(scope().getAttribute("aria-describedby")).toBe(error.id);
+    expect(scope().value).toBe(CHECKOUT);
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("Button");
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ projectId: CHECKOUT, entry: { kind: "component" } });
+  });
+
+  it("shows an edited design-system Standard's scope as fixed text, with no picker", async () => {
+    renderPage(
+      "Standard owner",
+      { module: designModule, standards: [{ ...button, project: { id: WEB, name: "Web" } }] },
+      `/standards/${MODULE}?edit=${STANDARD}`,
+    );
+    expect(await screen.findByText("Project scope: Web (fixed for this Standard)")).toBeTruthy();
+    expect(document.querySelector("select[name='projectId']")).toBeNull();
+    expect(labels()[0]).toBe("Entry kind");
+  });
+
+  it("shows an edited Standard's scope as fixed text, with no picker", async () => {
+    renderPage("Standard owner", { module, standards: [{ ...react, project: { id: WEB, name: "Web" } }] }, `/standards/${MODULE}?edit=${STANDARD}`);
+    expect(await screen.findByText("Project scope: Web (fixed for this Standard)")).toBeTruthy();
+    expect(screen.queryByLabelText("Project scope")).toBeNull();
+    expect(document.querySelector("select[name='projectId']")).toBeNull();
+  });
+
+  it("publishes at the chosen Project and names it in the facts, the status and the table", async () => {
+    const fetch = registry([201, { ...react, entry: { ...react.entry, name: "Vue" }, project: { id: CHECKOUT, name: "Checkout" } }]);
+    renderPage("Standard owner", { module, standards: [{ ...vue, module: react.module, project: { id: WEB, name: "Web" } }] });
+    await fill();
+    fireEvent.change(scope(), { target: { value: CHECKOUT } });
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const heading = await screen.findByRole("heading", { level: 2, name: "Published" });
+    const facts = [...(heading.parentElement?.querySelectorAll("dt") ?? [])].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]);
+    expect(facts).toContainEqual(["Project scope", "Checkout"]);
+    expect(status().textContent).toContain("Project scope Checkout,");
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ projectId: CHECKOUT });
+    const row = within(screen.getByRole("table")).getAllByRole("row")[1];
+    expect(row?.querySelector("td")?.textContent).toBe("Web");
+  });
+
+  it("keeps the chosen scope on a refused submit", async () => {
+    registry([403, { code: "not_module_owner", message: "m", subject: "role" }]);
+    renderPage("Builder", { module, standards: [] });
+    await fill();
+    fireEvent.change(scope(), { target: { value: WEB } });
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => {
+      expect(status().textContent).toBe("Only the Standard owner of this Module can publish into it. Nothing was published.");
+    });
+    expect(scope().value).toBe(WEB);
+  });
+
+  it("puts ink text under the picker for project_not_found", async () => {
+    registry([404, { code: "project_not_found", message: "m", subject: "projectId" }]);
+    renderPage("Standard owner", { module, standards: [] });
+    await fill();
+    fireEvent.change(scope(), { target: { value: WEB } });
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const error = await screen.findByText("Choose a Project in this Company's Project tree.");
+    expect(error.className).toBe("field-error");
+    expect(scope().getAttribute("aria-invalid")).toBe("true");
+    expect(scope().getAttribute("aria-describedby")).toBe(error.id);
+    expect(scope().value).toBe(WEB);
+    expect(status().textContent).toBe("");
+  });
+
+  it("says the Standard goes to the root Project when the tree is unavailable, and sends no scope", async () => {
+    const fetch = registry([201, react]);
+    renderPage("Standard owner", { module, standards: [] }, `/standards/${MODULE}`, "ok", undefined, Promise.resolve({ kind: "unavailable" }));
+    expect(
+      await screen.findByText(
+        "The Project tree is unavailable right now, so this Standard will be published at the root Project.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Project scope")).toBeNull();
+    await fill();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).not.toHaveProperty("projectId");
+  });
+
+  it("treats a rejected tree promise as unavailable", async () => {
+    const rejected = Promise.reject(new Error("down"));
+    rejected.catch(() => undefined);
+    renderPage("Standard owner", { module, standards: [] }, `/standards/${MODULE}`, "ok", undefined, rejected);
+    expect(
+      await screen.findByText(
+        "The Project tree is unavailable right now, so this Standard will be published at the root Project.",
+      ),
+    ).toBeTruthy();
   });
 });

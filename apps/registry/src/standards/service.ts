@@ -6,6 +6,7 @@ import {
   MODULE_HAS_NO_OWNER,
   MODULE_NOT_FOUND,
   NOT_MODULE_OWNER,
+  PROJECT_NOT_FOUND,
   STANDARD_NOT_FOUND,
 } from "@domain-harness/contract";
 import type { SessionInfo, StandardInfo, StandardList, StandardVersionList, UuidV7 } from "@domain-harness/contract";
@@ -92,7 +93,11 @@ export async function listStandardVersions(
   });
 }
 
-/** Publish version 1 of a new Standard into a Module. `body` must be `{ entry }`. */
+/**
+ * Publish version 1 of a new Standard into a Module. `body` is
+ * `{ entry, projectId? }`; `projectId` sets the Standard's Project scope for
+ * its whole life (missing means the root Project).
+ */
 export function publishStandard(
   db: RegistryDb,
   session: SessionInfo,
@@ -102,7 +107,11 @@ export function publishStandard(
   return publish(db, session, { moduleId }, body);
 }
 
-/** Publish the next version of an existing Standard (the entry may move to a new slot; it is re-validated). */
+/**
+ * Publish the next version of an existing Standard (the entry may move to a
+ * new slot; it is re-validated). `body` is exactly `{ entry }`: the version
+ * keeps the Standard's Project scope.
+ */
 export function publishStandardVersion(
   db: RegistryDb,
   session: SessionInfo,
@@ -118,8 +127,12 @@ export function publishStandardVersion(
  * (409 `module_has_no_owner`) → the session is that owner (403
  * `not_module_owner`) → the body and entry are valid for the Module's kind
  * (400; a code-stack Module takes code-stack entries, a design-system Module
- * takes components, tokens and imports) → the core Conflict slot rule over
- * the whole proposed live set at the root Project (409 `slot_conflict`).
+ * takes components, tokens and imports; `projectId`'s type is checked after
+ * the entry) → a new Standard's Project scope exists in this tenant (404
+ * `project_not_found`, subject `projectId`; missing means the root Project, a
+ * new version keeps its Standard's scope) → the core Conflict slot rule over
+ * the whole proposed live set of every scope, so a slot is unique per
+ * (slot, Project scope) (409 `slot_conflict`).
  *
  * Publishes in one tenant serialise on a transaction-scoped advisory lock
  * keyed by the root Project id, taken before anything is read, so two
@@ -162,11 +175,15 @@ async function publish(db: RegistryDb, session: SessionInfo, target: PublishTarg
       });
     }
 
-    const entry = validatePublishBody(body, module.kind);
+    const { entry, projectId: requestedScope } = validatePublishBody(body, module.kind, {
+      allowProjectId: existing === undefined,
+    });
 
     const standardId = existing?.id ?? mintUuidV7();
-    const projectId = existing?.projectId ?? root.id;
-    const live = await liveSet(tx, tenantId, projectId);
+    const projectId = existing?.projectId ?? (await resolveScope(tx, tenantId, requestedScope, root));
+    // The whole live set of every scope: the pair check covers every scope,
+    // and `conflicts()` only pairs holders at the same Project scope.
+    const live = await liveSet(tx, tenantId);
     const verdict = validatePublication(live, { standardId, projectId, slot: entrySlot(entry) });
     if (!verdict.ok) throw new EnvelopeError(verdict.error);
 
@@ -205,10 +222,10 @@ async function publish(db: RegistryDb, session: SessionInfo, target: PublishTarg
 
 /**
  * Every Standard's live version across all Modules of the tenant, as the core
- * slot rule sees it: at one Project scope, or at every scope when `projectId`
- * is omitted (the Standards part of the whole bundle input).
+ * slot rule sees it, at every Project scope (the Standards part of the whole
+ * bundle input).
  */
-export async function liveSet(tx: RegistryTx, tenantId: UuidV7, projectId?: string): Promise<SlotHolder[]> {
+export async function liveSet(tx: RegistryTx, tenantId: UuidV7): Promise<SlotHolder[]> {
   const rows = await tx
     .selectDistinctOn([standardVersions.standardId], {
       standardId: standardVersions.standardId,
@@ -223,12 +240,7 @@ export async function liveSet(tx: RegistryTx, tenantId: UuidV7, projectId?: stri
       and(eq(standards.tenantId, standardVersions.tenantId), eq(standards.id, standardVersions.standardId)),
     )
     .innerJoin(modules, and(eq(modules.tenantId, standards.tenantId), eq(modules.id, standards.moduleId)))
-    .where(
-      and(
-        eq(standardVersions.tenantId, tenantId),
-        projectId === undefined ? undefined : eq(standards.projectId, projectId),
-      ),
-    )
+    .where(eq(standardVersions.tenantId, tenantId))
     .orderBy(standardVersions.standardId, desc(standardVersions.version));
   return rows.map((row) => ({
     standardId: row.standardId,
@@ -252,6 +264,25 @@ export async function lockBundle(tx: RegistryTx, tenantId: UuidV7): Promise<Proj
   if (root === undefined) throw new Error("the tenant has no root Project");
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`standards:${root.id}`}, 0))`);
   return root;
+}
+
+/** The Project scope of a new Standard: the requested Project of this tenant, or the root when none is given. */
+async function resolveScope(
+  tx: RegistryTx,
+  tenantId: UuidV7,
+  requested: string | undefined,
+  root: ProjectRow,
+): Promise<string> {
+  if (requested === undefined) return root.id;
+  const notFound = new EnvelopeError({
+    code: PROJECT_NOT_FOUND,
+    message: "no such Project in this Company's Project tree; nothing was published",
+    subject: "projectId",
+  });
+  if (!isUuidV7(requested)) throw notFound;
+  const project = (await projectsById(tx, tenantId)).get(requested);
+  if (project === undefined) throw notFound;
+  return project.id;
 }
 
 async function findModule(tx: RegistryTx, tenantId: UuidV7, moduleId: string): Promise<ModuleRow | undefined> {

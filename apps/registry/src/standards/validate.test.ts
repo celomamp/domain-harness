@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { validateCodeStackEntry, validateDesignSystemEntry, validatePublishBody } from "./validate.ts";
 
+const NEW = { allowProjectId: true } as const;
+const VERSION = { allowProjectId: false } as const;
 const entry = { category: "library", name: " React ", versionConstraint: " ^18 ", status: "approved" };
 
 describe("validateCodeStackEntry", () => {
@@ -72,18 +74,18 @@ describe("validateCodeStackEntry", () => {
 
 describe("validatePublishBody", () => {
   it("takes the entry of a body that is exactly { entry }", () => {
-    expect(validatePublishBody({ entry }, "code-stack")).toMatchObject({ name: "React" });
-    expect(validatePublishBody({ entry: { kind: "token", name: " primary ", status: "required" } }, "design-system")).toEqual(
-      { kind: "token", name: "primary", status: "required" },
-    );
+    expect(validatePublishBody({ entry }, "code-stack", NEW)).toMatchObject({ entry: { name: "React" }, projectId: undefined });
+    expect(
+      validatePublishBody({ entry: { kind: "token", name: " primary ", status: "required" } }, "design-system", VERSION),
+    ).toEqual({ entry: { kind: "token", name: "primary", status: "required" }, projectId: undefined });
   });
 
   it("validates by the Module's kind: a wrong-kind entry is refused on kind", () => {
-    expect(() => validatePublishBody({ entry }, "design-system")).toThrow(
+    expect(() => validatePublishBody({ entry }, "design-system", NEW)).toThrow(
       expect.objectContaining({ code: "invalid_input", subject: "kind" }),
     );
     expect(() =>
-      validatePublishBody({ entry: { kind: "token", name: "primary", status: "required" } }, "code-stack"),
+      validatePublishBody({ entry: { kind: "token", name: "primary", status: "required" } }, "code-stack", NEW),
     ).toThrow(expect.objectContaining({ code: "invalid_input", subject: "kind" }));
   });
 
@@ -92,7 +94,35 @@ describe("validatePublishBody", () => {
     ["an extra key", { entry, standardId: "x" }, "standardId"],
     ["a missing entry", {}, "entry"],
   ])("refuses %s", (_label, body, subject) => {
-    expect(() => validatePublishBody(body, "code-stack")).toThrow(expect.objectContaining({ code: "invalid_input", subject }));
+    expect(() => validatePublishBody(body, "code-stack", NEW)).toThrow(
+      expect.objectContaining({ code: "invalid_input", subject }),
+    );
+  });
+
+  it("takes an optional projectId string for a new Standard, unchecked beyond its type", () => {
+    expect(validatePublishBody({ entry, projectId: "p-1" }, "code-stack", NEW)).toMatchObject({ projectId: "p-1" });
+    expect(validatePublishBody({ entry }, "code-stack", NEW).projectId).toBeUndefined();
+  });
+
+  it.each([[7], [null], [{}], [true]])("refuses the projectId %j with subject projectId", (projectId) => {
+    expect(() => validatePublishBody({ entry, projectId }, "code-stack", NEW)).toThrow(
+      expect.objectContaining({ code: "invalid_input", subject: "projectId" }),
+    );
+  });
+
+  it("refuses projectId on a new version: the Project scope is fixed", () => {
+    const refuse = () => validatePublishBody({ entry, projectId: "p-1" }, "code-stack", VERSION);
+    expect(refuse).toThrow(expect.objectContaining({ code: "invalid_input", subject: "projectId" }));
+    expect(refuse).toThrow(/fixed/);
+  });
+
+  it("refuses an unknown key before projectId, and an entry error wins over a bad projectId", () => {
+    expect(() => validatePublishBody({ entry, projectId: 7, extra: 1 }, "code-stack", NEW)).toThrow(
+      expect.objectContaining({ subject: "extra" }),
+    );
+    expect(() => validatePublishBody({ entry: { ...entry, status: "maybe" }, projectId: 7 }, "code-stack", NEW)).toThrow(
+      expect.objectContaining({ subject: "status" }),
+    );
   });
 });
 

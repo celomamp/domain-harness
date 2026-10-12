@@ -154,7 +154,9 @@ class FakeStandards implements StandardService {
     return Promise.resolve().then(() => {
       if (caller.role !== "Buyer") throw new EnvelopeError({ code: "not_module_owner", message: "m", subject: "role" });
       const designSystem = isRecord(body) && isRecord(body["entry"]) && "kind" in body["entry"];
-      const entry = validatePublishBody(body, designSystem ? "design-system" : "code-stack");
+      const { entry } = validatePublishBody(body, designSystem ? "design-system" : "code-stack", {
+        allowProjectId: version === 1,
+      });
       const name = entrySlotName(entry);
       if (name === "Ownerless") {
         throw new EnvelopeError({ code: "module_has_no_owner", message: "m", subject: "moduleId" });

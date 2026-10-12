@@ -11,7 +11,7 @@ import {
 } from "@domain-harness/contract";
 import type { DesignSystemEntryField, DesignSystemEntryKind, StandardInfo } from "@domain-harness/contract";
 import { Button } from "./button.tsx";
-import { STANDARDS_COPY } from "./standard-form.tsx";
+import { ProjectScopeField, STANDARDS_COPY } from "./standard-form.tsx";
 import type { StandardFormProps } from "./standard-form.tsx";
 
 export const DESIGN_SYSTEM_COPY = {
@@ -70,7 +70,7 @@ function editedValue(editing: StandardInfo | null, field: DesignSystemEntryField
 }
 
 /**
- * standard-form for one design-system entry. "Entry kind" comes first and
+ * standard-form for one design-system entry. After the Project scope, "Entry kind" comes first and
  * picks the one field set that renders: a component (Name, Usage rule,
  * Tokens, Correction instruction), a token (Name, Status) or an import
  * (Module specifier, Status); then the gold Publish button. Editing focuses
@@ -78,7 +78,7 @@ function editedValue(editing: StandardInfo | null, field: DesignSystemEntryField
  * row's Edit link. An invalid submit keeps every value and puts ink text
  * under the field.
  */
-export function DesignSystemForm({ action, editing, submitted }: StandardFormProps) {
+export function DesignSystemForm({ action, editing, submitted, projectTree }: StandardFormProps) {
   const navigate = useNavigate();
   const errors = submitted?.fieldErrors ?? {};
   const submittedKind = submitted?.values.kind;
@@ -167,6 +167,8 @@ export function DesignSystemForm({ action, editing, submitted }: StandardFormPro
       </h2>
       <input type="hidden" name="intent" value="publish" />
       {editing === null ? null : <input type="hidden" name="standardId" value={editing.id} />}
+
+      <ProjectScopeField editing={editing} submitted={submitted} projectTree={projectTree} />
 
       {label("kind")}
       <select

@@ -85,6 +85,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
 
   let tenantA: UuidV7;
   let rootA: UuidV7;
+  let rootB: UuidV7;
   let buyer: SessionInfo;
   let sam: SessionInfo;
   let sue: SessionInfo;
@@ -189,6 +190,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
     });
     tenantA = a.tenantId;
     rootA = a.rootProjectId;
+    rootB = b.rootProjectId;
     const session = (tenantId: UuidV7, account: { id: UuidV7; role: SessionInfo["role"] } | undefined) => {
       if (account === undefined) throw new Error("missing account");
       return { accountId: account.id, tenantId, role: account.role };
@@ -617,6 +619,125 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
         (e: unknown) => e,
       );
       expect(pgCode(error)).toBe(CHECK_VIOLATION);
+      expect(await counts()).toEqual(before);
+    });
+  });
+
+  describe("Project scope (Story 2.2)", () => {
+    const publishAt = (moduleId: string, who: string, entry: Entry, projectId: unknown) =>
+      post(`/v1/modules/${moduleId}/standards`, who, { entry, projectId });
+
+    async function createProjectAs(name: string, parentId: string): Promise<{ id: UuidV7; name: string }> {
+      const response = await post("/v1/projects", "buyer", { name, levelName: "Team", parentId });
+      const body = (await response.json()) as { id: UuidV7; name: string };
+      expect(response.status, JSON.stringify(body)).toBe(201);
+      return body;
+    }
+
+    let p: { id: UuidV7; name: string };
+    let c: { id: UuidV7; name: string };
+
+    beforeAll(async () => {
+      p = await createProjectAs("Web", rootA);
+      c = await createProjectAs("Checkout", p.id);
+    });
+
+    it("publishes a new Standard at the chosen Project, and the list and versions show that scope", async () => {
+      const name = fresh();
+      const standard = await published(await publishAt(m1.id, "sam", library(name), p.id));
+      expect(standard).toMatchObject({ version: 1, project: { id: p.id, name: "Web" } });
+      const { rows } = await owner.query<{ project_id: string }>("select project_id from standards where id = $1", [
+        standard.id,
+      ]);
+      expect(rows).toEqual([{ project_id: p.id }]);
+
+      const list: unknown = await (await get(`/v1/modules/${m1.id}/standards`, "builder")).json();
+      if (!isStandardList(list)) throw new Error("not a StandardList");
+      expect(list.standards.find((s) => s.id === standard.id)?.project).toEqual({ id: p.id, name: "Web" });
+      const versions: unknown = await (await get(`/v1/standards/${standard.id}/versions`, "builder")).json();
+      if (!isStandardVersionList(versions)) throw new Error("not a StandardVersionList");
+      expect(versions.versions.map((v) => v.project.id)).toEqual([p.id]);
+    });
+
+    it("publishes at the root Project when projectId is missing", async () => {
+      const standard = await published(await publishNew(m1.id, "sam", library(fresh())));
+      expect(standard.project).toEqual({ id: rootA, name: "Acme" });
+    });
+
+    it("accepts the same slot at a child scope, and refuses it a second time at one scope naming both", async () => {
+      const name = fresh("X");
+      const atP = await published(await publishAt(m1.id, "sam", library(name), p.id));
+      const atC = await published(await publishAt(m2.id, "sue", library(name.toLowerCase()), c.id));
+      expect(atC.project.id).toBe(c.id);
+      // The root holds no Standard in this slot, so the root is free as well.
+      const atRoot = await published(await publishNew(m1.id, "sam", library(name)));
+      expect(atRoot.project.id).toBe(rootA);
+
+      const before = await counts();
+      const response = await publishAt(m2.id, "sue", library(name), p.id);
+      const body = (await response.json()) as { code: string; subject: string; message: string };
+      expect([response.status, body]).toMatchObject([409, { code: "slot_conflict", subject: atP.id }]);
+      expect(body.message).toContain(atP.id);
+      expect(body.message).toContain(p.id);
+      expect(await counts()).toEqual(before);
+    });
+
+    it("keeps a Standard's scope on a new version, and checks the slot at that scope", async () => {
+      const name = fresh();
+      const standard = await published(await publishAt(m1.id, "sam", library(name), c.id));
+      const v2 = await published(await republish(standard.id, "sam", { ...library(name), status: "required" }));
+      expect(v2).toMatchObject({ id: standard.id, version: 2, project: { id: c.id, name: "Checkout" } });
+
+      // Moving to a slot held at another scope is fine; one held at C is refused.
+      const elsewhere = fresh();
+      await published(await publishAt(m2.id, "sue", library(elsewhere), p.id));
+      await published(await republish(standard.id, "sam", library(elsewhere)));
+      const heldAtC = fresh();
+      const holder = await published(await publishAt(m2.id, "sue", library(heldAtC), c.id));
+      await expectRefused(await republish(standard.id, "sam", library(heldAtC)), 409, "slot_conflict", holder.id);
+    });
+
+    it("refuses projectId on a new version: the scope is fixed, nothing is written", async () => {
+      const standard = await published(await publishAt(m1.id, "sam", library(fresh()), p.id));
+      const before = await counts();
+      const response = await post(`/v1/standards/${standard.id}/versions`, "sam", {
+        entry: library(entrySlotName(standard.entry)),
+        projectId: c.id,
+      });
+      const body = (await response.json()) as { message: string };
+      expect([response.status, body]).toMatchObject([400, { code: "invalid_input", subject: "projectId" }]);
+      expect(body.message).toContain("fixed");
+      expect(await counts()).toEqual(before);
+    });
+
+    it.each([
+      ["another tenant's", () => rootB],
+      ["an unknown", () => mintUuidV7()],
+      ["a malformed", () => "not-a-project"],
+    ])("refuses %s projectId as project_not_found, writing nothing", async (_label, id) => {
+      const before = await counts();
+      await expectRefused(await publishAt(m1.id, "sam", library(fresh()), id()), 404, "project_not_found", "projectId");
+      expect(await counts()).toEqual(before);
+    });
+
+    it.each([[7], [null], [{ id: "x" }]])("refuses the projectId %j as invalid_input, writing nothing", async (projectId) => {
+      const before = await counts();
+      await expectRefused(await publishAt(m1.id, "sam", library(fresh()), projectId), 400, "invalid_input", "projectId");
+      expect(await counts()).toEqual(before);
+    });
+
+    it("checks the entry before the projectId type", async () => {
+      await expectRefused(
+        await publishAt(m1.id, "sam", { ...library(fresh()), status: "maybe" }, 7),
+        400,
+        "invalid_input",
+        "status",
+      );
+    });
+
+    it("denies a non-owner sending a foreign projectId (403, not 404)", async () => {
+      const before = await counts();
+      await expectRefused(await publishAt(m1.id, "sue", library(fresh()), rootB), 403, "not_module_owner", "role");
       expect(await counts()).toEqual(before);
     });
   });

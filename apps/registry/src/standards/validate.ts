@@ -143,16 +143,35 @@ export function validateDesignSystemEntry(entry: unknown): DesignSystemEntry {
   }
 }
 
+export interface PublishBodyOptions {
+  /** True for version 1 of a new Standard: the body may carry an optional `projectId` (its Project scope). */
+  readonly allowProjectId: boolean;
+}
+
+/** A validated publish body: the normalised entry and, for a new Standard, the requested Project scope. */
+export interface PublishBody {
+  readonly entry: StandardEntry;
+  /** The requested Project scope (not yet looked up), or `undefined` for the root Project / a new version. */
+  readonly projectId: string | undefined;
+}
+
 /**
- * The entry of a publish body, which must be exactly `{ entry }`: any other
- * key is refused with that key as the subject. The entry is validated as the
- * Module's kind requires. Throws `invalid_input`.
+ * Validate `{ entry, projectId? }` (a new Standard) or exactly `{ entry }` (a
+ * new version, whose Project scope is fixed). Unknown keys are refused first,
+ * then the entry for the Module's kind, then the `projectId` type.
  */
-export function validatePublishBody(body: unknown, moduleKind: ModuleKind): StandardEntry {
+export function validatePublishBody(body: unknown, moduleKind: ModuleKind, options: PublishBodyOptions): PublishBody {
   if (!isRecord(body)) throw invalid("body", "the body must be { \"entry\": { ... } }");
-  const extra = Object.keys(body).find((key) => key !== "entry");
+  const extra = Object.keys(body).find((key) => key !== "entry" && !(options.allowProjectId && key === "projectId"));
+  if (extra === "projectId") {
+    throw invalid("projectId", "a Standard's Project scope is fixed when it is first published, so a new version takes no projectId");
+  }
   if (extra !== undefined) throw invalid(extra, "the body has an unsupported field");
-  return moduleKind === "design-system"
-    ? validateDesignSystemEntry(body["entry"])
-    : validateCodeStackEntry(body["entry"]);
+  const entry =
+    moduleKind === "design-system" ? validateDesignSystemEntry(body["entry"]) : validateCodeStackEntry(body["entry"]);
+  const projectId = body["projectId"];
+  if (projectId !== undefined && typeof projectId !== "string") {
+    throw invalid("projectId", "projectId must be a Project id string, or left out for the root Project");
+  }
+  return { entry, projectId };
 }

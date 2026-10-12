@@ -11,6 +11,7 @@ const OWNER = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
 const STANDARD = "01928c7e-5b2a-7c3d-be4f-a1b2c3d4e5f9";
 const HOLDER = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5fa";
 const OTHER_MODULE = "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5fb";
+const WEB = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5fd";
 const SESSION_TOKEN = `${TENANT}.${"S".repeat(43)}`;
 const COOKIE = { cookie: `dh_session=${SESSION_TOKEN}` };
 const AT = "2026-10-11T09:00:00.000Z";
@@ -30,7 +31,15 @@ const holder = {
   id: HOLDER,
   version: 3,
   module: { id: OTHER_MODULE, kind: "code-stack", name: "Backend stack" },
+  project: { id: WEB, name: "Web" },
   entry: { ...info.entry, name: "react" },
+};
+const tree = {
+  rootId: TENANT,
+  projects: [
+    { id: TENANT, name: "Acme", levelName: null, parentId: null, createdAt: AT },
+    { id: WEB, name: "Web", levelName: "Product line", parentId: TENANT, createdAt: AT },
+  ],
 };
 const list = { module, standards: [info] };
 const form = { intent: "publish", category: "library", name: " React ", versionConstraint: "^18", status: "approved", correctionInstruction: "" };
@@ -91,6 +100,20 @@ describe("Module Standards loader", () => {
     expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${SESSION_TOKEN}`);
   });
 
+  it("returns the Project tree as a second pending promise that never rejects", async () => {
+    const fetch = registryAnswers([200, list], [200, tree]);
+    const result = loader(loaderArgs());
+    if (result instanceof Response) throw new Error("expected loader data");
+    expect(result.tree).toBeInstanceOf(Promise);
+    expect(await result.tree).toEqual({ kind: "ok", value: tree });
+    expect(call(fetch, 1)[0]).toMatch(/\/v1\/projects$/);
+
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("fetch failed"))));
+    const down = loader(loaderArgs());
+    if (down instanceof Response) throw new Error("expected loader data");
+    expect(await down.tree).toEqual({ kind: "unavailable" });
+  });
+
   it("does not wait for the registry before returning", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
     const result = loader(loaderArgs());
@@ -125,7 +148,7 @@ describe("Module Standards action: publish", () => {
     expect(data.published).toEqual(info);
     expect(data.status).toEqual({
       tone: "notice",
-      message: `Published React: Standard ${STANDARD}, version 1, in Module Frontend stack, Project scope Acme (root Project), at ${AT}.`,
+      message: `Published React: Standard ${STANDARD}, version 1, in Module Frontend stack, Project scope Acme, at ${AT}.`,
     });
     const [url, init] = call(fetch);
     expect(url).toMatch(new RegExp(`/v1/modules/${MODULE}/standards$`));
@@ -134,6 +157,35 @@ describe("Module Standards action: publish", () => {
       entry: { category: "library", name: " React ", versionConstraint: "^18", status: "approved", correctionInstruction: "" },
     });
     expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${SESSION_TOKEN}`);
+  });
+
+  it("sends the chosen Project scope for a new Standard, and keeps it on a refused submit", async () => {
+    const fetch = registryAnswers([201, { ...info, project: { id: WEB, name: "Web" } }], [403, envelope("not_module_owner", "role")]);
+    const { data } = unwrap(await action(actionArgs({ ...form, projectId: WEB })));
+    expect(data.status?.message).toContain("Project scope Web,");
+    expect(JSON.parse(call(fetch)[1].body as string)).toMatchObject({ projectId: WEB });
+    const refused = unwrap(await action(actionArgs({ ...form, projectId: WEB })));
+    expect(refused.data.values).toMatchObject({ projectId: WEB });
+  });
+
+  it("sends no Project scope without a picker, nor for a new version", async () => {
+    const fetch = registryAnswers([201, info], [201, { ...info, version: 2 }]);
+    await action(actionArgs(form));
+    await action(actionArgs({ ...form, standardId: STANDARD, projectId: WEB }));
+    expect(JSON.parse(call(fetch, 0)[1].body as string)).not.toHaveProperty("projectId");
+    expect(JSON.parse(call(fetch, 1)[1].body as string)).not.toHaveProperty("projectId");
+  });
+
+  it.each([
+    ["project_not_found", 404, envelope("project_not_found", "projectId"), 404],
+    ["invalid_input on projectId", 400, envelope("invalid_input", "projectId"), 400],
+  ])("puts ink text under the Project scope for %s and keeps the chosen scope", async (_label, registryStatus, body, status) => {
+    registryAnswers([registryStatus, body]);
+    const result = unwrap(await action(actionArgs({ ...form, projectId: WEB })));
+    expect(result.status).toBe(status);
+    expect(result.data.status).toBeNull();
+    expect(result.data.fieldErrors).toEqual({ projectId: STANDARDS_COPY.projectScopeError });
+    expect(result.data.values).toMatchObject({ projectId: WEB, name: " React " });
   });
 
   it("publishes the next version of the Standard being edited", async () => {
@@ -167,7 +219,7 @@ describe("Module Standards action: publish", () => {
       tone: "denial",
       message:
         `Nothing was published. The library "React" (Standard ${STANDARD}) is in the same Conflict slot ` +
-        `(code stack, library, "react") as Standard ${HOLDER}, library "react" in Module Backend stack, at the root Project.`,
+        `(code stack, library, "react") as Standard ${HOLDER}, library "react" in Module Backend stack, at Project Web.`,
     });
     expect(data.status?.message).not.toContain("preact");
     expect(call(fetch, 1)[0]).toMatch(new RegExp(`/v1/standards/${HOLDER}/versions$`));
@@ -177,7 +229,7 @@ describe("Module Standards action: publish", () => {
     registryAnswers([409, envelope("slot_conflict", HOLDER)], [500, {}]);
     const { data } = unwrap(await action(actionArgs(form)));
     expect(data.status?.message).toBe(
-      `Nothing was published. The library "React" is in the same Conflict slot as Standard ${HOLDER} at the root Project.`,
+      `Nothing was published. The library "React" is in the same Conflict slot as Standard ${HOLDER} at the same Project scope.`,
     );
   });
 
@@ -318,8 +370,23 @@ describe("Module Standards action: design-system publish", () => {
       tone: "denial",
       message:
         `Nothing was published. The component "button" is in the same Conflict slot ` +
-        `(design system, component, "Button") as Standard ${HOLDER}, component "Button" in Module Brand design system, at the root Project.`,
+        `(design system, component, "Button") as Standard ${HOLDER}, component "Button" in Module Brand design system, at Project Acme.`,
     });
+  });
+
+  it("sends the chosen Project scope for a new design-system Standard", async () => {
+    const fetch = registryAnswers([201, { ...button, project: { id: WEB, name: "Web" } }]);
+    await action(actionArgs({ ...componentForm, projectId: WEB }));
+    expect(JSON.parse(call(fetch)[1].body as string)).toMatchObject({ projectId: WEB, entry: { kind: "component" } });
+  });
+
+  it("maps project_not_found on a design-system submit to the projectId field error, keeping the scope", async () => {
+    registryAnswers([404, envelope("project_not_found", "projectId")]);
+    const { data, status } = unwrap(await action(actionArgs({ ...componentForm, projectId: WEB })));
+    expect(status).toBe(404);
+    expect(data.status).toBeNull();
+    expect(data.fieldErrors).toEqual({ projectId: STANDARDS_COPY.projectScopeError });
+    expect(data.values).toMatchObject({ projectId: WEB, kind: "component", name: " Button " });
   });
 
   it("names an import by its module specifier on a slot conflict", async () => {
@@ -328,7 +395,7 @@ describe("Module Standards action: design-system publish", () => {
       await action(actionArgs({ intent: "publish", kind: "import", specifier: "@MUI/material", status: "required" })),
     );
     expect(data.status?.message).toBe(
-      `Nothing was published. The import "@MUI/material" is in the same Conflict slot as Standard ${HOLDER} at the root Project.`,
+      `Nothing was published. The import "@MUI/material" is in the same Conflict slot as Standard ${HOLDER} at the same Project scope.`,
     );
   });
 });

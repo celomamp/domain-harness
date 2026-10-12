@@ -161,6 +161,15 @@ export type DesignSystemEntryRequest =
  */
 export interface StandardPublishRequest {
   readonly entry: CodeStackEntryRequest | DesignSystemEntryRequest;
+  /**
+   * The Project scope of a new Standard (`POST /v1/modules/{id}/standards`
+   * only): a Project id of this Company's Project tree; missing means the
+   * root Project. The scope is fixed for the Standard's life, so a new
+   * version (`POST /v1/standards/{id}/versions`) refuses this key
+   * (`invalid_input`, subject `projectId`) and keeps the Standard's scope.
+   * An unknown, malformed or another Company's id is `project_not_found`.
+   */
+  readonly projectId?: string;
 }
 
 /** A Project as a Standard shows its scope. */
@@ -183,7 +192,7 @@ export interface StandardInfo {
   /** 1, 2, 3, ... per Standard. */
   readonly version: number;
   readonly module: StandardModuleRef;
-  /** The Project scope: the tenant's root Project in this release. */
+  /** The Standard's Project scope: chosen at version 1 and fixed for the Standard's life. */
   readonly project: ProjectRef;
   readonly entry: StandardEntry;
   /** UTC ISO-8601. */

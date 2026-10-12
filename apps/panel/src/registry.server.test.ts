@@ -180,6 +180,15 @@ describe("registry client", () => {
       expect(init.body).toBe(JSON.stringify({ entry: component }));
     });
 
+    it("sends the Project scope only when one is given", async () => {
+      const fetch = respond(201, info);
+      vi.stubGlobal("fetch", fetch);
+      expect((await publishStandard("abc", MODULE, entry, TENANT)).kind).toBe("ok");
+      expect((await publishStandard("abc", MODULE, entry, undefined)).kind).toBe("ok");
+      const bodies = fetch.mock.calls.map((call) => (call as unknown as [string, RequestInit])[1].body);
+      expect(bodies).toEqual([JSON.stringify({ entry, projectId: TENANT }), JSON.stringify({ entry })]);
+    });
+
     it("publishes a new version on the Standard's versions path", async () => {
       const fetch = respond(201, { ...info, version: 2 });
       vi.stubGlobal("fetch", fetch);
