@@ -29,7 +29,21 @@ async function actionWithCookie(args: ActionFunctionArgs) {
   return action({ ...args, request });
 }
 
-function renderPage(role: Role, result: unknown, url = "/projects", pending?: Promise<unknown>) {
+/** The Effective Standard set the stub loader answers for the selected Project id (the root when none). */
+type EffectiveFor = (projectId: string) => Promise<unknown>;
+
+const emptySetFor: EffectiveFor = (projectId) => {
+  const project = fullTree.projects.find((p) => p.id === projectId) ?? root;
+  return Promise.resolve(ok({ project: { id: project.id, name: project.name }, standards: [] }));
+};
+
+function renderPage(
+  role: Role,
+  result: unknown,
+  url = "/projects",
+  pending?: Promise<unknown>,
+  effectiveFor: EffectiveFor = emptySetFor,
+) {
   const Layout = () => (
     <>
       <PanelChrome role={role} />
@@ -38,17 +52,23 @@ function renderPage(role: Role, result: unknown, url = "/projects", pending?: Pr
       </main>
     </>
   );
-  const loader = ({ request }: LoaderFunctionArgs) => ({
-    projectParam: new URL(request.url).searchParams.get("project"),
-    tree: pending ?? Promise.resolve(result),
-  });
+  const loader = ({ request }: LoaderFunctionArgs) => {
+    const projectParam = new URL(request.url).searchParams.get("project");
+    return {
+      projectParam,
+      tree: pending ?? Promise.resolve(result),
+      effective: effectiveFor(projectParam ?? ROOT),
+    };
+  };
   const Stub = createRoutesStub([
     { Component: Layout, children: [{ path: "/projects", Component: ProjectTreePage, loader, action: actionWithCookie }] },
   ]);
   render(<Stub initialEntries={[url]} />);
 }
 
-const ok = (value: unknown) => ({ kind: "ok", value });
+function ok(value: unknown) {
+  return { kind: "ok", value };
+}
 
 function registry(...answers: [number, unknown][]) {
   const queue = [...answers];
@@ -277,5 +297,120 @@ describe("Project tree page", () => {
     renderPage("Buyer", { kind: "refused", error: { code: "session_invalid", message: "m", subject: "session" } });
     expect(await screen.findByRole("link", { name: "Sign in again" })).toBeTruthy();
     expect(status().textContent).toBe("Your session has ended, so the Project tree cannot be shown.");
+  });
+});
+
+describe("Effective Standard set preview", () => {
+  const OWNER = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5fb";
+  const MODULE = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5fc";
+  const standard = (id: string, project: { id: string; name: string }, version: number, entry: unknown, kind = "code-stack") => ({
+    id,
+    version,
+    module: { id: MODULE, kind, name: "Stack" },
+    project,
+    entry,
+    publishedAt: AT,
+    publishedBy: { accountId: OWNER, name: "Sam" },
+  });
+  const webRef = { id: B, name: "Web" };
+  const platformRef = { id: A, name: "Platform" };
+  const webSet = {
+    project: webRef,
+    standards: [
+      {
+        slot: { moduleKind: "code-stack", slotKind: "library", name: "x" },
+        status: "prohibited",
+        standard: standard("01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e601", webRef, 1, {
+          category: "library",
+          name: "x",
+          versionConstraint: null,
+          status: "prohibited",
+          correctionInstruction: null,
+        }),
+        sourceProject: webRef,
+        locked: false,
+      },
+      {
+        slot: { moduleKind: "design-system", slotKind: "component", name: "Button" },
+        status: null,
+        standard: standard(
+          "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e602",
+          platformRef,
+          3,
+          { kind: "component", name: "Button", usageRule: "Primary actions", tokens: [], correctionInstruction: null },
+          "design-system",
+        ),
+        sourceProject: platformRef,
+        locked: false,
+      },
+    ],
+  };
+  const setsFor: EffectiveFor = (projectId) => (projectId === B ? Promise.resolve(ok(webSet)) : emptySetFor(projectId));
+  const section = () => screen.getByRole("region", { name: /^Effective Standard set for / });
+
+  it("shows the selected Project's set in a table with header cells once the Buyer selects it", async () => {
+    renderPage("Buyer", ok(fullTree), "/projects", undefined, setsFor);
+    expect(await screen.findByText("No Standard applies to Acme yet.")).toBeTruthy();
+    fireEvent.click(screen.getByText("Web"));
+    await screen.findByRole("heading", { level: 2, name: "Effective Standard set for Web" });
+    await within(section()).findAllByRole("rowheader");
+    const table = within(section()).getByRole("table");
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
+      "Conflict slot",
+      "Status",
+      "Version",
+      "Source Project",
+    ]);
+    expect(within(table).getAllByRole("rowheader").map((cell) => cell.textContent)).toEqual([
+      '(code stack, library, "x")',
+      '(design system, component, "Button")',
+    ]);
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent))).toEqual([
+      ["prohibited", "1", "Web (this Project)"],
+      ["None", "3", "Platform"],
+    ]);
+    // The tree and the forms stay.
+    expect(screen.getByRole("tree")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
+  });
+
+  it("selects by ?project and shows the empty state for a Project with no Standard", async () => {
+    renderPage("Buyer", ok(fullTree), `/projects?project=${C}`, undefined, setsFor);
+    expect(await screen.findByText("No Standard applies to Data yet.")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Effective Standard set for Data" })).toBeTruthy();
+    expect(within(section()).queryByRole("table")).toBeNull();
+  });
+
+  it("shows the tree first while the set loads, with a busy section and loading row", async () => {
+    renderPage("Buyer", ok(fullTree), "/projects", undefined, () => new Promise(() => undefined));
+    await screen.findByRole("tree");
+    expect(await screen.findByText("Loading the Effective Standard set…")).toBeTruthy();
+    expect(section().getAttribute("aria-busy")).toBe("true");
+    expect(within(section()).getAllByRole("columnheader")).toHaveLength(4);
+    expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
+  });
+
+  it.each([
+    ["an unavailable answer", () => Promise.resolve({ kind: "unavailable" })],
+    ["a refusal", () => Promise.resolve({ kind: "refused", error: { code: "slot_conflict", message: "m", subject: A } })],
+    [
+      "a failed promise",
+      () => {
+        const failed = Promise.reject(new Error("down"));
+        // Marked handled here; the page's Await still sees the rejection.
+        failed.catch(() => undefined);
+        return failed;
+      },
+    ],
+  ])("says the set is unavailable on %s, keeping the tree and forms", async (_label, effectiveFor: EffectiveFor) => {
+    renderPage("Buyer", ok(fullTree), `/projects?project=${B}`, undefined, effectiveFor);
+    expect(
+      await screen.findByText("The Effective Standard set is unavailable right now. Try again in a few minutes."),
+    ).toBeTruthy();
+    expect(section().getAttribute("aria-busy")).toBeNull();
+    expect(screen.getByRole("tree")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Change parent" })).toBeTruthy();
   });
 });

@@ -47,7 +47,7 @@ development_status:
   epic-2: in-progress
   2-1-buyer-builds-the-project-tree-and-names-its-levels: review
   2-2-standard-owner-scopes-a-standard-to-any-project: review
-  2-3-resolve-and-preview-the-effective-standard-set-for-a-project: backlog
+  2-3-resolve-and-preview-the-effective-standard-set-for-a-project: review
   2-4-buyer-marks-locked-rules-that-descendants-cannot-override: backlog
   2-5-child-project-creation-requires-a-buyer-granted-permission: backlog
   2-6-community-plan-refuses-tree-capabilities-in-place: backlog

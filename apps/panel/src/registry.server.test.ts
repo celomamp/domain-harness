@@ -5,6 +5,7 @@ import {
   createModule,
   createProject,
   createSession,
+  getEffectiveStandards,
   getProjectTree,
   getSession,
   getStandardVersions,
@@ -258,6 +259,45 @@ describe("registry client", () => {
       expect(await changeProjectParent("abc", WEB, ROOT)).toEqual({ kind: "unavailable" });
       vi.stubGlobal("fetch", respond(200, { rootId: ROOT, projects: [web] }));
       expect(await getProjectTree("abc")).toEqual({ kind: "unavailable" });
+    });
+
+    it("reads a Project's Effective Standard set on its escaped path and checks the body", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const set = {
+        project: { id: WEB, name: "Web" },
+        standards: [
+          {
+            slot: { moduleKind: "code-stack", slotKind: "library", name: "X" },
+            status: "prohibited",
+            standard: {
+              id: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f0",
+              version: 1,
+              module: { id: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f1", kind: "code-stack", name: "Stack" },
+              project: { id: WEB, name: "Web" },
+              entry: { category: "library", name: "X", versionConstraint: null, status: "prohibited", correctionInstruction: null },
+              publishedAt: AT,
+              publishedBy: { accountId: ACCOUNT, name: "Sam" },
+            },
+            sourceProject: { id: WEB, name: "Web" },
+            locked: false,
+          },
+        ],
+      };
+      const fetch = respond(200, set);
+      vi.stubGlobal("fetch", fetch);
+      expect(await getEffectiveStandards("abc", WEB)).toEqual({ kind: "ok", value: set });
+      await getEffectiveStandards("abc", "a/b");
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`http://registry.test/v1/projects/${WEB}/effective-standards`);
+      expect(init.method).toBe("GET");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+      expect((fetch.mock.calls[1] as unknown as [string])[0]).toMatch(/\/v1\/projects\/a%2Fb\/effective-standards$/);
+
+      const notFound = { code: "project_not_found", message: "m", subject: "projectId" };
+      vi.stubGlobal("fetch", respond(404, notFound));
+      expect(await getEffectiveStandards("abc", WEB)).toEqual({ kind: "refused", error: notFound });
+      vi.stubGlobal("fetch", respond(200, { ...set, standards: [{ ...set.standards[0], locked: "no" }] }));
+      expect(await getEffectiveStandards("abc", WEB)).toEqual({ kind: "unavailable" });
     });
   });
 });

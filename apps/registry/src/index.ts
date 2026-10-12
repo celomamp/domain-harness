@@ -39,13 +39,22 @@ export type { ModuleCreateInput, ModuleOwnerAssignInput, ModuleService } from ".
 export {
   createStandardService,
   listStandards,
+  liveStandardInfos,
   listStandardVersions,
   publishStandard,
   publishStandardVersion,
 } from "./standards/service.ts";
 export type { StandardService } from "./standards/service.ts";
 export { validateCodeStackEntry, validatePublishBody } from "./standards/validate.ts";
-export { assertTreeBuyer, changeParent, createProject, createProjectService, getProject, getTree } from "./projects/service.ts";
+export {
+  assertTreeBuyer,
+  changeParent,
+  createProject,
+  createProjectService,
+  getEffectiveSet,
+  getProject,
+  getTree,
+} from "./projects/service.ts";
 export type { ProjectService } from "./projects/service.ts";
 export { validateCreateBody, validateParentBody } from "./projects/validate.ts";
 export type { ProjectCreateBody, ProjectParentBody } from "./projects/validate.ts";

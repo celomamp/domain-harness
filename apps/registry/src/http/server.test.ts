@@ -3,6 +3,7 @@ import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   entrySlotName,
+  isEffectiveStandardSet,
   isErrorEnvelope,
   isModuleInfo,
   isModuleList,
@@ -15,6 +16,7 @@ import {
   isStandardVersionList,
 } from "@domain-harness/contract";
 import type {
+  EffectiveStandardSet,
   ModuleInfo,
   ModuleList,
   ProjectInfo,
@@ -188,6 +190,27 @@ class FakeProjects implements ProjectService {
     this.calls.push(["get", caller.role, projectId]);
     const found = tree.projects.find((p) => p.id === projectId);
     return found === undefined ? Promise.reject(notFound("project_not_found", "projectId")) : Promise.resolve(found);
+  }
+  getEffectiveSet(caller: SessionInfo, projectId: string): Promise<EffectiveStandardSet> {
+    this.calls.push(["effective", caller.role, projectId]);
+    const found = tree.projects.find((p) => p.id === projectId);
+    if (found === undefined) return Promise.reject(notFound("project_not_found", "projectId"));
+    if (found.id === ROOT_ID) {
+      return Promise.reject(new EnvelopeError({ code: "slot_conflict", message: "m", subject: STANDARD_ID }));
+    }
+    const status = "status" in standardInfo.entry ? standardInfo.entry.status : null;
+    return Promise.resolve({
+      project: { id: found.id, name: found.name },
+      standards: [
+        {
+          slot: { moduleKind: "code-stack", slotKind: "library", name: entrySlotName(standardInfo.entry) },
+          status,
+          standard: standardInfo,
+          sourceProject: { id: found.id, name: found.name },
+          locked: false,
+        },
+      ],
+    });
   }
   createProject(caller: SessionInfo, body: unknown): Promise<ProjectInfo> {
     this.calls.push(["create", body]);
@@ -595,6 +618,29 @@ describe("registry HTTP API", () => {
       expect(isProjectInfo(await one.json())).toBe(true);
     });
 
+    it("serves a Project's Effective Standard set to every role", async () => {
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await fetch(`${base}/v1/projects/${CHILD_ID}/effective-standards`, { headers });
+        expect(response.status).toBe(200);
+        expect(isEffectiveStandardSet(await response.json())).toBe(true);
+      }
+      expect(projects.calls).toEqual([
+        ["effective", "Buyer", CHILD_ID],
+        ["effective", "Builder", CHILD_ID],
+      ]);
+    });
+
+    it("maps the Effective Standard set refusals to 401, 404 and 409", async () => {
+      const path = (id: string) => `${base}/v1/projects/${id}/effective-standards`;
+      await expectEnvelope(await fetch(path(CHILD_ID)), 401, "session_invalid");
+      expect(projects.calls).toEqual([]);
+      const unknown = await fetch(path(mintUuidV7()), { headers: builderAuth });
+      expect(unknown.status).toBe(404);
+      expect(await unknown.json()).toMatchObject({ code: "project_not_found", subject: "projectId" });
+      await expectEnvelope(await fetch(path("nope"), { headers: builderAuth }), 404, "project_not_found");
+      await expectEnvelope(await fetch(path(ROOT_ID), { headers: builderAuth }), 409, "slot_conflict");
+    });
+
     it("answers 201 on create, keeping the level name exactly as typed", async () => {
       const response = await post("/v1/projects", create, { headers: buyerAuth });
       expect(response.status).toBe(201);
@@ -610,6 +656,7 @@ describe("registry HTTP API", () => {
     it.each([
       ["GET tree", "GET", "/v1/projects"],
       ["GET one", "GET", `/v1/projects/${CHILD_ID}`],
+      ["GET effective", "GET", `/v1/projects/${CHILD_ID}/effective-standards`],
       ["POST create", "POST", "/v1/projects"],
       ["POST parent", "POST", `/v1/projects/${CHILD_ID}/parent`],
     ])("answers 401 session_invalid without a bearer token (%s) and calls no service", async (_label, method, path) => {
@@ -656,6 +703,7 @@ describe("registry HTTP API", () => {
         ["/v1/projects", "PUT", "GET, POST"],
         [`/v1/projects/${CHILD_ID}`, "POST", "GET"],
         [`/v1/projects/${CHILD_ID}/parent`, "GET", "POST"],
+        [`/v1/projects/${CHILD_ID}/effective-standards`, "POST", "GET"],
       ] as const) {
         const response = await fetch(`${base}${path}`, { method, headers: buyerAuth });
         expect(response.headers.get("allow")).toBe(allow);
@@ -667,9 +715,15 @@ describe("registry HTTP API", () => {
       await fetch(`${base}/v1/projects`, { headers: buyerAuth });
       await fetch(`${base}/v1/projects/${CHILD_ID}`, { headers: buyerAuth });
       await post(`/v1/projects/${CHILD_ID}/parent`, { parentId: ROOT_ID }, { headers: buyerAuth });
+      await fetch(`${base}/v1/projects/${CHILD_ID}/effective-standards`, { headers: buyerAuth });
       await expect
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
-        .toEqual(["/v1/projects", "/v1/projects/{id}", "/v1/projects/{id}/parent"]);
+        .toEqual([
+          "/v1/projects",
+          "/v1/projects/{id}",
+          "/v1/projects/{id}/parent",
+          "/v1/projects/{id}/effective-standards",
+        ]);
       expect(JSON.stringify(events)).not.toContain(CHILD_ID);
     });
   });

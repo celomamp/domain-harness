@@ -2,11 +2,19 @@ import { Suspense } from "react";
 import { Await, data, Link, redirect, useActionData, useLoaderData, useNavigate } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { PROJECT_CYCLE, PROJECT_NOT_FOUND, ROLE_DENIED, ROOT_PROJECT_FIXED, SESSION_INVALID } from "@domain-harness/contract";
-import type { ErrorEnvelope, ProjectInfo, ProjectTree } from "@domain-harness/contract";
-import { ChangeParentForm, CreateProjectForm, PROJECT_TREE_COPY, ProjectTreeView } from "../components/project-tree.tsx";
+import type { EffectiveStandardSet, ErrorEnvelope, ProjectInfo, ProjectTree } from "@domain-harness/contract";
+import {
+  ChangeParentForm,
+  CreateProjectForm,
+  EffectiveSetLoading,
+  EffectiveSetSection,
+  EffectiveSetTable,
+  PROJECT_TREE_COPY,
+  ProjectTreeView,
+} from "../components/project-tree.tsx";
 import type { ProjectFormField, ProjectTreeActionData } from "../components/project-tree.tsx";
 import { Status } from "../components/status.tsx";
-import { changeProjectParent, createProject, getProjectTree } from "../registry.server.ts";
+import { changeProjectParent, createProject, getEffectiveStandards, getProjectTree } from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
 import { readSessionToken } from "../session.server.ts";
 
@@ -17,6 +25,21 @@ export interface ProjectTreeLoaderData {
   readonly projectParam: string | null;
   /** The tree, not awaited: the page structure shows (cold-load) while it loads. */
   readonly tree: Promise<RegistryResult<ProjectTree>>;
+  /**
+   * The selected Project's Effective Standard set, not awaited: chained off
+   * the tree so it resolves the same selection (the param when it is in the
+   * tree, otherwise the root). The tree shows first while it loads.
+   */
+  readonly effective: Promise<RegistryResult<EffectiveStandardSet>>;
+}
+
+/** The selected Project: `?project=` when it is in the tree, otherwise the root. */
+export function selectedProject(tree: ProjectTree, projectParam: string | null): ProjectInfo | null {
+  return (
+    tree.projects.find((project) => project.id === projectParam) ??
+    tree.projects.find((project) => project.id === tree.rootId) ??
+    null
+  );
 }
 
 const PAGE = "/projects";
@@ -30,8 +53,15 @@ export function loader({ request }: LoaderFunctionArgs): Response | ProjectTreeL
   const token = readSessionToken(request);
   if (token === undefined) return redirect("/sign-in");
   const projectParam = new URL(request.url).searchParams.get("project");
-  return { projectParam, tree: getProjectTree(token) };
+  const tree = getProjectTree(token);
+  const effective = tree.then((result): Promise<RegistryResult<EffectiveStandardSet>> | RegistryResult<EffectiveStandardSet> => {
+    const selected = result.kind === "ok" ? selectedProject(result.value, projectParam) : null;
+    return selected === null ? SET_UNAVAILABLE : getEffectiveStandards(token, selected.id);
+  });
+  return { projectParam, tree, effective };
 }
+
+const SET_UNAVAILABLE: RegistryResult<EffectiveStandardSet> = { kind: "unavailable" };
 
 const field = (form: FormData, name: string): string => {
   const value = form.get(name);
@@ -137,11 +167,16 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
 
 /** The Project tree surface: the tree, then the forms to create a Project and change a parent. */
 export default function ProjectTreePage() {
-  const { projectParam, tree } = useLoaderData<ProjectTreeLoaderData>();
+  const { projectParam, tree, effective } = useLoaderData<ProjectTreeLoaderData>();
   return (
     <Suspense fallback={<ColdLoad />}>
-      <Await resolve={tree} errorElement={<Loaded projectParam={projectParam} result={UNAVAILABLE} />}>
-        {(result: RegistryResult<ProjectTree>) => <Loaded projectParam={projectParam} result={result} />}
+      <Await
+        resolve={tree}
+        errorElement={<Loaded projectParam={projectParam} result={UNAVAILABLE} effective={effective} />}
+      >
+        {(result: RegistryResult<ProjectTree>) => (
+          <Loaded projectParam={projectParam} result={result} effective={effective} />
+        )}
       </Await>
     </Suspense>
   );
@@ -165,9 +200,10 @@ function ColdLoad() {
 interface LoadedProps {
   readonly projectParam: string | null;
   readonly result: RegistryResult<ProjectTree>;
+  readonly effective: Promise<RegistryResult<EffectiveStandardSet>>;
 }
 
-function Loaded({ projectParam, result }: LoadedProps) {
+function Loaded({ projectParam, result, effective }: LoadedProps) {
   const actionData = useActionData<ProjectTreeActionData>();
   const navigate = useNavigate();
   const tree = result.kind === "ok" ? result.value : null;
@@ -178,10 +214,7 @@ function Loaded({ projectParam, result }: LoadedProps) {
       : { tone: "denial" as const, message: sessionEnded ? PROJECT_TREE_COPY.sessionEnded : PROJECT_TREE_COPY.unavailable };
   const status = actionData?.status ?? loaderStatus;
 
-  const selected =
-    tree?.projects.find((project) => project.id === projectParam) ??
-    tree?.projects.find((project) => project.id === tree.rootId) ??
-    null;
+  const selected = tree === null ? null : selectedProject(tree, projectParam);
   const refused = actionData?.changed === undefined ? actionData : undefined;
   // A success remounts the forms empty; a refusal keeps the submitted values.
   const formKey = `${selected?.id ?? ""}:${actionData?.changed === undefined ? "" : `${actionData.changed.id}:${actionData.changed.parentId ?? ""}`}`;
@@ -200,10 +233,13 @@ function Loaded({ projectParam, result }: LoadedProps) {
       ) : null}
       {tree === null || selected === null ? null : (
         <>
-          <section className="project-tree-section" aria-label={PROJECT_TREE_COPY.heading}>
-            <ProjectTreeView tree={tree} selectedId={selected.id} onSelect={select} />
-            {tree.projects.length === 1 ? <p>{PROJECT_TREE_COPY.empty}</p> : null}
-          </section>
+          <div className="project-tree-layout">
+            <section className="project-tree-section" aria-label={PROJECT_TREE_COPY.heading}>
+              <ProjectTreeView tree={tree} selectedId={selected.id} onSelect={select} />
+              {tree.projects.length === 1 ? <p>{PROJECT_TREE_COPY.empty}</p> : null}
+            </section>
+            <EffectiveSet projectName={selected.name} effective={effective} />
+          </div>
           <CreateProjectForm
             key={`create:${formKey}`}
             tree={tree}
@@ -221,5 +257,44 @@ function Loaded({ projectParam, result }: LoadedProps) {
         </>
       )}
     </>
+  );
+}
+
+interface EffectiveSetProps {
+  readonly projectName: string;
+  readonly effective: Promise<RegistryResult<EffectiveStandardSet>>;
+}
+
+/**
+ * The selected Project's Effective Standard set under its own Suspense: the
+ * tree and forms show first, the section is busy while the set loads, and a
+ * failure shows the unavailable text without touching the tree or forms.
+ */
+function EffectiveSet({ projectName, effective }: EffectiveSetProps) {
+  const unavailable = (
+    <EffectiveSetSection projectName={projectName}>
+      <p>{PROJECT_TREE_COPY.effective.unavailable}</p>
+    </EffectiveSetSection>
+  );
+  return (
+    <Suspense
+      fallback={
+        <EffectiveSetSection projectName={projectName} busy>
+          <EffectiveSetLoading />
+        </EffectiveSetSection>
+      }
+    >
+      <Await resolve={effective} errorElement={unavailable}>
+        {(result: RegistryResult<EffectiveStandardSet>) =>
+          result.kind === "ok" ? (
+            <EffectiveSetSection projectName={projectName}>
+              <EffectiveSetTable set={result.value} />
+            </EffectiveSetSection>
+          ) : (
+            unavailable
+          )
+        }
+      </Await>
+    </Suspense>
   );
 }

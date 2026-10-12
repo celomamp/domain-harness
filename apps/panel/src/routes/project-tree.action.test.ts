@@ -66,6 +66,31 @@ describe("/projects loader", () => {
     expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${SESSION_TOKEN}`);
   });
 
+  it("chains the selected Project's Effective Standard set off the tree: the param when in the tree, else the root", async () => {
+    const set = { project: { id: B, name: "Web" }, standards: [] };
+    const fetch = registryAnswers([200, tree], [200, set]);
+    const result = loader(loaderArgs(`http://x/projects?project=${B}`));
+    if (result instanceof Response) throw new Error("expected data");
+    expect(result.effective).toBeInstanceOf(Promise);
+    expect(await result.effective).toEqual({ kind: "ok", value: set });
+    expect((fetch.mock.calls[1] as unknown as [string])[0]).toMatch(new RegExp(`/v1/projects/${B}/effective-standards$`));
+
+    const rootSet = { project: { id: ROOT, name: "Acme" }, standards: [] };
+    const again = registryAnswers([200, tree], [200, rootSet]);
+    const unknown = loader(loaderArgs("http://x/projects?project=nope"));
+    if (unknown instanceof Response) throw new Error("expected data");
+    expect(await unknown.effective).toEqual({ kind: "ok", value: rootSet });
+    expect((again.mock.calls[1] as unknown as [string])[0]).toMatch(new RegExp(`/v1/projects/${ROOT}/effective-standards$`));
+  });
+
+  it("answers the set as unavailable, without calling it, when the tree is unavailable", async () => {
+    const fetch = registryAnswers([503, {}]);
+    const result = loader(loaderArgs());
+    if (result instanceof Response) throw new Error("expected data");
+    expect(await result.effective).toEqual({ kind: "unavailable" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("redirects to sign-in without a session cookie", () => {
     const result = loader(loaderArgs("http://x/projects", {}));
     expect(result).toBeInstanceOf(Response);

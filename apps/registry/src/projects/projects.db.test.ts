@@ -9,8 +9,8 @@ import { randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isProjectInfo, isProjectTree, isStandardInfo, isUuidV7 } from "@domain-harness/contract";
-import type { ProjectInfo, ProjectTree, SessionInfo, UuidV7 } from "@domain-harness/contract";
+import { isEffectiveStandardSet, isProjectInfo, isProjectTree, isStandardInfo, isUuidV7 } from "@domain-harness/contract";
+import type { EffectiveStandardSet, ProjectInfo, ProjectTree, SessionInfo, StandardInfo, UuidV7 } from "@domain-harness/contract";
 import { createRegistryDb } from "../db/client.ts";
 import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
@@ -497,6 +497,124 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Project tree against
       expect(second.status).toBe(201);
       expect(await second.json()).toMatchObject({ project: { id: rootA } });
       await expectRefused(await publish("react"), 409, "slot_conflict");
+    });
+  });
+
+  describe("Effective Standard set (Story 2.3)", () => {
+    let codeStack: string;
+    let designSystem: string;
+    let p: ProjectInfo;
+    let c: ProjectInfo;
+    let s: ProjectInfo;
+    const ids: Record<string, string> = {};
+
+    async function publish(moduleId: string, entry: unknown, projectId: string): Promise<StandardInfo> {
+      const response = await post(`/v1/modules/${moduleId}/standards`, "sam", { entry, projectId });
+      const body: unknown = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(201);
+      if (!isStandardInfo(body)) throw new Error("not a StandardInfo");
+      return body;
+    }
+
+    async function effective(projectId: string, who = "buyer"): Promise<EffectiveStandardSet> {
+      const response = await get(`/v1/projects/${projectId}/effective-standards`, who);
+      const body: unknown = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      if (!isEffectiveStandardSet(body)) throw new Error("not an EffectiveStandardSet");
+      return body;
+    }
+
+    const named = (set: EffectiveStandardSet, name: string) =>
+      set.standards.filter((entry) => entry.slot.name.trim().toLowerCase() === name.toLowerCase());
+
+    beforeAll(async () => {
+      const cs = await createModule(db, buyer, { kind: "code-stack", name: "Effective stack" });
+      const ds = await createModule(db, buyer, { kind: "design-system", name: "Effective design" });
+      await assignModuleOwner(db, buyer, cs.id, { accountId: sam.accountId });
+      await assignModuleOwner(db, buyer, ds.id, { accountId: sam.accountId });
+      codeStack = cs.id;
+      designSystem = ds.id;
+      // rootA ── P ─┬─ C
+      //             └─ S
+      p = await created("Effective P", rootA, "Division");
+      c = await created("Effective C", p.id);
+      s = await created("Effective S", p.id);
+      ids["parentX"] = (await publish(codeStack, { category: "library", name: "EffX", status: "approved" }, p.id)).id;
+      ids["childX"] = (await publish(codeStack, { category: "library", name: "effx", status: "prohibited" }, c.id)).id;
+      ids["token"] = (await publish(designSystem, { kind: "token", name: "eff-primary", status: "required" }, p.id)).id;
+      ids["react"] = (await publish(codeStack, { category: "library", name: "EffReact", status: "approved" }, c.id)).id;
+      ids["button"] = (
+        await publish(designSystem, { kind: "component", name: "EffButton", usageRule: "Primary actions", tokens: [] }, c.id)
+      ).id;
+      ids["offPath"] = (await publish(codeStack, { category: "library", name: "EffOff", status: "approved" }, s.id)).id;
+    }, 60_000);
+
+    it("lets the closest Standard win: the parent allows X, the child prohibits X", async () => {
+      const set = await effective(c.id);
+      expect(set.project).toEqual({ id: c.id, name: "Effective C" });
+      const x = named(set, "effx");
+      expect(x).toHaveLength(1);
+      expect(x[0]).toMatchObject({
+        slot: { moduleKind: "code-stack", slotKind: "library", name: "effx" },
+        status: "prohibited",
+        standard: { id: ids["childX"], version: 1, project: { id: c.id } },
+        sourceProject: { id: c.id, name: "Effective C" },
+        locked: false,
+      });
+    });
+
+    it("lets the parent inherit only its own and its ancestors' Standards", async () => {
+      const set = await effective(p.id);
+      expect(named(set, "effx")).toMatchObject([
+        { status: "approved", standard: { id: ids["parentX"] }, sourceProject: { id: p.id, name: "Effective P" } },
+      ]);
+      expect(set.standards.some((entry) => entry.standard.id === ids["childX"] || entry.standard.id === ids["react"])).toBe(false);
+    });
+
+    it("keeps a token and a library side by side, a component with no status, and excludes an off-path sibling", async () => {
+      const set = await effective(c.id);
+      expect(named(set, "eff-primary")).toMatchObject([
+        { slot: { moduleKind: "design-system", slotKind: "token" }, status: "required", sourceProject: { id: p.id } },
+      ]);
+      expect(named(set, "effreact")).toMatchObject([{ status: "approved", sourceProject: { id: c.id } }]);
+      expect(named(set, "effbutton")).toMatchObject([{ status: null, standard: { id: ids["button"] } }]);
+      expect(set.standards.some((entry) => entry.standard.id === ids["offPath"])).toBe(false);
+      // The registry serves core's order unchanged.
+      const keys = set.standards.map((e) => [e.slot.moduleKind, e.slot.slotKind, e.slot.name.trim().toLowerCase(), e.standard.id].join("|"));
+      expect(keys).toEqual([...keys].sort());
+    });
+
+    it("answers every role with byte-identical bodies on repeated GETs", async () => {
+      const bodies: string[] = [];
+      for (const who of ["buyer", "sam", "builder", "buyer"]) {
+        const response = await get(`/v1/projects/${c.id}/effective-standards`, who);
+        expect(response.status).toBe(200);
+        bodies.push(await response.text());
+      }
+      expect(new Set(bodies).size).toBe(1);
+    });
+
+    it("serves the live version: a new version of an on-path Standard replaces the old one", async () => {
+      const response = await post(`/v1/standards/${ids["token"] ?? ""}/versions`, "sam", {
+        entry: { kind: "token", name: "eff-primary", status: "prohibited" },
+      });
+      expect(response.status, JSON.stringify(await response.json())).toBe(201);
+      const entries = named(await effective(c.id), "eff-primary");
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        status: "prohibited",
+        standard: { id: ids["token"], version: 2, entry: { status: "prohibited" } },
+        sourceProject: { id: p.id },
+      });
+    });
+
+    it("refuses a foreign, unknown or malformed id with 404 and a missing session with 401", async () => {
+      const path = (id: string) => `/v1/projects/${id}/effective-standards`;
+      await expectRefused(await get(path(rootB), "buyer"), 404, "project_not_found", "projectId");
+      await expectRefused(await get(path(c.id), "bob"), 404, "project_not_found", "projectId");
+      await expectRefused(await get(path("01928c7e-5b2a-7c3d-8e4f-0000000000ff"), "buyer"), 404, "project_not_found", "projectId");
+      await expectRefused(await get(path("nope"), "buyer"), 404, "project_not_found", "projectId");
+      await expectRefused(await get(path(c.id), "nobody"), 401, "session_invalid");
     });
   });
 

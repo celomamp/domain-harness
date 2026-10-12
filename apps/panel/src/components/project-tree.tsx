@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { KeyboardEvent, MouseEvent } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Form } from "react-router";
-import type { ProjectInfo, ProjectTree } from "@domain-harness/contract";
+import { MODULE_KIND_LABELS } from "@domain-harness/contract";
+import type { EffectiveSlot, EffectiveStandardSet, ProjectInfo, ProjectTree } from "@domain-harness/contract";
 import { Button } from "./button.tsx";
 
 /** The fields of the two Project tree forms. */
@@ -52,6 +53,17 @@ export const PROJECT_TREE_COPY = {
     `Created ${project.name}, level "${project.levelName ?? ""}", under ${parentName}.`,
   moved: (project: ProjectInfo, parentName: string) =>
     `${project.name}, level "${project.levelName ?? ""}", now has the parent ${parentName}.`,
+  effective: {
+    heading: (name: string) => `Effective Standard set for ${name}`,
+    loading: "Loading the Effective Standard set…",
+    empty: (name: string) => `No Standard applies to ${name} yet.`,
+    unavailable: "The Effective Standard set is unavailable right now. Try again in a few minutes.",
+    headers: ["Conflict slot", "Status", "Version", "Source Project"],
+    none: "None",
+    thisProject: (name: string) => `${name} (this Project)`,
+    /** A Conflict slot as the panel writes it, for example `(code stack, library, "React")`. */
+    slot: (slot: EffectiveSlot) => `(${MODULE_KIND_LABELS[slot.moduleKind]}, ${slot.slotKind}, "${slot.name.trim()}")`,
+  },
 } as const;
 
 /** What the Project tree action reports back to the page. */
@@ -285,5 +297,98 @@ export function ChangeParentForm({ tree, selected, submitted }: ProjectFormProps
         {PROJECT_TREE_COPY.change}
       </Button>
     </Form>
+  );
+}
+
+export interface EffectiveSetSectionProps {
+  /** The selected Project's name, for the heading. */
+  readonly projectName: string;
+  /** True while the set is pending. */
+  readonly busy?: boolean;
+  readonly children: ReactNode;
+}
+
+/** The section under the Project tree holding the selected Project's Effective Standard set. */
+export function EffectiveSetSection({ projectName, busy = false, children }: EffectiveSetSectionProps) {
+  return (
+    <section
+      className="effective-set"
+      aria-labelledby="effective-set-heading"
+      {...(busy ? { "aria-busy": true as const } : {})}
+    >
+      <h2 id="effective-set-heading" className="type-title-sm">
+        {PROJECT_TREE_COPY.effective.heading(projectName)}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+/** The pending set: the header cells and one busy loading row. */
+export function EffectiveSetLoading() {
+  const copy = PROJECT_TREE_COPY.effective;
+  return (
+    <div className="table-scroll">
+      <table className="standards-table">
+        <thead>
+          <tr>
+            {copy.headers.map((header) => (
+              <th key={header} scope="col">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody aria-busy="true">
+          <tr aria-busy="true">
+            <td colSpan={copy.headers.length}>{copy.loading}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export interface EffectiveSetTableProps {
+  readonly set: EffectiveStandardSet;
+}
+
+/**
+ * The Effective Standard set as a table with header cells: one row per
+ * Conflict slot, in the registry's (core's) order, never re-sorted. The
+ * source Project reads "(this Project)" when the Standard is scoped to the
+ * selected Project.
+ */
+export function EffectiveSetTable({ set }: EffectiveSetTableProps) {
+  const copy = PROJECT_TREE_COPY.effective;
+  if (set.standards.length === 0) return <p>{copy.empty(set.project.name)}</p>;
+  return (
+    <div className="table-scroll">
+      <table className="standards-table">
+        <thead>
+          <tr>
+            {copy.headers.map((header) => (
+              <th key={header} scope="col">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {set.standards.map((entry) => (
+            <tr key={entry.standard.id}>
+              <th scope="row">{copy.slot(entry.slot)}</th>
+              <td>{entry.status ?? copy.none}</td>
+              <td>{entry.standard.version}</td>
+              <td>
+                {entry.sourceProject.id === set.project.id
+                  ? copy.thisProject(entry.sourceProject.name)
+                  : entry.sourceProject.name}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

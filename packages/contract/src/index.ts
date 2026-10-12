@@ -113,3 +113,5 @@ export {
   ROOT_PROJECT_FIXED,
 } from "./projects.ts";
 export type { ProjectCreateRequest, ProjectInfo, ProjectParentRequest, ProjectTree } from "./projects.ts";
+export { effectiveStandardsPath, isEffectiveStandard, isEffectiveStandardSet } from "./effective.ts";
+export type { EffectiveSlot, EffectiveStandard, EffectiveStandardSet } from "./effective.ts";

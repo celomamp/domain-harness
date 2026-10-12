@@ -1,15 +1,29 @@
 import { desc, eq, max } from "drizzle-orm";
-import { isUuidV7, PROJECT_NOT_FOUND, ROLE_DENIED, ROOT_PROJECT_FIXED } from "@domain-harness/contract";
-import type { ProjectInfo, ProjectTree, SessionInfo, UuidV7 } from "@domain-harness/contract";
-import { validateBundleInput } from "@domain-harness/core";
-import type { ParentChange, TreeNode } from "@domain-harness/core";
+import {
+  entrySlotKind,
+  entrySlotName,
+  isUuidV7,
+  PROJECT_NOT_FOUND,
+  ROLE_DENIED,
+  ROOT_PROJECT_FIXED,
+} from "@domain-harness/contract";
+import type {
+  EffectiveStandard,
+  EffectiveStandardSet,
+  ProjectInfo,
+  ProjectTree,
+  SessionInfo,
+  UuidV7,
+} from "@domain-harness/contract";
+import { resolveEffectiveSet, validateBundleInput } from "@domain-harness/core";
+import type { ParentChange, SlotHolder, TreeNode } from "@domain-harness/core";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb, RegistryTx } from "../db/client.ts";
 import { projectParentChanges, projects } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { toId } from "../modules/service.ts";
-import { liveSet, lockBundle } from "../standards/service.ts";
+import { liveSet, liveStandardInfos, lockBundle } from "../standards/service.ts";
 import { validateCreateBody, validateParentBody } from "./validate.ts";
 
 type ProjectRow = typeof projects.$inferSelect;
@@ -146,6 +160,61 @@ export async function getProject(db: RegistryDb, session: SessionInfo, projectId
 }
 
 /**
+ * The Effective Standard set of one Project, resolved by core. Open to every
+ * role. Checks, first failure wins: the Project is the tenant's (404
+ * `project_not_found`, subject `projectId`) → core resolution over the
+ * current tree and the live Standards of every scope (its error as is, e.g.
+ * 409 `slot_conflict`). Each entry of core's answer is joined to the
+ * Standard's live `StandardInfo` and its source Project's name; the order
+ * and membership are core's, never changed. No Locked rules are stored yet
+ * (Story 2.4), so none are passed. Every read runs in one tenant transaction
+ * under the tenant's bundle lock, so no publish or tree change commits between
+ * the reads.
+ */
+export async function getEffectiveSet(
+  db: RegistryDb,
+  session: SessionInfo,
+  projectId: unknown,
+): Promise<EffectiveStandardSet> {
+  if (!isUuidV7(projectId)) throw projectNotFound("projectId");
+  const { tenantId } = session;
+  return withTenant(db, tenantId, async (tx) => {
+    // The bundle lock (as publishes and tree changes take it) keeps every
+    // read below on one consistent state of the tree and the Standards.
+    await lockBundle(tx, tenantId);
+    const current = await currentProjects(tx, tenantId);
+    const project = current.get(projectId);
+    if (project === undefined) throw projectNotFound("projectId");
+    // The live set of every scope and its served form come from one read, so
+    // the slots core resolves and the Standards joined to them always agree.
+    const infos = await liveStandardInfos(tx, tenantId);
+    const standards: SlotHolder[] = [...infos.values()].map((info) => ({
+      standardId: info.id,
+      projectId: info.project.id,
+      slot: { moduleKind: info.module.kind, slotKind: entrySlotKind(info.entry), name: entrySlotName(info.entry) },
+    }));
+    const resolved = resolveEffectiveSet({ projects: treeNodes(current), standards, lockedStandardIds: [], projectId });
+    if (!resolved.ok) throw new EnvelopeError(resolved.error);
+
+    return {
+      project: { id: toId(project.row.id), name: project.row.name },
+      standards: resolved.set.map((entry): EffectiveStandard => {
+        const standard = infos.get(entry.standardId);
+        const source = current.get(entry.sourceProjectId);
+        if (standard === undefined || source === undefined) throw new Error("a resolved Standard is missing");
+        return {
+          slot: { moduleKind: entry.slot.moduleKind, slotKind: entry.slot.slotKind, name: entry.slot.name },
+          status: "status" in standard.entry ? standard.entry.status : null,
+          standard,
+          sourceProject: { id: toId(source.row.id), name: source.row.name },
+          locked: entry.locked,
+        };
+      }),
+    };
+  });
+}
+
+/**
  * Create a Project under a parent (Buyer only). Checks, first failure wins
  * and nothing is written: the role (403 `role_denied`) → the body (400
  * `invalid_input`) → the parent is a Project of the tenant (404
@@ -243,6 +312,7 @@ export async function changeParent(
 export interface ProjectService {
   getTree(session: SessionInfo): Promise<ProjectTree>;
   getProject(session: SessionInfo, projectId: string): Promise<ProjectInfo>;
+  getEffectiveSet(session: SessionInfo, projectId: string): Promise<EffectiveStandardSet>;
   createProject(session: SessionInfo, body: unknown): Promise<ProjectInfo>;
   changeParent(session: SessionInfo, projectId: string, body: unknown): Promise<ProjectInfo>;
 }
@@ -251,6 +321,7 @@ export function createProjectService(db: RegistryDb): ProjectService {
   return {
     getTree: (session) => getTree(db, session),
     getProject: (session, projectId) => getProject(db, session, projectId),
+    getEffectiveSet: (session, projectId) => getEffectiveSet(db, session, projectId),
     createProject: (session, body) => createProject(db, session, body),
     changeParent: (session, projectId, body) => changeParent(db, session, projectId, body),
   };

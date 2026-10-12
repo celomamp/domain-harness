@@ -18,3 +18,5 @@ export {
 export type { ConflictSlot, PublicationResult, SlotHolder } from "./slots.ts";
 export { validateBundleInput, validateProjectTree } from "./tree.ts";
 export type { BundleInput, ParentChange, TreeNode, TreeResult } from "./tree.ts";
+export { resolveEffectiveSet } from "./resolve.ts";
+export type { EffectiveEntry, ResolveInput, ResolveResult } from "./resolve.ts";

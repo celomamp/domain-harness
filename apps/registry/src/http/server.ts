@@ -70,6 +70,7 @@ const MODULE_STANDARDS_ROUTE = `${MODULE_API_PATHS.modules}/{id}/standards`;
 const STANDARD_VERSIONS_ROUTE = `${STANDARD_API_PATHS.standards}/{id}/versions`;
 const PROJECT_ROUTE = `${PROJECT_API_PATHS.projects}/{id}`;
 const PROJECT_PARENT_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/parent`;
+const PROJECT_EFFECTIVE_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/effective-standards`;
 
 /** Each parameterised route and the pattern capturing its raw `{id}` segment. */
 const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
@@ -78,6 +79,7 @@ const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
   [STANDARD_VERSIONS_ROUTE, /^\/v1\/standards\/([^/]+)\/versions$/],
   [PROJECT_ROUTE, /^\/v1\/projects\/([^/]+)$/],
   [PROJECT_PARENT_ROUTE, /^\/v1\/projects\/([^/]+)\/parent$/],
+  [PROJECT_EFFECTIVE_ROUTE, /^\/v1\/projects\/([^/]+)\/effective-standards$/],
 ];
 
 /** Allowed methods per route. */
@@ -92,6 +94,7 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [PROJECT_API_PATHS.projects]: ["GET", "POST"],
   [PROJECT_ROUTE]: ["GET"],
   [PROJECT_PARENT_ROUTE]: ["POST"],
+  [PROJECT_EFFECTIVE_ROUTE]: ["GET"],
 };
 
 interface RouteMatch {
@@ -141,7 +144,8 @@ class HttpFailure extends Error {
  * body is read. Standards calls authenticate the same way; reading is open to
  * every role and only a Module's current Standard owner may publish into it.
  * Project tree calls authenticate the same way; reading is open to every
- * role and only the Buyer may create a Project or change its parent.
+ * role and only the Buyer may create a Project or change its parent. The
+ * Effective Standard set of a Project is open to every role.
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
@@ -279,6 +283,11 @@ async function handle(
     case PROJECT_ROUTE: {
       const session = await service.getSession(bearerToken(req));
       sendJson(res, 200, await services.projects.getProject(session, match.id));
+      return;
+    }
+    case PROJECT_EFFECTIVE_ROUTE: {
+      const session = await service.getSession(bearerToken(req));
+      sendJson(res, 200, await services.projects.getEffectiveSet(session, match.id));
       return;
     }
     case PROJECT_PARENT_ROUTE: {

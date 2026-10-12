@@ -313,3 +313,22 @@
 .project-node[aria-selected="true"] > .project-node__label .project-node__name {
   font-weight: var(--type-label-strong-weight);
 }
+
+/* The Project tree with the selected Project's Effective Standard set: stacked, then side by side from 1280px (80rem). */
+.project-tree-layout {
+  display: grid;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.effective-set {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+@media (min-width: 80rem) {
+  .project-tree-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+}

@@ -197,6 +197,25 @@ Parent changes are append-only. Migration `0006_project_tree.sql` adds `projects
 
 In the panel, "Project tree" (`/projects`) shows the tree as an accessible tree (Up, Down, Home and End move, Enter or Space selects; `?project={id}` selects a Project), a "Create a Project" form and, for any Project but the root, a "Change the parent of ..." form. The forms are shown to every role; the registry's refusals appear as a status. While the tree loads, the page shows its structure with a busy tree region.
 
+### Effective Standard set
+
+The Effective Standard set of a Project is the set of Standards that Project actually receives. It is resolved only by the pure `resolveEffectiveSet` in `@domain-harness/core`, from the Project tree, every live Standard and the Locked rules, walking from the Project up to the root:
+
+- only Standards scoped to the Project or one of its ancestors count; a sibling's or a descendant's never do;
+- Standards compete only in one Conflict slot: within a slot, the Standard scoped closest to the Project wins (a parent approves library "X" and the child prohibits "x": "x" is prohibited on the child, and still approved on the parent); a token and a library both stay;
+- a Locked rule of an ancestor is never replaced: the locked Standard nearest the root wins its slot. No Locked rules are stored yet (Story 2.4), so the registry passes none;
+- two Standards in one slot at one Project scope on the path are an error (`slot_conflict`, naming both Standards), never a guess.
+
+The answer is deterministic: it is ordered by Module kind, slot kind, normalised slot name, then Standard id, and the same inputs in any order give a byte-identical result for every caller. A property test over 300 seeded random trees (`packages/core/src/resolve.property.test.ts`) checks this against a brute-force oracle. The registry and the panel never re-sort, filter or cache the result.
+
+| Endpoint | Body | Success | Who |
+|---|---|---|---|
+| `GET /v1/projects/{id}/effective-standards` | none | `200 { project, standards }`: each entry `{ slot, status, standard, sourceProject, locked }` in core's order; `status` is `null` for a component, `standard` is the live version | every role |
+
+Refusals: `401 session_invalid` without a valid session → `404 project_not_found` with subject `projectId` for a malformed, unknown or another Company's id → core's error as is (`409 slot_conflict`). Every read runs in one tenant transaction under the Company's bundle lock (the one publishes and tree changes take), so the tree and the Standards are always read in one consistent state.
+
+In the panel, selecting a Project on the Project tree shows its Effective Standard set under the tree (beside it from 1280px wide): a table with the header cells "Conflict slot", "Status", "Version" and "Source Project", the slot written as `(code stack, library, "X")`, "None" for a component's status, and "(this Project)" after the source when the Standard is scoped to the selected Project. The set loads on its own: the tree and forms show first while its section is busy, "No Standard applies to <name> yet." is the empty state, and if the set cannot be read the section says it is unavailable while the tree and forms stay.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:

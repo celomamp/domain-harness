@@ -221,6 +221,34 @@ async function publish(db: RegistryDb, session: SessionInfo, target: PublishTarg
 }
 
 /**
+ * Every Standard's live version across all Modules of the tenant as served,
+ * by Standard id (every Project scope). Presentation data for joining core's
+ * answers; it decides no membership and no order.
+ */
+export async function liveStandardInfos(tx: RegistryTx, tenantId: UuidV7): Promise<Map<string, StandardInfo>> {
+  const names = await accountNames(tx, tenantId);
+  const projectRows = await projectsById(tx, tenantId);
+  const moduleRows = await tx.select().from(modules).where(eq(modules.tenantId, tenantId));
+  const modulesById = new Map(moduleRows.map((row) => [row.id, row]));
+  const rows = await tx
+    .selectDistinctOn([standardVersions.standardId], { version: standardVersions, standard: standards })
+    .from(standardVersions)
+    .innerJoin(
+      standards,
+      and(eq(standards.tenantId, standardVersions.tenantId), eq(standards.id, standardVersions.standardId)),
+    )
+    .where(eq(standardVersions.tenantId, tenantId))
+    .orderBy(standardVersions.standardId, desc(standardVersions.version));
+  const infos = new Map<string, StandardInfo>();
+  for (const row of rows) {
+    const module = modulesById.get(row.standard.moduleId);
+    if (module === undefined) throw new Error("a Standard's Module is missing");
+    infos.set(row.standard.id, toStandardInfo(row.version, row.standard, module, projectRows, names));
+  }
+  return infos;
+}
+
+/**
  * Every Standard's live version across all Modules of the tenant, as the core
  * slot rule sees it, at every Project scope (the Standards part of the whole
  * bundle input).

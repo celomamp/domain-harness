@@ -5,6 +5,8 @@
  * thrown, so a registry outage cannot break a page.
  */
 import {
+  effectiveStandardsPath,
+  isEffectiveStandardSet,
   isErrorEnvelope,
   isModuleInfo,
   isModuleList,
@@ -24,6 +26,7 @@ import {
   standardVersionsPath,
 } from "@domain-harness/contract";
 import type {
+  EffectiveStandardSet,
   ErrorEnvelope,
   ModuleInfo,
   ModuleList,
@@ -179,6 +182,17 @@ export function publishStandardVersion(
 /** The Company's Project tree, depth-first from the root (every role may read). */
 export function getProjectTree(sessionToken: string): Promise<RegistryResult<ProjectTree>> {
   return call(PROJECT_API_PATHS.projects, getJson(sessionToken), 200, isProjectTree);
+}
+
+/**
+ * A Project's Effective Standard set, resolved by the registry's core (every
+ * role may read). Served in core's order; the panel never re-sorts it.
+ */
+export function getEffectiveStandards(
+  sessionToken: string,
+  projectId: string,
+): Promise<RegistryResult<EffectiveStandardSet>> {
+  return call(effectiveStandardsPath(projectId), getJson(sessionToken), 200, isEffectiveStandardSet);
 }
 
 /**
