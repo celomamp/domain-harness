@@ -8,6 +8,8 @@ import {
   isErrorEnvelope,
   isModuleInfo,
   isModuleList,
+  isProjectInfo,
+  isProjectTree,
   isSessionCreated,
   isSessionInfo,
   isStandardInfo,
@@ -16,6 +18,8 @@ import {
   MODULE_API_PATHS,
   moduleOwnerPath,
   moduleStandardsPath,
+  PROJECT_API_PATHS,
+  projectParentPath,
   REGISTRY_API_PATHS,
   standardVersionsPath,
 } from "@domain-harness/contract";
@@ -23,6 +27,8 @@ import type {
   ErrorEnvelope,
   ModuleInfo,
   ModuleList,
+  ProjectInfo,
+  ProjectTree,
   SessionCreated,
   SessionInfo,
   StandardInfo,
@@ -164,4 +170,31 @@ export function publishStandardVersion(
   entry: StandardPublishRequest["entry"],
 ): Promise<RegistryResult<StandardInfo>> {
   return call(standardVersionsPath(standardId), json({ entry }, bearer(sessionToken)), 201, isStandardInfo);
+}
+
+/** The Company's Project tree, depth-first from the root (every role may read). */
+export function getProjectTree(sessionToken: string): Promise<RegistryResult<ProjectTree>> {
+  return call(PROJECT_API_PATHS.projects, getJson(sessionToken), 200, isProjectTree);
+}
+
+/**
+ * Create a Project under a parent (the registry allows only the Buyer). The
+ * values are passed as submitted; the registry trims the name, keeps the
+ * level name exactly as typed, validates and answers field errors.
+ */
+export function createProject(
+  sessionToken: string,
+  input: { readonly name: string; readonly levelName: string; readonly parentId: string },
+): Promise<RegistryResult<ProjectInfo>> {
+  const body = { name: input.name, levelName: input.levelName, parentId: input.parentId };
+  return call(PROJECT_API_PATHS.projects, json(body, bearer(sessionToken)), 201, isProjectInfo);
+}
+
+/** Change a Project's parent (the registry allows only the Buyer and refuses a cycle). */
+export function changeProjectParent(
+  sessionToken: string,
+  projectId: string,
+  parentId: string,
+): Promise<RegistryResult<ProjectInfo>> {
+  return call(projectParentPath(projectId), json({ parentId }, bearer(sessionToken)), 200, isProjectInfo);
 }

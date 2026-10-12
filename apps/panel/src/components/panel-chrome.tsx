@@ -5,6 +5,7 @@ import type { Role } from "@domain-harness/contract";
 export const PANEL_NAV = [
   { to: "/inventory", label: "Inventory" },
   { to: "/standards", label: "Standards" },
+  { to: "/projects", label: "Project tree" },
 ] as const;
 
 /**

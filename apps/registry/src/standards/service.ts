@@ -132,12 +132,7 @@ async function publish(db: RegistryDb, session: SessionInfo, target: PublishTarg
   }
   const { tenantId } = session;
   return withTenant(db, tenantId, async (tx) => {
-    const [root] = await tx
-      .select()
-      .from(projects)
-      .where(and(eq(projects.tenantId, tenantId), isNull(projects.parentId)));
-    if (root === undefined) throw new Error("the tenant has no root Project");
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`standards:${root.id}`}, 0))`);
+    const root = await lockBundle(tx, tenantId);
 
     let existing: StandardRow | undefined;
     let moduleId: string;
@@ -209,10 +204,11 @@ async function publish(db: RegistryDb, session: SessionInfo, target: PublishTarg
 }
 
 /**
- * Every Standard's live version at one Project scope, across all Modules of
- * the tenant, as the core slot rule sees it.
+ * Every Standard's live version across all Modules of the tenant, as the core
+ * slot rule sees it: at one Project scope, or at every scope when `projectId`
+ * is omitted (the Standards part of the whole bundle input).
  */
-async function liveSet(tx: RegistryTx, tenantId: UuidV7, projectId: string): Promise<SlotHolder[]> {
+export async function liveSet(tx: RegistryTx, tenantId: UuidV7, projectId?: string): Promise<SlotHolder[]> {
   const rows = await tx
     .selectDistinctOn([standardVersions.standardId], {
       standardId: standardVersions.standardId,
@@ -227,13 +223,35 @@ async function liveSet(tx: RegistryTx, tenantId: UuidV7, projectId: string): Pro
       and(eq(standards.tenantId, standardVersions.tenantId), eq(standards.id, standardVersions.standardId)),
     )
     .innerJoin(modules, and(eq(modules.tenantId, standards.tenantId), eq(modules.id, standards.moduleId)))
-    .where(and(eq(standardVersions.tenantId, tenantId), eq(standards.projectId, projectId)))
+    .where(
+      and(
+        eq(standardVersions.tenantId, tenantId),
+        projectId === undefined ? undefined : eq(standards.projectId, projectId),
+      ),
+    )
     .orderBy(standardVersions.standardId, desc(standardVersions.version));
   return rows.map((row) => ({
     standardId: row.standardId,
     projectId: row.projectId,
     slot: { moduleKind: row.moduleKind, slotKind: row.category, name: row.name },
   }));
+}
+
+/**
+ * Take the tenant's bundle lock: a transaction-scoped advisory lock keyed
+ * `standards:<root Project id>`. Every Standards publish and every Project
+ * tree change takes it before reading anything, because both feed the whole
+ * bundle input, so their validations serialise per tenant. Returns the root
+ * Project.
+ */
+export async function lockBundle(tx: RegistryTx, tenantId: UuidV7): Promise<ProjectRow> {
+  const [root] = await tx
+    .select()
+    .from(projects)
+    .where(and(eq(projects.tenantId, tenantId), isNull(projects.parentId)));
+  if (root === undefined) throw new Error("the tenant has no root Project");
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`standards:${root.id}`}, 0))`);
+  return root;
 }
 
 async function findModule(tx: RegistryTx, tenantId: UuidV7, moduleId: string): Promise<ModuleRow | undefined> {

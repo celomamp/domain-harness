@@ -6,6 +6,8 @@ import {
   isErrorEnvelope,
   isModuleInfo,
   isModuleList,
+  isProjectInfo,
+  isProjectTree,
   isSessionCreated,
   isSessionInfo,
   isStandardInfo,
@@ -15,6 +17,8 @@ import {
 import type {
   ModuleInfo,
   ModuleList,
+  ProjectInfo,
+  ProjectTree,
   SessionCreated,
   SessionInfo,
   StandardInfo,
@@ -25,6 +29,9 @@ import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import { assertBuyer } from "../modules/service.ts";
 import type { ModuleCreateInput, ModuleOwnerAssignInput, ModuleService } from "../modules/service.ts";
+import { assertTreeBuyer } from "../projects/service.ts";
+import type { ProjectService } from "../projects/service.ts";
+import { validateCreateBody, validateParentBody } from "../projects/validate.ts";
 import type { SignInLinkReport, SignInService } from "../sign-in/service.ts";
 import type { StandardService } from "../standards/service.ts";
 import { validatePublishBody } from "../standards/validate.ts";
@@ -158,6 +165,52 @@ class FakeStandards implements StandardService {
   }
 }
 
+const ROOT_ID = mintUuidV7();
+const CHILD_ID = mintUuidV7();
+const rootInfo: ProjectInfo = { id: ROOT_ID, name: "Acme", levelName: null, parentId: null, createdAt: "2026-10-12T09:00:00.000Z" };
+const childInfo: ProjectInfo = { ...rootInfo, id: CHILD_ID, name: "Web", levelName: "Product line", parentId: ROOT_ID };
+const tree: ProjectTree = { rootId: ROOT_ID, projects: [rootInfo, childInfo] };
+
+/**
+ * A fake Project service that records what reached it and checks in the real
+ * order with the real validators: the Project, the role, the body, the
+ * parent, the root, then a cycle (parent = the child itself).
+ */
+class FakeProjects implements ProjectService {
+  calls: unknown[] = [];
+  getTree(caller: SessionInfo): Promise<ProjectTree> {
+    this.calls.push(["tree", caller.role]);
+    return Promise.resolve(tree);
+  }
+  getProject(caller: SessionInfo, projectId: string): Promise<ProjectInfo> {
+    this.calls.push(["get", caller.role, projectId]);
+    const found = tree.projects.find((p) => p.id === projectId);
+    return found === undefined ? Promise.reject(notFound("project_not_found", "projectId")) : Promise.resolve(found);
+  }
+  createProject(caller: SessionInfo, body: unknown): Promise<ProjectInfo> {
+    this.calls.push(["create", body]);
+    return Promise.resolve().then(() => {
+      assertTreeBuyer(caller);
+      const input = validateCreateBody(body);
+      if (!tree.projects.some((p) => p.id === input.parentId)) throw notFound("project_not_found", "parentId");
+      return { ...childInfo, id: mintUuidV7(), name: input.name, levelName: input.levelName, parentId: input.parentId };
+    });
+  }
+  changeParent(caller: SessionInfo, projectId: string, body: unknown): Promise<ProjectInfo> {
+    this.calls.push(["parent", projectId, body]);
+    return Promise.resolve().then(() => {
+      const project = tree.projects.find((p) => p.id === projectId);
+      if (project === undefined) throw notFound("project_not_found", "projectId");
+      assertTreeBuyer(caller);
+      const { parentId } = validateParentBody(body);
+      if (!tree.projects.some((p) => p.id === parentId)) throw notFound("project_not_found", "parentId");
+      if (project.parentId === null) throw new EnvelopeError({ code: "root_project_fixed", message: "m", subject: "projectId" });
+      if (parentId === projectId) throw new EnvelopeError({ code: "project_cycle", message: "m", subject: parentId });
+      return { ...project, parentId };
+    });
+  }
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const notFound = (code: string, subject: string) => new EnvelopeError({ code, message: "m", subject });
@@ -166,12 +219,13 @@ describe("registry HTTP API", () => {
   const service = new FakeService();
   const modules = new FakeModules();
   const standards = new FakeStandards();
+  const projects = new FakeProjects();
   const events: LogEvent[] = [];
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
-    server = createRegistryServer({ signIn: service, modules, standards }, (event) => events.push(event));
+    server = createRegistryServer({ signIn: service, modules, standards, projects }, (event) => events.push(event));
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
   });
@@ -184,6 +238,7 @@ describe("registry HTTP API", () => {
     service.requested = [];
     modules.calls = [];
     standards.calls = [];
+    projects.calls = [];
     events.length = 0;
   });
 
@@ -520,6 +575,100 @@ describe("registry HTTP API", () => {
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
         .toEqual(["/v1/modules/{id}/standards", "/v1/standards/{id}/versions"]);
       expect(JSON.stringify(events)).not.toContain(STANDARD_ID);
+    });
+  });
+
+  describe("Project tree", () => {
+    const json = { "content-type": "application/json" };
+    const buyerAuth = { ...json, authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { ...json, authorization: `Bearer ${BUILDER_SESSION}` };
+    const create = { name: " Web ", levelName: "  Product line ", parentId: ROOT_ID };
+
+    it("serves the tree and one Project to every role", async () => {
+      const response = await fetch(`${base}/v1/projects`, { headers: builderAuth });
+      expect(response.status).toBe(200);
+      expect(isProjectTree(await response.json())).toBe(true);
+      const one = await fetch(`${base}/v1/projects/${CHILD_ID}`, { headers: builderAuth });
+      expect(one.status).toBe(200);
+      expect(isProjectInfo(await one.json())).toBe(true);
+    });
+
+    it("answers 201 on create, keeping the level name exactly as typed", async () => {
+      const response = await post("/v1/projects", create, { headers: buyerAuth });
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ name: "Web", levelName: "  Product line ", parentId: ROOT_ID });
+    });
+
+    it("answers 200 on a parent change", async () => {
+      const response = await post(`/v1/projects/${CHILD_ID}/parent`, { parentId: ROOT_ID }, { headers: buyerAuth });
+      expect(response.status).toBe(200);
+      expect(isProjectInfo(await response.json())).toBe(true);
+    });
+
+    it.each([
+      ["GET tree", "GET", "/v1/projects"],
+      ["GET one", "GET", `/v1/projects/${CHILD_ID}`],
+      ["POST create", "POST", "/v1/projects"],
+      ["POST parent", "POST", `/v1/projects/${CHILD_ID}/parent`],
+    ])("answers 401 session_invalid without a bearer token (%s) and calls no service", async (_label, method, path) => {
+      const init: RequestInit =
+        method === "GET" ? {} : { method, headers: { "content-type": "application/json" }, body: JSON.stringify(create) };
+      await expectEnvelope(await fetch(`${base}${path}`, init), 401, "session_invalid");
+      expect(projects.calls).toEqual([]);
+    });
+
+    it("refuses a non-Buyer's create with 403 before the body is read", async () => {
+      await expectEnvelope(await post("/v1/projects", "{ not json", { headers: builderAuth }), 403, "role_denied");
+      expect(projects.calls).toEqual([]);
+    });
+
+    it("maps the refusals in the check order to 404, 403, 400 and 409", async () => {
+      const unknown = mintUuidV7();
+      const cases: [string, unknown, Record<string, string>, number, Record<string, string>][] = [
+        [`/v1/projects/${unknown}/parent`, { parentId: ROOT_ID }, builderAuth, 404, { code: "project_not_found", subject: "projectId" }],
+        ["/v1/projects/nope/parent", { parentId: ROOT_ID }, buyerAuth, 404, { code: "project_not_found", subject: "projectId" }],
+        [`/v1/projects/${CHILD_ID}/parent`, { parentId: ROOT_ID }, builderAuth, 403, { code: "role_denied", subject: "role" }],
+        [`/v1/projects/${CHILD_ID}/parent`, { parentId: null }, buyerAuth, 400, { code: "invalid_input", subject: "parentId" }],
+        [`/v1/projects/${CHILD_ID}/parent`, { parentId: ROOT_ID, name: "x" }, buyerAuth, 400, { code: "invalid_input", subject: "name" }],
+        [`/v1/projects/${CHILD_ID}/parent`, { parentId: unknown }, buyerAuth, 404, { code: "project_not_found", subject: "parentId" }],
+        [`/v1/projects/${ROOT_ID}/parent`, { parentId: CHILD_ID }, buyerAuth, 409, { code: "root_project_fixed", subject: "projectId" }],
+        [`/v1/projects/${CHILD_ID}/parent`, { parentId: CHILD_ID }, buyerAuth, 409, { code: "project_cycle", subject: CHILD_ID }],
+        ["/v1/projects", { ...create, name: "" }, buyerAuth, 400, { code: "invalid_input", subject: "name" }],
+        ["/v1/projects", { ...create, levelName: "   " }, buyerAuth, 400, { code: "invalid_input", subject: "levelName" }],
+        ["/v1/projects", { ...create, extra: 1 }, buyerAuth, 400, { code: "invalid_input", subject: "extra" }],
+        ["/v1/projects", { ...create, parentId: unknown }, buyerAuth, 404, { code: "project_not_found", subject: "parentId" }],
+      ];
+      for (const [path, body, headers, status, expected] of cases) {
+        const response = await post(path, body, { headers });
+        expect([path, response.status, await response.json()]).toMatchObject([path, status, expected]);
+      }
+    });
+
+    it("answers 404 for an unknown or malformed id on GET", async () => {
+      await expectEnvelope(await fetch(`${base}/v1/projects/${mintUuidV7()}`, { headers: buyerAuth }), 404, "project_not_found");
+      await expectEnvelope(await fetch(`${base}/v1/projects/nope`, { headers: buyerAuth }), 404, "project_not_found");
+    });
+
+    it("answers 405 with Allow for a wrong method on each route", async () => {
+      for (const [path, method, allow] of [
+        ["/v1/projects", "PUT", "GET, POST"],
+        [`/v1/projects/${CHILD_ID}`, "POST", "GET"],
+        [`/v1/projects/${CHILD_ID}/parent`, "GET", "POST"],
+      ] as const) {
+        const response = await fetch(`${base}${path}`, { method, headers: buyerAuth });
+        expect(response.headers.get("allow")).toBe(allow);
+        await expectEnvelope(response, 405, "method_not_allowed");
+      }
+    });
+
+    it("logs the routes by their patterns, never the ids", async () => {
+      await fetch(`${base}/v1/projects`, { headers: buyerAuth });
+      await fetch(`${base}/v1/projects/${CHILD_ID}`, { headers: buyerAuth });
+      await post(`/v1/projects/${CHILD_ID}/parent`, { parentId: ROOT_ID }, { headers: buyerAuth });
+      await expect
+        .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
+        .toEqual(["/v1/projects", "/v1/projects/{id}", "/v1/projects/{id}/parent"]);
+      expect(JSON.stringify(events)).not.toContain(CHILD_ID);
     });
   });
 

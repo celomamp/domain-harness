@@ -178,6 +178,25 @@ A publish is checked in this order; the first failure wins and nothing is writte
 
 In the panel, each Module name on the Standards page opens that Module's page (`/standards/{moduleId}`): its Standards table, the form for its kind (shown to every role) and, after a publish, the Standard id, Module, Project scope, version and UTC time. The design-system form has one "Entry kind" choice that switches between the component, token and import field sets; a component's tokens are typed separated by commas. While the Standards list loads, the page shows its structure and the table header cells with a busy row. Migration `0004_standards.sql` adds the append-only `standards` and `standard_versions` tables under the same forced RLS, and `0005_design_system_entries.sql` widens their checks to the design-system entries (`category` holds the slot kind, `name` the slot name); `apps/registry/src/standards/standards.db.test.ts` covers them end to end over HTTP.
 
+## Project tree
+
+Each Company has exactly one root Project, created by `provision`; it is the only Project without a parent, and its parent can never be changed. The Buyer builds the tree under it: every other Project has exactly one parent in the same Company, and a level name that says what that level means (for example "Product line"). The level name is stored exactly as typed (no trimming, no case change), 1 to 200 characters with at least one that is not whitespace; Domain Harness never interprets it. The root's level name is `null` for now. A Project name is trimmed and 1 to 200 characters. Project ids are minted by the registry.
+
+| Endpoint | Body | Success | Who |
+|---|---|---|---|
+| `GET /v1/projects` | none | `200 { rootId, projects }`: every Project `{ id, name, levelName, parentId, createdAt }`, depth-first from the root, children by creation time, then id | every role |
+| `GET /v1/projects/{id}` | none | `200` one Project | every role |
+| `POST /v1/projects` | exactly `{ "name", "levelName", "parentId" }` | `201` the new Project | Buyer |
+| `POST /v1/projects/{id}/parent` | exactly `{ "parentId" }` | `200` the Project with its new parent | Buyer |
+
+A tree change is checked in this order; the first failure wins and nothing is written: `401 session_invalid` → `404 project_not_found` with subject `projectId` (the Project in the path, also for malformed or another Company's ids) → `403 role_denied` (any role but the Buyer) → `400 invalid_input` with the field (or an unexpected key) as subject → `404 project_not_found` with subject `parentId` (an unknown or another Company's parent) → `409 root_project_fixed` (the root's parent) → `409 project_cycle` (the parent is the Project itself or one of its descendants; the subject is that parent's id, the one that closes the cycle). Transport refusals come before that order on a parent change, because the body is read first: `415 unsupported_media_type`, `413 payload_too_large`, and `400 invalid_input` with subject `body` for malformed JSON, even for an unknown Project or a non-Buyer. A create has no Project in the path, so its role check comes first and the body is not read for any other role. Reading an unknown or another Company's Project is `404 project_not_found`, and another Company's Projects never appear in the tree.
+
+Before anything is written, the registry builds the whole proposed bundle input (every Project with its proposed parent, plus every live Standard) and validates it with the pure `validateBundleInput` in `@domain-harness/core`: exactly one root, every parent exists, no cycle, then the Conflict slot rule. Tree changes take the same per-Company lock as Standards publishes, so two concurrent re-parents that together would form a cycle cannot both succeed.
+
+Parent changes are append-only. Migration `0006_project_tree.sql` adds `projects.level_name` and `projects.created_by` (both `NULL` for the provisioned root) and the `project_parent_changes` table (forced RLS, `SELECT` and `INSERT` only), which records every create and every parent change with who made it and when. A Project's current parent is the parent of its latest row; `projects.parent_id` keeps the parent at creation. `apps/registry/src/projects/projects.db.test.ts` covers the tree end to end over HTTP.
+
+In the panel, "Project tree" (`/projects`) shows the tree as an accessible tree (Up, Down, Home and End move, Enter or Space selects; `?project={id}` selects a Project), a "Create a Project" form and, for any Project but the root, a "Change the parent of ..." form. The forms are shown to every role; the registry's refusals appear as a status. While the tree loads, the page shows its structure with a busy tree region.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:

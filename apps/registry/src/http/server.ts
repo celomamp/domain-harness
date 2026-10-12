@@ -7,8 +7,12 @@ import {
   MODULE_NAME_TAKEN,
   MODULE_NOT_FOUND,
   NOT_MODULE_OWNER,
+  PROJECT_API_PATHS,
+  PROJECT_CYCLE,
+  PROJECT_NOT_FOUND,
   REGISTRY_API_PATHS,
   ROLE_DENIED,
+  ROOT_PROJECT_FIXED,
   SESSION_INVALID,
   SIGN_IN_LINK_INVALID,
   SLOT_CONFLICT,
@@ -19,6 +23,8 @@ import type { ErrorEnvelope, SessionInfo } from "@domain-harness/contract";
 import { isEnvelopeError } from "../errors.ts";
 import { assertBuyer } from "../modules/service.ts";
 import type { ModuleService } from "../modules/service.ts";
+import { assertTreeBuyer } from "../projects/service.ts";
+import type { ProjectService } from "../projects/service.ts";
 import type { SignInService } from "../sign-in/service.ts";
 import type { StandardService } from "../standards/service.ts";
 
@@ -47,10 +53,13 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
   not_found: 404,
   [MODULE_NOT_FOUND]: 404,
   [STANDARD_NOT_FOUND]: 404,
+  [PROJECT_NOT_FOUND]: 404,
   method_not_allowed: 405,
   [MODULE_NAME_TAKEN]: 409,
   [MODULE_HAS_NO_OWNER]: 409,
   [SLOT_CONFLICT]: 409,
+  [PROJECT_CYCLE]: 409,
+  [ROOT_PROJECT_FIXED]: 409,
   payload_too_large: 413,
   unsupported_media_type: 415,
 };
@@ -59,12 +68,16 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
 const MODULE_OWNER_ROUTE = `${MODULE_API_PATHS.modules}/{id}/owner`;
 const MODULE_STANDARDS_ROUTE = `${MODULE_API_PATHS.modules}/{id}/standards`;
 const STANDARD_VERSIONS_ROUTE = `${STANDARD_API_PATHS.standards}/{id}/versions`;
+const PROJECT_ROUTE = `${PROJECT_API_PATHS.projects}/{id}`;
+const PROJECT_PARENT_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/parent`;
 
 /** Each parameterised route and the pattern capturing its raw `{id}` segment. */
 const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
   [MODULE_OWNER_ROUTE, /^\/v1\/modules\/([^/]+)\/owner$/],
   [MODULE_STANDARDS_ROUTE, /^\/v1\/modules\/([^/]+)\/standards$/],
   [STANDARD_VERSIONS_ROUTE, /^\/v1\/standards\/([^/]+)\/versions$/],
+  [PROJECT_ROUTE, /^\/v1\/projects\/([^/]+)$/],
+  [PROJECT_PARENT_ROUTE, /^\/v1\/projects\/([^/]+)\/parent$/],
 ];
 
 /** Allowed methods per route. */
@@ -76,6 +89,9 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [MODULE_OWNER_ROUTE]: ["POST"],
   [MODULE_STANDARDS_ROUTE]: ["GET", "POST"],
   [STANDARD_VERSIONS_ROUTE]: ["GET", "POST"],
+  [PROJECT_API_PATHS.projects]: ["GET", "POST"],
+  [PROJECT_ROUTE]: ["GET"],
+  [PROJECT_PARENT_ROUTE]: ["POST"],
 };
 
 interface RouteMatch {
@@ -106,6 +122,7 @@ export interface RegistryServices {
   readonly signIn: SignInService;
   readonly modules: ModuleService;
   readonly standards: StandardService;
+  readonly projects: ProjectService;
 }
 
 class HttpFailure extends Error {
@@ -123,6 +140,8 @@ class HttpFailure extends Error {
  * owner is refused with `role_denied` for any role but the Buyer, before the
  * body is read. Standards calls authenticate the same way; reading is open to
  * every role and only a Module's current Standard owner may publish into it.
+ * Project tree calls authenticate the same way; reading is open to every
+ * role and only the Buyer may create a Project or change its parent.
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
@@ -245,6 +264,30 @@ async function handle(
       sendJson(res, 201, await services.standards.publishStandard(session, match.id, await readJson(req)));
       return;
     }
+    case PROJECT_API_PATHS.projects: {
+      const session = await service.getSession(bearerToken(req));
+      if (req.method === "GET") {
+        sendJson(res, 200, await services.projects.getTree(session));
+        return;
+      }
+      // Creating has no Project in the path, so the role is checked first,
+      // before the body is read; the service checks the body and the parent.
+      requireBuyer(req, session, assertTreeBuyer);
+      sendJson(res, 201, await services.projects.createProject(session, await readJson(req)));
+      return;
+    }
+    case PROJECT_ROUTE: {
+      const session = await service.getSession(bearerToken(req));
+      sendJson(res, 200, await services.projects.getProject(session, match.id));
+      return;
+    }
+    case PROJECT_PARENT_ROUTE: {
+      const session = await service.getSession(bearerToken(req));
+      // The service checks the Project, then the role, then the body and the
+      // parent, so the first failure in that order wins.
+      sendJson(res, 200, await services.projects.changeParent(session, match.id, await readJson(req)));
+      return;
+    }
     default: {
       // STANDARD_VERSIONS_ROUTE
       const session = await service.getSession(bearerToken(req));
@@ -258,9 +301,13 @@ async function handle(
 }
 
 /** `role_denied` before the body is read (it is drained, never parsed) unless the session is the Buyer's. */
-function requireBuyer(req: IncomingMessage, session: SessionInfo): void {
+function requireBuyer(
+  req: IncomingMessage,
+  session: SessionInfo,
+  assert: (session: SessionInfo) => void = assertBuyer,
+): void {
   try {
-    assertBuyer(session);
+    assert(session);
   } catch (error) {
     req.resume();
     throw error;

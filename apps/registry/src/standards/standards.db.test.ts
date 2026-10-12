@@ -24,6 +24,7 @@ import { assignModuleOwner, createModule, createModuleService } from "../modules
 import { consumeSignInLink, createSignInService, requestSignInLinks } from "../sign-in/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { createStandardService, publishStandard } from "./service.ts";
+import { createProjectService } from "../projects/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -212,6 +213,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
         signIn: createSignInService(db, new MemoryTransport(), PANEL),
         modules: createModuleService(db),
         standards: createStandardService(db),
+        projects: createProjectService(db),
       },
       () => undefined,
     );

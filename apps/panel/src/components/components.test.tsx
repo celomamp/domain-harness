@@ -34,14 +34,14 @@ function renderPanel(url: string) {
 }
 
 describe("panel-chrome", () => {
-  it("shows the wordmark, the role as text and a nav listing only Inventory and Standards", async () => {
+  it("shows the wordmark, the role as text and a nav listing only Inventory, Standards and Project tree", async () => {
     renderPanel("/inventory");
     expect(await screen.findByText("Domain Harness")).toBeTruthy();
     expect(screen.getByText("Buyer")).toBeTruthy();
     const nav = screen.getByRole("navigation", { name: "Management panel" });
     const links = [...nav.querySelectorAll("a")];
-    expect(links.map((a) => a.textContent)).toEqual(["Inventory", "Standards"]);
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/inventory", "/standards"]);
+    expect(links.map((a) => a.textContent)).toEqual(["Inventory", "Standards", "Project tree"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/inventory", "/standards", "/projects"]);
   });
 
   it("marks Inventory as the current destination on /inventory, with the empty state", async () => {
@@ -63,7 +63,7 @@ describe("panel-chrome", () => {
     renderPanel("/inventory");
     await screen.findByRole("navigation");
     const focusables = [...document.querySelectorAll<HTMLElement>("a[href], button, input")];
-    expect(focusables.map((el) => el.textContent)).toEqual(["Inventory", "Standards"]);
+    expect(focusables.map((el) => el.textContent)).toEqual(["Inventory", "Standards", "Project tree"]);
     expect(document.querySelectorAll("[tabindex]").length).toBe(0);
   });
 });

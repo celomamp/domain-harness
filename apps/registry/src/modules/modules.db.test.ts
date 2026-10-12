@@ -22,6 +22,7 @@ import { consumeSignInLink, createSignInService, requestSignInLinks } from "../s
 import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { assignModuleOwner, createModule, createModuleService, listModules } from "./service.ts";
+import { createProjectService } from "../projects/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -476,6 +477,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Modules against Post
           signIn: createSignInService(db, mail, { panelUrl: "http://panel.test" }),
           modules: createModuleService(db),
           standards: createStandardService(db),
+          projects: createProjectService(db),
         },
         () => undefined,
       );

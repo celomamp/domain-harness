@@ -45,5 +45,9 @@ export {
 } from "./standards/service.ts";
 export type { StandardService } from "./standards/service.ts";
 export { validateCodeStackEntry, validatePublishBody } from "./standards/validate.ts";
+export { assertTreeBuyer, changeParent, createProject, createProjectService, getProject, getTree } from "./projects/service.ts";
+export type { ProjectService } from "./projects/service.ts";
+export { validateCreateBody, validateParentBody } from "./projects/validate.ts";
+export type { ProjectCreateBody, ProjectParentBody } from "./projects/validate.ts";
 export { createRegistryServer, MAX_BODY_BYTES, stdoutLogger } from "./http/server.ts";
 export type { LogEvent, Logger, RegistryServices } from "./http/server.ts";

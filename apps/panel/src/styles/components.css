@@ -173,7 +173,8 @@
   color: var(--color-ink);
 }
 
-.standard-form .button-primary {
+.standard-form .button-primary,
+.standard-form .button-inverse {
   justify-self: start;
 }
 
@@ -272,4 +273,43 @@
 
 .module-owner-form .field-error {
   color: var(--color-ink);
+}
+
+/* project-node tree: nested lists, each level indented 16px; the selected node at weight 600, never gold. */
+.project-tree-section {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.project-tree,
+.project-tree [role="group"] {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-tree [role="group"] {
+  padding-inline-start: var(--space-4);
+}
+
+.project-node {
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.project-node__label {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: var(--size-target-min);
+  padding-block: var(--space-1);
+}
+
+.project-node__level {
+  color: var(--color-ink-secondary);
+}
+
+.project-node[aria-selected="true"] > .project-node__label .project-node__name {
+  font-weight: var(--type-label-strong-weight);
 }

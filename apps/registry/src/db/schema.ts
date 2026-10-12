@@ -3,7 +3,7 @@ import { isNull, sql } from "drizzle-orm";
 import { CODE_STACK_CATEGORIES, DESIGN_SYSTEM_ENTRY_KINDS, MODULE_KINDS, PLANS, ROLES } from "@domain-harness/contract";
 import type { StandardEntry } from "@domain-harness/contract";
 
-// Drizzle mirror of migrations/0001_tenancy.sql to 0005_design_system_entries.sql, used for typed queries only.
+// Drizzle mirror of migrations/0001_tenancy.sql to 0006_project_tree.sql, used for typed queries only.
 // The SQL migration is the source of truth for constraints, RLS and grants.
 
 export const tenants = pgTable("tenants", {
@@ -20,8 +20,18 @@ export const projects = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
+    /**
+     * The parent at creation, NOT the current parent: NULL only for the root,
+     * kept for the one-root index and the same-tenant FK. A Project's current
+     * parent is the `parentId` of its highest-sequence {@link projectParentChanges}
+     * row (see `currentProjects` in projects/service.ts); never read this as it.
+     */
     parentId: uuid("parent_id"),
     name: text("name").notNull(),
+    // Exactly as the Buyer typed it (0006); NULL for the provisioned root.
+    levelName: text("level_name"),
+    // The Buyer who created it (0006); NULL for the provisioned root.
+    createdBy: uuid("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
   (table) => [
@@ -229,7 +239,46 @@ export const standardVersions = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0004. */
+/**
+ * Append-only Project creates and parent changes (0006). A non-root Project's
+ * current parent is the `parentId` of its highest-`sequence` row; `sequence`
+ * is per tenant.
+ */
+export const projectParentChanges = pgTable(
+  "project_parent_changes",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    projectId: uuid("project_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    parentId: uuid("parent_id").notNull(),
+    changedBy: uuid("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("project_parent_changes_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    index("project_parent_changes_project_idx").on(table.tenantId, table.projectId, table.sequence.desc()),
+    foreignKey({
+      name: "project_parent_changes_project_fkey",
+      columns: [table.tenantId, table.projectId],
+      foreignColumns: [projects.tenantId, projects.id],
+    }),
+    foreignKey({
+      name: "project_parent_changes_parent_fkey",
+      columns: [table.tenantId, table.parentId],
+      foreignColumns: [projects.tenantId, projects.id],
+    }),
+    foreignKey({
+      name: "project_parent_changes_changed_by_fkey",
+      columns: [table.tenantId, table.changedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0006. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -240,6 +289,7 @@ export const TENANT_TABLES = [
   "module_owner_assignments",
   "standards",
   "standard_versions",
+  "project_parent_changes",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */

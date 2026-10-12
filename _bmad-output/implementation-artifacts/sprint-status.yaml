@@ -44,8 +44,8 @@ development_status:
   1-6-standard-owner-publishes-design-system-components-tokens-and: review
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-buyer-builds-the-project-tree-and-names-its-levels: backlog
+  epic-2: in-progress
+  2-1-buyer-builds-the-project-tree-and-names-its-levels: review
   2-2-standard-owner-scopes-a-standard-to-any-project: backlog
   2-3-resolve-and-preview-the-effective-standard-set-for-a-project: backlog
   2-4-buyer-marks-locked-rules-that-descendants-cannot-override: backlog

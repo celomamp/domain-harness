@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assignModuleOwner,
+  changeProjectParent,
   createModule,
+  createProject,
   createSession,
+  getProjectTree,
   getSession,
   getStandardVersions,
   listModules,
@@ -193,6 +196,59 @@ describe("registry client", () => {
       expect(await publishStandard("abc", MODULE, entry)).toEqual({ kind: "unavailable" });
       vi.stubGlobal("fetch", respond(200, { module, standards: [{ ...info, version: 0 }] }));
       expect(await listStandards("abc", MODULE)).toEqual({ kind: "unavailable" });
+    });
+  });
+
+  describe("Project tree", () => {
+    const ROOT = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
+    const WEB = "01928c7e-5b2a-7c3d-be4f-a1b2c3d4e5f9";
+    const AT = "2026-10-12T09:00:00.000Z";
+    const root = { id: ROOT, name: "Acme", levelName: null, parentId: null, createdAt: AT };
+    const web = { id: WEB, name: "Web", levelName: "  Product line ", parentId: ROOT, createdAt: AT };
+
+    it("reads the tree with GET and a bearer token", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const tree = { rootId: ROOT, projects: [root, web] };
+      const fetch = respond(200, tree);
+      vi.stubGlobal("fetch", fetch);
+      expect(await getProjectTree("abc")).toEqual({ kind: "ok", value: tree });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("http://registry.test/v1/projects");
+      expect(init.method).toBe("GET");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+    });
+
+    it("creates a Project with exactly { name, levelName, parentId } as submitted and expects 201", async () => {
+      const fetch = respond(201, web);
+      vi.stubGlobal("fetch", fetch);
+      const input = { name: " Web ", levelName: "  Product line ", parentId: ROOT };
+      expect(await createProject("abc", input)).toEqual({ kind: "ok", value: web });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toMatch(/\/v1\/projects$/);
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe(JSON.stringify(input));
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+    });
+
+    it("changes a parent on the Project's escaped parent path and expects 200", async () => {
+      const fetch = respond(200, { ...web, parentId: WEB });
+      vi.stubGlobal("fetch", fetch);
+      expect((await changeProjectParent("abc", WEB, ROOT)).kind).toBe("ok");
+      await changeProjectParent("abc", "a/b", ROOT);
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toMatch(new RegExp(`/v1/projects/${WEB}/parent$`));
+      expect(init.body).toBe(JSON.stringify({ parentId: ROOT }));
+      expect((fetch.mock.calls[1] as unknown as [string])[0]).toMatch(/\/v1\/projects\/a%2Fb\/parent$/);
+    });
+
+    it("reports a refusal, a wrong status and a malformed tree", async () => {
+      const cycle = { code: "project_cycle", message: "m", subject: WEB };
+      vi.stubGlobal("fetch", respond(409, cycle));
+      expect(await changeProjectParent("abc", ROOT, WEB)).toEqual({ kind: "refused", error: cycle });
+      vi.stubGlobal("fetch", respond(201, web));
+      expect(await changeProjectParent("abc", WEB, ROOT)).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(200, { rootId: ROOT, projects: [web] }));
+      expect(await getProjectTree("abc")).toEqual({ kind: "unavailable" });
     });
   });
 });

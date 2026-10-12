@@ -13,6 +13,7 @@ import { assertRuntimeRoleSafe } from "../db/tenant-scope.ts";
 import { createTransportFromEnv } from "../mail/from-env.ts";
 import { reportFailure } from "../operator/output.ts";
 import { createModuleService } from "../modules/service.ts";
+import { createProjectService } from "../projects/service.ts";
 import { createSignInService } from "../sign-in/service.ts";
 import { createStandardService } from "../standards/service.ts";
 import { createRegistryServer, stdoutLogger } from "./server.ts";
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
       signIn: createSignInService(db, mailer, config),
       modules: createModuleService(db),
       standards: createStandardService(db),
+      projects: createProjectService(db),
     },
     stdoutLogger,
   );
