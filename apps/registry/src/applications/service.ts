@@ -1,6 +1,18 @@
-import { asc, eq, max } from "drizzle-orm";
-import { BUILD_GRANT_DENIED, isUuidV7 } from "@domain-harness/contract";
-import type { ApplicationInfo, ApplicationList, SessionInfo, UuidV7 } from "@domain-harness/contract";
+import { and, asc, eq, max } from "drizzle-orm";
+import {
+  APPLICATION_NOT_FOUND,
+  BUILD_GRANT_DENIED,
+  formatIdentificationFile,
+  IDENTIFICATION_FILE_NAME,
+  isUuidV7,
+} from "@domain-harness/contract";
+import type {
+  ApplicationInfo,
+  ApplicationList,
+  IdentificationFileRendering,
+  SessionInfo,
+  UuidV7,
+} from "@domain-harness/contract";
 import { validateBundleInput } from "@domain-harness/core";
 import type { ApplicationNode } from "@domain-harness/core";
 import { EnvelopeError } from "../errors.ts";
@@ -124,15 +136,48 @@ export async function createApplication(db: RegistryDb, session: SessionInfo, bo
   });
 }
 
+const applicationNotFound = (): EnvelopeError =>
+  new EnvelopeError({
+    code: APPLICATION_NOT_FOUND,
+    message: "no such Application in this Company",
+    subject: "applicationId",
+  });
+
+/**
+ * The Project identification file of one Application, rendered through the
+ * contract's only serializer with the Application's id and its current
+ * Project (its stored `project_id`). Open to every role. A malformed, unknown
+ * or other tenant's id is 404 `application_not_found`, subject
+ * `applicationId`. One row read under the tenant (RLS) transaction.
+ */
+export async function getIdentificationFile(
+  db: RegistryDb,
+  session: SessionInfo,
+  applicationId: unknown,
+): Promise<IdentificationFileRendering> {
+  if (!isUuidV7(applicationId)) throw applicationNotFound();
+  const { tenantId } = session;
+  return withTenant(db, tenantId, async (tx) => {
+    const [row] = await tx
+      .select({ id: applications.id, projectId: applications.projectId })
+      .from(applications)
+      .where(and(eq(applications.tenantId, tenantId), eq(applications.id, applicationId)));
+    if (row === undefined) throw applicationNotFound();
+    return { fileName: IDENTIFICATION_FILE_NAME, content: formatIdentificationFile(toId(row.id), toId(row.projectId)) };
+  });
+}
+
 /** The operations the HTTP API needs, bound to one database. */
 export interface ApplicationService {
   listApplications(session: SessionInfo): Promise<ApplicationList>;
   createApplication(session: SessionInfo, body: unknown): Promise<ApplicationInfo>;
+  getIdentificationFile(session: SessionInfo, applicationId: string): Promise<IdentificationFileRendering>;
 }
 
 export function createApplicationService(db: RegistryDb): ApplicationService {
   return {
     listApplications: (session) => listApplications(db, session),
     createApplication: (session, body) => createApplication(db, session, body),
+    getIdentificationFile: (session, applicationId) => getIdentificationFile(db, session, applicationId),
   };
 }

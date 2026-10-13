@@ -291,6 +291,28 @@ Applications are append-only: migration `0009_build_grants.sql` also adds the `a
 
 In the panel, the "New-application flow" surface (`/new-application`, last in the nav) has a Description textarea, a Project select starting on "Choose a Project", and the gold "Place the Application" button. A success says "The Application is placed on <Project>. The Buyer sees it on Inventory now."; a missing Project or a bad description puts ink text under that field and keeps what was typed; a missing build grant names the Project and says to ask the Buyer. Inventory lists every Application of the Company at once (Application, Project, Placement "New-application flow" or "Registered", Listed date), before any Gate run, and never shows a Builder name.
 
+### Project identification file
+
+Every Application has one Project identification file, which lets Guidance, the Gate and Collectors find it the same way. It is a hidden dotfile at the repository root, `.domain-harness.json` (`IDENTIFICATION_FILE_NAME` in `packages/contract`), holding a JSON object versioned by semver:
+
+```json
+{
+  "version": "1.0.0",
+  "applicationId": "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f7",
+  "projectId": "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8"
+}
+```
+
+`applicationId` is the registry-minted Application id. `projectId` is advisory: consumers resolve the Project from the bundle by Application id, and a mismatch is reported, never used. `formatIdentificationFile(applicationId, projectId)` is the only serializer: keys in exactly that order, two-space indent and a trailing newline, so equal inputs give byte-identical files.
+
+`parseIdentificationFile(content)` never throws and never fills a default. It answers `{ kind: "parsed", file }` (the three fields only; unknown extra keys are ignored, and any minor or patch of major 1 is read), `{ kind: "missing" }` for no file (`null`), or `{ kind: "unreadable", error }` with the envelope code `identification_file_unreadable`. First failure wins: not JSON or not a JSON object (subject `file`) → `version` not `MAJOR.MINOR.PATCH` (no leading zeros, no pre-release) or a major other than 1 (subject `version`) → `applicationId` not a UUIDv7 → `projectId` not a UUIDv7 (subject: that field). Messages carry field names and versions only, never the file's content.
+
+| Endpoint | Body | Success | Who |
+|---|---|---|---|
+| `GET /v1/applications/{id}/identification-file` | none | `200 { fileName: ".domain-harness.json", content }`, `content` the serializer's output for the Application's id and its current Project | every role |
+
+It answers `401 session_invalid` without a session, `405` for any method but GET, and `404 application_not_found` subject `applicationId` ("no such Application in this Company") for a malformed, unknown or other Company's id.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:

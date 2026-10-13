@@ -82,7 +82,12 @@ export {
   validateBuildGrantBody,
 } from "./build-grants/service.ts";
 export type { BuildGrantBody, BuildGrantService } from "./build-grants/service.ts";
-export { createApplication, createApplicationService, listApplications } from "./applications/service.ts";
+export {
+  createApplication,
+  createApplicationService,
+  getIdentificationFile,
+  listApplications,
+} from "./applications/service.ts";
 export type { ApplicationService } from "./applications/service.ts";
 export { validateApplicationBody } from "./applications/validate.ts";
 export type { ApplicationCreateBody } from "./applications/validate.ts";

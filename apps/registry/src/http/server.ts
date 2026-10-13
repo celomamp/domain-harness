@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import {
   APPLICATION_API_PATHS,
+  APPLICATION_NOT_FOUND,
   BUILD_GRANT_DENIED,
   CHILD_PERMISSION_DENIED,
   isEmailAddress,
@@ -65,6 +66,7 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
   [MODULE_NOT_FOUND]: 404,
   [STANDARD_NOT_FOUND]: 404,
   [PROJECT_NOT_FOUND]: 404,
+  [APPLICATION_NOT_FOUND]: 404,
   method_not_allowed: 405,
   [MODULE_NAME_TAKEN]: 409,
   [MODULE_HAS_NO_OWNER]: 409,
@@ -86,6 +88,7 @@ const PROJECT_PARENT_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/parent`;
 const PROJECT_EFFECTIVE_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/effective-standards`;
 const PROJECT_CHILD_PERMISSIONS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/child-permissions`;
 const PROJECT_BUILD_GRANTS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/build-grants`;
+const APPLICATION_IDENTIFICATION_FILE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/identification-file`;
 
 /** Each parameterised route and the pattern capturing its raw `{id}` segment. */
 const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
@@ -98,6 +101,7 @@ const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
   [PROJECT_EFFECTIVE_ROUTE, /^\/v1\/projects\/([^/]+)\/effective-standards$/],
   [PROJECT_CHILD_PERMISSIONS_ROUTE, /^\/v1\/projects\/([^/]+)\/child-permissions$/],
   [PROJECT_BUILD_GRANTS_ROUTE, /^\/v1\/projects\/([^/]+)\/build-grants$/],
+  [APPLICATION_IDENTIFICATION_FILE_ROUTE, /^\/v1\/applications\/([^/]+)\/identification-file$/],
 ];
 
 /** Allowed methods per route. */
@@ -117,6 +121,7 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [PROJECT_CHILD_PERMISSIONS_ROUTE]: ["GET", "POST"],
   [PROJECT_BUILD_GRANTS_ROUTE]: ["GET", "POST"],
   [APPLICATION_API_PATHS.applications]: ["GET", "POST"],
+  [APPLICATION_IDENTIFICATION_FILE_ROUTE]: ["GET"],
 };
 
 interface RouteMatch {
@@ -178,7 +183,8 @@ class HttpFailure extends Error {
  * permission, or the build grant; the grants on a Project are open to every
  * role. The Applications are open to every role; the Buyer may place one on
  * any Project, any other account only on a Project on which it holds a
- * current build grant.
+ * current build grant. An Application's Project identification file is open
+ * to every role.
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
@@ -360,6 +366,11 @@ async function handle(
       // Whether the caller may place it depends on the Project named in the
       // body, so the service checks the body, then the Project, then the grant.
       sendJson(res, 201, await services.applications.createApplication(session, await readJson(req)));
+      return;
+    }
+    case APPLICATION_IDENTIFICATION_FILE_ROUTE: {
+      const session = await service.getSession(bearerToken(req));
+      sendJson(res, 200, await services.applications.getIdentificationFile(session, match.id));
       return;
     }
     case STANDARD_LOCKED_RULE_ROUTE: {
