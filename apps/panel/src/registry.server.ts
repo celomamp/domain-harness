@@ -6,17 +6,21 @@
  */
 import {
   APPLICATION_API_PATHS,
+  applicationBoilerplatePath,
   buildGrantsPath,
   childPermissionsPath,
   effectiveStandardsPath,
+  GUIDANCE_ENDPOINT_PATH,
   isApplicationInfo,
   isApplicationList,
+  isBoilerplateResult,
   isBuildGrantList,
   isBuildGrantState,
   isChildPermissionList,
   isChildPermissionState,
   isEffectiveStandardSet,
   isErrorEnvelope,
+  isGuidanceEndpointState,
   isLockedRuleState,
   isModuleInfo,
   isModuleList,
@@ -40,6 +44,8 @@ import type {
   ApplicationCreateRequest,
   ApplicationInfo,
   ApplicationList,
+  BoilerplateRequest,
+  BoilerplateResult,
   BuildGrantList,
   BuildGrantRequest,
   BuildGrantState,
@@ -48,6 +54,8 @@ import type {
   ChildPermissionState,
   EffectiveStandardSet,
   ErrorEnvelope,
+  GuidanceEndpointRequest,
+  GuidanceEndpointState,
   LockedRuleRequest,
   LockedRuleState,
   ModuleInfo,
@@ -310,4 +318,31 @@ export function createApplication(
 ): Promise<RegistryResult<ApplicationInfo>> {
   const body: ApplicationCreateRequest = { description: input.description, projectId: input.projectId };
   return call(APPLICATION_API_PATHS.applications, json(body, bearer(sessionToken)), 201, isApplicationInfo);
+}
+
+/** The Company Guidance endpoint (every role may read). */
+export function getGuidanceEndpoint(sessionToken: string): Promise<RegistryResult<GuidanceEndpointState>> {
+  return call(GUIDANCE_ENDPOINT_PATH, getJson(sessionToken), 200, isGuidanceEndpointState);
+}
+
+/**
+ * Set the Company Guidance endpoint URL (the registry allows only the
+ * Buyer). The URL is passed as submitted; the registry trims and validates it.
+ */
+export function setGuidanceEndpoint(sessionToken: string, url: string): Promise<RegistryResult<GuidanceEndpointState>> {
+  const body: GuidanceEndpointRequest = { url };
+  return call(GUIDANCE_ENDPOINT_PATH, json(body, bearer(sessionToken)), 200, isGuidanceEndpointState);
+}
+
+/**
+ * Generate an Application's Boilerplate for one agent tool (every role). The
+ * target is passed as submitted; the registry refuses an unknown one.
+ */
+export function generateBoilerplate(
+  sessionToken: string,
+  applicationId: string,
+  target: string,
+): Promise<RegistryResult<BoilerplateResult>> {
+  const body = { target } as BoilerplateRequest;
+  return call(applicationBoilerplatePath(applicationId), json(body, bearer(sessionToken)), 200, isBoilerplateResult);
 }

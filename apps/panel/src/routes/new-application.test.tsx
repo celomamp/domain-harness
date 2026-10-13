@@ -28,7 +28,10 @@ async function actionWithCookie(args: ActionFunctionArgs) {
   return action({ ...args, request });
 }
 
-function renderPage(role: Role, treeResult: Promise<unknown>) {
+const UNSET = { url: null, changedAt: null };
+const URL_A = "https://g.acme.example/v1";
+
+function renderPage(role: Role, treeResult: Promise<unknown>, endpointResult: Promise<unknown> = Promise.resolve(ok(UNSET))) {
   const Layout = () => (
     <>
       <PanelChrome role={role} />
@@ -44,7 +47,7 @@ function renderPage(role: Role, treeResult: Promise<unknown>) {
         {
           path: "/new-application",
           Component: NewApplicationPage,
-          loader: () => ({ tree: treeResult }),
+          loader: () => ({ tree: treeResult, endpoint: endpointResult }),
           action: actionWithCookie,
         },
       ],
@@ -193,6 +196,163 @@ describe("New-application flow page", () => {
   });
 });
 
+describe("Boilerplate and Guidance endpoint on the New-application flow", () => {
+  const placedAnswer: [number, unknown] = [
+    201,
+    { id: APP, description: "Checkout", project: { id: B, name: "Web" }, fromFlow: true, createdAt: AT },
+  ];
+  const result = {
+    applicationId: APP,
+    target: "claude-code",
+    archiveName: `domain-harness-${APP}-claude-code.tar.gz`,
+    archiveBase64: "H4sIAAAAAAACA2NgGAWjYBSMglEwCoYmAAA1dk3oAAQAAA==",
+    artifacts: [
+      { kind: "identification-file", path: ".domain-harness.json" },
+      { kind: "dependency-pins", path: "package.json" },
+      { kind: "design-system-references", path: "design-system.json" },
+      { kind: "mcp-configuration", path: ".mcp.json" },
+      { kind: "instructions", path: "CLAUDE.md" },
+      { kind: "skills", path: ".claude/skills/domain-harness-guidance/SKILL.md" },
+    ],
+  };
+  const endpointField = () => screen.getByLabelText<HTMLInputElement>("Guidance endpoint URL");
+
+  async function placeAndGenerate(...answers: [number, unknown][]) {
+    const fetch = registry(placedAnswer, ...answers);
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    await submit("Checkout", B);
+    fireEvent.click(await screen.findByRole("button", { name: "Generate the Boilerplate" }));
+    return fetch;
+  }
+
+  it("shows the endpoint form to every role, with Not set. and a secondary button", async () => {
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    expect(await screen.findByText("Not set.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Company Guidance endpoint" })).toBeTruthy();
+    expect(endpointField().value).toBe("");
+    expect(screen.getByRole("button", { name: "Set the Guidance endpoint" }).className).toBe("button-inverse");
+    expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Generate the Boilerplate" })).toBeNull();
+  });
+
+  it("fills the field with the current URL", async () => {
+    renderPage("Buyer", Promise.resolve(ok(tree)), Promise.resolve(ok({ url: URL_A, changedAt: AT })));
+    expect(await screen.findByText(`Current endpoint: ${URL_A}`)).toBeTruthy();
+    expect(endpointField().value).toBe(URL_A);
+  });
+
+  it("keeps the endpoint form structure while the state loads, and says when it is unavailable", async () => {
+    renderPage("Buyer", Promise.resolve(ok(tree)), new Promise(() => undefined));
+    expect(await screen.findByText("Loading the Guidance endpoint…")).toBeTruthy();
+    expect(endpointField().closest("[aria-busy]")).not.toBeNull();
+    cleanup();
+    renderPage("Buyer", Promise.resolve(ok(tree)), Promise.resolve({ kind: "unavailable" }));
+    expect(await screen.findByText("The Guidance endpoint is unavailable right now. Try again in a few minutes.")).toBeTruthy();
+    expect(endpointField()).toBeTruthy();
+  });
+
+  it("lets the Buyer set the endpoint, announcing it", async () => {
+    const fetch = registry([200, { url: URL_A, changedAt: AT }]);
+    renderPage("Buyer", Promise.resolve(ok(tree)));
+    fireEvent.change(await screen.findByLabelText("Guidance endpoint URL"), { target: { value: URL_A } });
+    fireEvent.click(screen.getByRole("button", { name: "Set the Guidance endpoint" }));
+    await waitFor(() => {
+      expect(status().textContent).toBe(`The Company Guidance endpoint is set to ${URL_A}.`);
+    });
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(/\/v1\/guidance-endpoint$/);
+    expect(init.body).toBe(JSON.stringify({ url: URL_A }));
+  });
+
+  it("announces a denial when a Builder sets the endpoint, keeping the value", async () => {
+    registry([403, { code: "role_denied", message: "m", subject: "role" }]);
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    fireEvent.change(await screen.findByLabelText("Guidance endpoint URL"), { target: { value: URL_A } });
+    fireEvent.click(screen.getByRole("button", { name: "Set the Guidance endpoint" }));
+    await waitFor(() => {
+      expect(status().textContent).toBe("Only the Buyer can set the Company Guidance endpoint. Nothing was changed.");
+    });
+    expect(status().querySelector(".denial")).not.toBeNull();
+    expect(endpointField().value).toBe(URL_A);
+  });
+
+  it("puts ink text under the URL on an invalid URL", async () => {
+    registry([400, { code: "invalid_input", message: "m", subject: "url" }]);
+    renderPage("Buyer", Promise.resolve(ok(tree)));
+    fireEvent.change(await screen.findByLabelText("Guidance endpoint URL"), { target: { value: "http://x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Set the Guidance endpoint" }));
+    expect(
+      await screen.findByText(
+        "Enter an https URL of up to 2048 characters with no user name, password or fragment. Nothing was changed.",
+      ),
+    ).toBeTruthy();
+    expect(endpointField().getAttribute("aria-invalid")).toBe("true");
+    expect(endpointField().value).toBe("http://x");
+  });
+
+  it("offers the Boilerplate after a placement: a labelled Agent tool select with Claude Code only", async () => {
+    registry(placedAnswer);
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    await submit("Checkout", B);
+    const tool = await screen.findByLabelText<HTMLSelectElement>("Agent tool");
+    expect([...tool.options].map((o) => [o.value, o.textContent])).toEqual([["claude-code", "Claude Code"]]);
+    expect(screen.getByRole("button", { name: "Generate the Boilerplate" }).className).toBe("button-inverse");
+    expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
+  });
+
+  it("lists every artifact in text with the download link, keeping the Boilerplate form", async () => {
+    const fetch = await placeAndGenerate([200, result]);
+    const section = await screen.findByRole("region", { name: "Boilerplate for Claude Code" });
+    expect(section.className).toBe("boilerplate-result");
+    expect([...section.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
+      "Project identification file: .domain-harness.json",
+      "Dependency pins: package.json",
+      "Design-system references: design-system.json",
+      "MCP configuration: .mcp.json",
+      "Instructions: CLAUDE.md",
+      "Skills: .claude/skills/domain-harness-guidance/SKILL.md",
+    ]);
+    const link = screen.getByRole("link", { name: "Download the archive" });
+    expect(link.getAttribute("download")).toBe(result.archiveName);
+    expect(link.getAttribute("href")).toBe(`data:application/gzip;base64,${result.archiveBase64}`);
+    expect(status().textContent).toBe("The Claude Code Boilerplate is ready to download.");
+    expect(screen.getByRole("button", { name: "Generate the Boilerplate" })).toBeTruthy();
+    const [url, init] = fetch.mock.calls[1] as unknown as [string, RequestInit];
+    expect(url).toMatch(new RegExp(`/v1/applications/${APP}/boilerplate$`));
+    expect(init.body).toBe(JSON.stringify({ target: "claude-code" }));
+  });
+
+  it("asks for the Buyer when the endpoint is unset, keeping the Boilerplate form", async () => {
+    await placeAndGenerate([409, { code: "guidance_endpoint_unset", message: "m", subject: "guidanceEndpoint" }]);
+    await waitFor(() => {
+      expect(status().textContent).toBe(
+        "The Company Guidance endpoint is not set. Ask the Buyer to set it. Nothing was generated.",
+      );
+    });
+    expect(status().querySelector(".denial")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Generate the Boilerplate" })).toBeTruthy();
+    expect(document.querySelector(".boilerplate-result")).toBeNull();
+  });
+
+  it.each(["unsupported_ecosystem", "boilerplate_conflict"])("shows the registry's sentence on %s", async (code) => {
+    const message = "The Effective Standard set requires language Go, so nothing was generated";
+    await placeAndGenerate([409, { code, message, subject: "standards" }]);
+    await waitFor(() => {
+      expect(status().textContent).toBe(`${message}.`);
+    });
+    expect(status().querySelector(".denial")).not.toBeNull();
+  });
+
+  it("says the Boilerplate is unavailable on anything else", async () => {
+    await placeAndGenerate([404, { code: "application_not_found", message: "m", subject: "applicationId" }]);
+    await waitFor(() => {
+      expect(status().textContent).toBe(
+        "The Boilerplate is unavailable right now, so nothing was generated. Try again in a few minutes.",
+      );
+    });
+  });
+});
+
 describe("/new-application loader and action", () => {
   const actionArgs = (fields: Record<string, string>, headers: Record<string, string> = { cookie: COOKIE }) =>
     ({
@@ -206,7 +366,9 @@ describe("/new-application loader and action", () => {
     const result = loader({ request: new Request("http://x/new-application", { headers: { cookie: COOKIE } }) } as LoaderFunctionArgs);
     if (result instanceof Response) throw new Error("expected data");
     expect(result.tree).toBeInstanceOf(Promise);
+    expect(result.endpoint).toBeInstanceOf(Promise);
     expect(await result.tree).toEqual(ok(tree));
+    expect(await result.endpoint).toEqual({ kind: "unavailable" });
     const away = loader({ request: new Request("http://x/new-application") } as LoaderFunctionArgs);
     expect((away as Response).headers.get("location")).toBe("/sign-in");
   });
@@ -234,6 +396,42 @@ describe("/new-application loader and action", () => {
       message: "The New-application flow is unavailable right now, so nothing was created. Try again in a few minutes.",
     });
     expect(result.data.values).toEqual({ description: "x", projectId: A });
+  });
+
+  it("redirects to sign-in on a lapsed session for the endpoint and the Boilerplate", async () => {
+    for (const fields of [
+      { intent: "guidance-endpoint", url: "https://g.example" },
+      { intent: "boilerplate", applicationId: APP, target: "claude-code" },
+    ]) {
+      registry([401, { code: "session_invalid", message: "m", subject: "session" }]);
+      const lapsed = await action(actionArgs(fields));
+      expect((lapsed as Response).headers.get("location")).toBe("/sign-in");
+    }
+  });
+
+  it.each([
+    ["an outage", () => Promise.reject(new Error("down"))],
+    ["an unexpected refusal", () => Promise.resolve(new Response(JSON.stringify({ code: "not_found", message: "m", subject: "/" }), { status: 404 }))],
+  ])("says the endpoint could not be set on %s, keeping the URL", async (_label, answer) => {
+    vi.stubGlobal("fetch", vi.fn(answer));
+    const result = (await action(actionArgs({ intent: "guidance-endpoint", url: "https://g.example" }))) as unknown as {
+      data: { status: unknown; endpoint: { value: string } };
+      init: { status: number };
+    };
+    expect(result.init.status).toBe(503);
+    expect(result.data.status).toEqual({
+      tone: "denial",
+      message: "The Guidance endpoint could not be set right now, so nothing was changed. Try again in a few minutes.",
+    });
+    expect(result.data.endpoint.value).toBe("https://g.example");
+  });
+
+  it("carries the placed Application through an endpoint submit", async () => {
+    registry([200, { url: "https://g.example", changedAt: AT }]);
+    const result = (await action(
+      actionArgs({ intent: "guidance-endpoint", url: "https://g.example", applicationId: APP }),
+    )) as unknown as { data: { placedId: string } };
+    expect(result.data.placedId).toBe(APP);
   });
 
   it("falls back to the Project id when the tree cannot be read for a build grant denial", async () => {

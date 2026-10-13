@@ -136,7 +136,7 @@ export async function createApplication(db: RegistryDb, session: SessionInfo, bo
   });
 }
 
-const applicationNotFound = (): EnvelopeError =>
+export const applicationNotFound = (): EnvelopeError =>
   new EnvelopeError({
     code: APPLICATION_NOT_FOUND,
     message: "no such Application in this Company",

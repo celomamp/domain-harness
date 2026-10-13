@@ -3,8 +3,11 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import {
   APPLICATION_API_PATHS,
   APPLICATION_NOT_FOUND,
+  BOILERPLATE_CONFLICT,
   BUILD_GRANT_DENIED,
   CHILD_PERMISSION_DENIED,
+  GUIDANCE_ENDPOINT_PATH,
+  GUIDANCE_ENDPOINT_UNSET,
   isEmailAddress,
   LOCKED_RULE_CONFLICT,
   MODULE_API_PATHS,
@@ -24,13 +27,17 @@ import {
   SLOT_CONFLICT,
   STANDARD_API_PATHS,
   STANDARD_NOT_FOUND,
+  UNSUPPORTED_ECOSYSTEM,
 } from "@domain-harness/contract";
 import type { ErrorEnvelope, SessionInfo } from "@domain-harness/contract";
 import { isEnvelopeError } from "../errors.ts";
 import { assertBuyer } from "../modules/service.ts";
 import type { ApplicationService } from "../applications/service.ts";
+import type { BoilerplateService } from "../boilerplate/service.ts";
 import type { BuildGrantService } from "../build-grants/service.ts";
 import type { ChildPermissionService } from "../child-permissions/service.ts";
+import { assertGuidanceEndpointBuyer } from "../guidance-endpoint/service.ts";
+import type { GuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import type { LockedRuleService } from "../locked-rules/service.ts";
 import type { ModuleService } from "../modules/service.ts";
 import type { ProjectService } from "../projects/service.ts";
@@ -74,6 +81,9 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
   [PROJECT_CYCLE]: 409,
   [ROOT_PROJECT_FIXED]: 409,
   [LOCKED_RULE_CONFLICT]: 409,
+  [GUIDANCE_ENDPOINT_UNSET]: 409,
+  [UNSUPPORTED_ECOSYSTEM]: 409,
+  [BOILERPLATE_CONFLICT]: 409,
   payload_too_large: 413,
   unsupported_media_type: 415,
 };
@@ -89,6 +99,7 @@ const PROJECT_EFFECTIVE_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/effective-st
 const PROJECT_CHILD_PERMISSIONS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/child-permissions`;
 const PROJECT_BUILD_GRANTS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/build-grants`;
 const APPLICATION_IDENTIFICATION_FILE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/identification-file`;
+const APPLICATION_BOILERPLATE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/boilerplate`;
 
 /** Each parameterised route and the pattern capturing its raw `{id}` segment. */
 const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
@@ -102,6 +113,7 @@ const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
   [PROJECT_CHILD_PERMISSIONS_ROUTE, /^\/v1\/projects\/([^/]+)\/child-permissions$/],
   [PROJECT_BUILD_GRANTS_ROUTE, /^\/v1\/projects\/([^/]+)\/build-grants$/],
   [APPLICATION_IDENTIFICATION_FILE_ROUTE, /^\/v1\/applications\/([^/]+)\/identification-file$/],
+  [APPLICATION_BOILERPLATE_ROUTE, /^\/v1\/applications\/([^/]+)\/boilerplate$/],
 ];
 
 /** Allowed methods per route. */
@@ -122,6 +134,8 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [PROJECT_BUILD_GRANTS_ROUTE]: ["GET", "POST"],
   [APPLICATION_API_PATHS.applications]: ["GET", "POST"],
   [APPLICATION_IDENTIFICATION_FILE_ROUTE]: ["GET"],
+  [APPLICATION_BOILERPLATE_ROUTE]: ["POST"],
+  [GUIDANCE_ENDPOINT_PATH]: ["GET", "POST"],
 };
 
 interface RouteMatch {
@@ -157,6 +171,8 @@ export interface RegistryServices {
   readonly childPermissions: ChildPermissionService;
   readonly buildGrants: BuildGrantService;
   readonly applications: ApplicationService;
+  readonly guidanceEndpoint: GuidanceEndpointService;
+  readonly boilerplate: BoilerplateService;
 }
 
 class HttpFailure extends Error {
@@ -184,7 +200,9 @@ class HttpFailure extends Error {
  * role. The Applications are open to every role; the Buyer may place one on
  * any Project, any other account only on a Project on which it holds a
  * current build grant. An Application's Project identification file is open
- * to every role.
+ * to every role. The Company Guidance endpoint is open to every role and only
+ * the Buyer may set it (`role_denied` before the body is read). Generating an
+ * Application's Boilerplate is open to every role.
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
@@ -371,6 +389,30 @@ async function handle(
     case APPLICATION_IDENTIFICATION_FILE_ROUTE: {
       const session = await service.getSession(bearerToken(req));
       sendJson(res, 200, await services.applications.getIdentificationFile(session, match.id));
+      return;
+    }
+    case APPLICATION_BOILERPLATE_ROUTE: {
+      const session = await service.getSession(bearerToken(req));
+      // The service checks the Application, then the body, then the endpoint,
+      // the Standards and the ecosystem, so the first failure in that order wins.
+      const result = await services.boilerplate.generateBoilerplate(session, match.id, await readJson(req));
+      log({
+        event: "boilerplate_generated",
+        applicationId: result.applicationId,
+        target: result.target,
+        files: result.artifacts.length,
+      });
+      sendJson(res, 200, result);
+      return;
+    }
+    case GUIDANCE_ENDPOINT_PATH: {
+      const session = await service.getSession(bearerToken(req));
+      if (req.method === "GET") {
+        sendJson(res, 200, await services.guidanceEndpoint.getGuidanceEndpoint(session));
+        return;
+      }
+      requireBuyer(req, session, assertGuidanceEndpointBuyer);
+      sendJson(res, 200, await services.guidanceEndpoint.setGuidanceEndpoint(session, await readJson(req)));
       return;
     }
     case STANDARD_LOCKED_RULE_ROUTE: {

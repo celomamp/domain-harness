@@ -36,6 +36,8 @@ import { consumeSignInLink, createSignInService, requestSignInLinks } from "../s
 import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { createApplicationService } from "../applications/service.ts";
+import { createBoilerplateService } from "../boilerplate/service.ts";
+import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createBuildGrantService } from "./service.ts";
 
@@ -216,6 +218,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("build grant against 
         childPermissions: createChildPermissionService(db),
         buildGrants: createBuildGrantService(db),
         applications: createApplicationService(db),
+        guidanceEndpoint: createGuidanceEndpointService(db),
+        boilerplate: createBoilerplateService(db),
       },
       () => undefined,
     );

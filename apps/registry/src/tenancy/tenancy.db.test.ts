@@ -108,7 +108,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
   }, 60_000);
 
   describe("migration", () => {
-    it("creates only the tenancy, sign-in, Module, Standard, Project tree, Locked rule, child-Project permission, build grant and Application tables and registry_migrations", async () => {
+    it("creates only the tenancy, sign-in, Module, Standard, Project tree, Locked rule, child-Project permission, build grant, Application and Guidance endpoint tables and registry_migrations", async () => {
       const { rows } = await owner.query<{ relname: string }>(
         `select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
          where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm') order by 1`,
@@ -118,6 +118,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         "applications",
         "build_grant_changes",
         "child_permission_changes",
+        "guidance_endpoint_changes",
         "locked_rule_changes",
         "module_owner_assignments",
         "modules",
@@ -139,10 +140,11 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
          where n.nspname = 'public'
            and c.relname in ('tenants', 'accounts', 'projects', 'sign_in_links', 'sessions', 'modules', 'module_owner_assignments',
                              'standards', 'standard_versions', 'project_parent_changes', 'locked_rule_changes',
-                             'child_permission_changes', 'build_grant_changes', 'applications')
+                             'child_permission_changes', 'build_grant_changes', 'applications',
+                             'guidance_endpoint_changes')
          order by 1`,
       );
-      expect(rows).toHaveLength(14);
+      expect(rows).toHaveLength(15);
       for (const row of rows) {
         expect(row).toMatchObject({ rls: true, forced: true });
         expect(row.owner).not.toBe(APP_ROLE);
@@ -173,6 +175,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
           "applications",
           "build_grant_changes",
           "child_permission_changes",
+          "guidance_endpoint_changes",
           "locked_rule_changes",
           "module_owner_assignments",
           "modules",
@@ -192,7 +195,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
 
     it("is idempotent: a second run applies nothing", async () => {
       const report = await migrate(owner);
-      expect(report).toEqual({ applied: [], alreadyApplied: 9 });
+      expect(report).toEqual({ applied: [], alreadyApplied: 10 });
     });
 
     it("rejects a misnamed .sql file before applying anything", async () => {
@@ -238,7 +241,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         cwd: REGISTRY_ROOT,
         env: { ...process.env, REGISTRY_MIGRATION_DATABASE_URL: ownerUrl },
       });
-      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 9 });
+      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 10 });
     });
   });
 

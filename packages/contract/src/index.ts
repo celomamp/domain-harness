@@ -162,3 +162,27 @@ export type {
   IdentificationFileRendering,
   IdentificationFileResult,
 } from "./identification-file.ts";
+export {
+  applicationBoilerplatePath,
+  BOILERPLATE_ARTIFACT_KINDS,
+  BOILERPLATE_CONFLICT,
+  BOILERPLATE_TARGETS,
+  boilerplateArchiveName,
+  GUIDANCE_ENDPOINT_PATH,
+  GUIDANCE_ENDPOINT_UNSET,
+  GUIDANCE_ENDPOINT_URL_MAX,
+  isBoilerplateResult,
+  isBoilerplateTarget,
+  isGuidanceEndpointState,
+  MCP_BRIDGE_PACKAGE,
+  UNSUPPORTED_ECOSYSTEM,
+} from "./boilerplate.ts";
+export type {
+  BoilerplateArtifact,
+  BoilerplateArtifactKind,
+  BoilerplateRequest,
+  BoilerplateResult,
+  BoilerplateTarget,
+  GuidanceEndpointRequest,
+  GuidanceEndpointState,
+} from "./boilerplate.ts";

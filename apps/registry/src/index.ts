@@ -54,6 +54,7 @@ export {
   getEffectiveSet,
   getProject,
   getTree,
+  resolveEffectiveStandards,
 } from "./projects/service.ts";
 export type { ProjectService } from "./projects/service.ts";
 export { validateCreateBody, validateParentBody } from "./projects/validate.ts";
@@ -84,6 +85,7 @@ export {
 export type { BuildGrantBody, BuildGrantService } from "./build-grants/service.ts";
 export {
   createApplication,
+  applicationNotFound,
   createApplicationService,
   getIdentificationFile,
   listApplications,
@@ -91,5 +93,40 @@ export {
 export type { ApplicationService } from "./applications/service.ts";
 export { validateApplicationBody } from "./applications/validate.ts";
 export type { ApplicationCreateBody } from "./applications/validate.ts";
+export {
+  assertGuidanceEndpointBuyer,
+  createGuidanceEndpointService,
+  currentGuidanceEndpoint,
+  getGuidanceEndpoint,
+  setGuidanceEndpoint,
+} from "./guidance-endpoint/service.ts";
+export type { GuidanceEndpointService } from "./guidance-endpoint/service.ts";
+export { validateGuidanceEndpointBody } from "./guidance-endpoint/validate.ts";
+export { createBoilerplateService, generateBoilerplate, validateBoilerplateBody } from "./boilerplate/service.ts";
+export type { BoilerplateService } from "./boilerplate/service.ts";
+export { isNpmPackageName, planBoilerplate, SUPPORTED_LANGUAGES } from "./boilerplate/plan.ts";
+export type {
+  BoilerplatePlan,
+  BoilerplatePlanResult,
+  ComponentReference,
+  DesignSystemReferences,
+  PinnedItem,
+  StackItem,
+} from "./boilerplate/plan.ts";
+export {
+  GUIDANCE_SKILL_NAME,
+  MCP_SERVER_NAME,
+  renderBoilerplateFiles,
+  renderClaudeMcpJson,
+  renderClaudeMd,
+  renderClaudeSkill,
+  renderDesignSystem,
+  renderIdentificationFile,
+  renderPackageJson,
+  renderSharedFiles,
+} from "./boilerplate/render.ts";
+export type { BoilerplateFile, RenderInput } from "./boilerplate/render.ts";
+export { tar, tarGz } from "./boilerplate/archive.ts";
+export type { ArchiveEntry } from "./boilerplate/archive.ts";
 export { createRegistryServer, MAX_BODY_BYTES, stdoutLogger } from "./http/server.ts";
 export type { LogEvent, Logger, RegistryServices } from "./http/server.ts";

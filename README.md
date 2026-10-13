@@ -313,6 +313,37 @@ Every Application has one Project identification file, which lets Guidance, the 
 
 It answers `401 session_invalid` without a session, `405` for any method but GET, and `404 application_not_found` subject `applicationId` ("no such Application in this Company") for a malformed, unknown or other Company's id.
 
+### Boilerplate
+
+A Boilerplate is a starter repository for one Application and one agent tool (`claude-code` for now), already placed inside the Standards and wired to Company Guidance with no manual MCP setup.
+
+**Company Guidance endpoint.** The Buyer sets one Guidance endpoint URL per Company on the New-application flow surface. Every change is one row of `guidance_endpoint_changes` (migration `0010`, append-only, RLS forced, SELECT and INSERT only); the current URL is the highest sequence. The URL is trimmed and must be 1 to 2048 characters, parse as a URL, use `https:`, and carry no whitespace, user name, password or fragment. Setting the current URL again writes nothing.
+
+| Endpoint | Body | Success | Who |
+|---|---|---|---|
+| `GET /v1/guidance-endpoint` | none | `200 { url, changedAt }`, both `null` when unset | every role |
+| `POST /v1/guidance-endpoint` | `{ url }` | `200 { url, changedAt }` | Buyer only (`403 role_denied` before the body is read) |
+| `POST /v1/applications/{id}/boilerplate` | `{ target: "claude-code" }` | `200 { applicationId, target, archiveName, archiveBase64, artifacts }` | every role |
+
+**Generation.** Under the tenant transaction and the bundle lock, first failure wins and nothing is returned partially: the Application exists (`404 application_not_found`) → the body is exactly `{ target }` with a known target (`400 invalid_input`, subject `target`) → the endpoint is set (`409 guidance_endpoint_unset`: ask the Buyer to set it) → the Effective Standard set of the Application's Project resolves through `core` → the ecosystem check → the conflict check → render.
+
+**Ecosystem rule.** The pilot supports TypeScript and npm only. A required `language` must be `typescript` (pinned as `devDependencies.typescript`) or `javascript` (no pin); a required `framework` or `library` must have a valid npm package name once lowercased and becomes `dependencies[name]`. The pin is the version constraint verbatim, or `"*"`. Any other required entry stops generation with `409 unsupported_ecosystem`, one sentence naming each as `<category> <name>`. Approved and prohibited entries are never pinned; the instructions list them. A pin named like a prohibited code-stack entry (case-insensitively), or one package pinned to two versions, is `409 boilerplate_conflict`.
+
+**Files**, at the archive root, in this order:
+
+| Artifact | Path | Content |
+|---|---|---|
+| Project identification file | `.domain-harness.json` | `formatIdentificationFile(applicationId, projectId)` |
+| Dependency pins | `package.json` | `application-<id>`, private, ESM, the required pins (keys sorted) |
+| Design-system references | `design-system.json` | required and prohibited imports and tokens, components with usage rules and tokens |
+| MCP configuration | `.mcp.json` | the `domain-harness` server: `npx -y @domain-harness/mcp-bridge <endpoint URL>` |
+| Instructions | `CLAUDE.md` | the Project, the pinned, approved and prohibited stack, the design-system rules |
+| Skills | `.claude/skills/domain-harness-guidance/SKILL.md` | how to request Guidance through the `domain-harness` MCP server |
+
+`CLAUDE.md` and the skill both tell the agent to make an initial commit before calling Guidance, because the bridge identifies the repository by its root commit. The first three files are target-independent, so every target ships them byte for byte the same. The archive never holds hook configuration (no `settings.json`, no `hooks` key).
+
+**Archive format.** A ustar tar (regular files only, mode 0644, uid/gid 0, mtime 0, no owner names) in the order above, gzip-compressed, returned base64 in JSON as `domain-harness-<applicationId>-claude-code.tar.gz`. Equal inputs give identical bytes. Logs carry the Application id, the target and the file count only. On the panel, after a placement, the Builder picks the agent tool and generates the Boilerplate; the result lists each artifact in text with a download link.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:

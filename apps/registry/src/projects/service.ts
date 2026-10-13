@@ -188,38 +188,57 @@ export async function getEffectiveSet(
     const current = await currentProjects(tx, tenantId);
     const project = current.get(projectId);
     if (project === undefined) throw projectNotFound("projectId");
-    // The live set of every scope and its served form come from one read, so
-    // the slots core resolves and the Standards joined to them always agree.
-    const infos = await liveStandardInfos(tx, tenantId);
-    const standards: SlotHolder[] = [...infos.values()].map((info) => ({
-      standardId: info.id,
-      projectId: info.project.id,
-      slot: { moduleKind: info.module.kind, slotKind: entrySlotKind(info.entry), name: entrySlotName(info.entry) },
-    }));
-    const resolved = resolveEffectiveSet({
-      projects: treeNodes(current),
-      standards,
-      lockedStandardIds: await currentLockedIds(tx, tenantId),
-      projectId,
-    });
-    if (!resolved.ok) throw new EnvelopeError(resolved.error);
-
-    return {
-      project: { id: toId(project.row.id), name: project.row.name },
-      standards: resolved.set.map((entry): EffectiveStandard => {
-        const standard = infos.get(entry.standardId);
-        const source = current.get(entry.sourceProjectId);
-        if (standard === undefined || source === undefined) throw new Error("a resolved Standard is missing");
-        return {
-          slot: { moduleKind: entry.slot.moduleKind, slotKind: entry.slot.slotKind, name: entry.slot.name },
-          status: "status" in standard.entry ? standard.entry.status : null,
-          standard,
-          sourceProject: { id: toId(source.row.id), name: source.row.name },
-          locked: entry.locked,
-        };
-      }),
-    };
+    return resolveEffectiveStandards(tx, tenantId, project, current);
   });
+}
+
+/**
+ * The Effective Standard set of one existing Project, resolved by core on the
+ * current tree and the live Standards of every scope (core's error as is,
+ * e.g. 409 `slot_conflict`). The caller runs it inside its tenant
+ * transaction, under the bundle lock, with the Project already looked up in
+ * `current`. Each entry of core's answer is joined to the Standard's live
+ * `StandardInfo` and its source Project's name; order and membership are
+ * core's, never changed.
+ */
+export async function resolveEffectiveStandards(
+  tx: RegistryTx,
+  tenantId: UuidV7,
+  project: CurrentProject,
+  current: ReadonlyMap<string, CurrentProject>,
+): Promise<EffectiveStandardSet> {
+  const projectId = project.row.id;
+  // The live set of every scope and its served form come from one read, so
+  // the slots core resolves and the Standards joined to them always agree.
+  const infos = await liveStandardInfos(tx, tenantId);
+  const standards: SlotHolder[] = [...infos.values()].map((info) => ({
+    standardId: info.id,
+    projectId: info.project.id,
+    slot: { moduleKind: info.module.kind, slotKind: entrySlotKind(info.entry), name: entrySlotName(info.entry) },
+  }));
+  const resolved = resolveEffectiveSet({
+    projects: treeNodes(current),
+    standards,
+    lockedStandardIds: await currentLockedIds(tx, tenantId),
+    projectId,
+  });
+  if (!resolved.ok) throw new EnvelopeError(resolved.error);
+
+  return {
+    project: { id: toId(project.row.id), name: project.row.name },
+    standards: resolved.set.map((entry): EffectiveStandard => {
+      const standard = infos.get(entry.standardId);
+      const source = current.get(entry.sourceProjectId);
+      if (standard === undefined || source === undefined) throw new Error("a resolved Standard is missing");
+      return {
+        slot: { moduleKind: entry.slot.moduleKind, slotKind: entry.slot.slotKind, name: entry.slot.name },
+        status: "status" in standard.entry ? standard.entry.status : null,
+        standard,
+        sourceProject: { id: toId(source.row.id), name: source.row.name },
+        locked: entry.locked,
+      };
+    }),
+  };
 }
 
 /**

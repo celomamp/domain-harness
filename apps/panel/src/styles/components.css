@@ -395,3 +395,30 @@
   padding-bottom: var(--space-3);
   text-align: start;
 }
+
+/* boilerplate-result: raised surface, ink text, hairline border; artifacts in plain text, no badges. */
+.boilerplate-result {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-form);
+}
+
+.boilerplate-result ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+
+.boilerplate-result a {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  min-height: var(--size-target-min);
+  color: var(--color-ink);
+}

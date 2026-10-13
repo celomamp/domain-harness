@@ -16,6 +16,8 @@ import { createRegistryDb } from "../db/client.ts";
 import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
 import { createApplicationService } from "../applications/service.ts";
+import { createBoilerplateService } from "../boilerplate/service.ts";
+import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createRegistryServer } from "../http/server.ts";
@@ -194,6 +196,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("plan refusals agains
         childPermissions: createChildPermissionService(db),
         buildGrants: createBuildGrantService(db),
         applications: createApplicationService(db),
+        guidanceEndpoint: createGuidanceEndpointService(db),
+        boilerplate: createBoilerplateService(db),
       },
       () => undefined,
     );

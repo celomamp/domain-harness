@@ -3,7 +3,12 @@ import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   APPLICATION_NOT_FOUND,
+  applicationBoilerplatePath,
   applicationIdentificationFilePath,
+  GUIDANCE_ENDPOINT_PATH,
+  GUIDANCE_ENDPOINT_UNSET,
+  isBoilerplateResult,
+  isGuidanceEndpointState,
   entrySlotName,
   formatIdentificationFile,
   IDENTIFICATION_FILE_NAME,
@@ -30,11 +35,13 @@ import {
 import type {
   ApplicationInfo,
   ApplicationList,
+  BoilerplateResult,
   BuildGrantList,
   BuildGrantState,
   ChildPermissionList,
   ChildPermissionState,
   EffectiveStandardSet,
+  GuidanceEndpointState,
   IdentificationFileRendering,
   LockedRuleState,
   ModuleInfo,
@@ -49,11 +56,16 @@ import type {
 } from "@domain-harness/contract";
 import type { ApplicationService } from "../applications/service.ts";
 import { validateApplicationBody } from "../applications/validate.ts";
+import { validateBoilerplateBody } from "../boilerplate/service.ts";
+import type { BoilerplateService } from "../boilerplate/service.ts";
 import { validateBuildGrantBody } from "../build-grants/service.ts";
 import type { BuildGrantService } from "../build-grants/service.ts";
 import { validateChildPermissionBody } from "../child-permissions/service.ts";
 import type { ChildPermissionService } from "../child-permissions/service.ts";
 import { EnvelopeError } from "../errors.ts";
+import { assertGuidanceEndpointBuyer } from "../guidance-endpoint/service.ts";
+import type { GuidanceEndpointService } from "../guidance-endpoint/service.ts";
+import { validateGuidanceEndpointBody } from "../guidance-endpoint/validate.ts";
 import { mintUuidV7 } from "../ids.ts";
 import { validateLockedRuleBody } from "../locked-rules/service.ts";
 import type { LockedRuleService } from "../locked-rules/service.ts";
@@ -438,6 +450,55 @@ class FakeApplications implements ApplicationService {
   }
 }
 
+/** A fake Guidance endpoint service that records calls and uses the real role check and validator. */
+class FakeGuidanceEndpoint implements GuidanceEndpointService {
+  calls: unknown[] = [];
+  state: GuidanceEndpointState = { url: null, changedAt: null };
+  getGuidanceEndpoint(caller: SessionInfo): Promise<GuidanceEndpointState> {
+    this.calls.push(["get", caller.role]);
+    return Promise.resolve(this.state);
+  }
+  setGuidanceEndpoint(caller: SessionInfo, body: unknown): Promise<GuidanceEndpointState> {
+    this.calls.push(["set", caller.role, body]);
+    return Promise.resolve().then(() => {
+      assertGuidanceEndpointBuyer(caller);
+      this.state = { url: validateGuidanceEndpointBody(body), changedAt: "2026-10-13T09:00:00.000Z" };
+      return this.state;
+    });
+  }
+}
+
+/** A fake Boilerplate service: the known Application, the real body validator, then the endpoint check. */
+class FakeBoilerplate implements BoilerplateService {
+  private readonly knownId: string;
+  private readonly endpoint: FakeGuidanceEndpoint;
+  constructor(knownId: string, endpoint: FakeGuidanceEndpoint) {
+    this.knownId = knownId;
+    this.endpoint = endpoint;
+  }
+  calls: unknown[] = [];
+  generateBoilerplate(caller: SessionInfo, applicationId: string, body: unknown): Promise<BoilerplateResult> {
+    this.calls.push(["generate", caller.role, applicationId, body]);
+    return Promise.resolve().then(() => {
+      if (applicationId !== this.knownId) throw notFound(APPLICATION_NOT_FOUND, "applicationId");
+      const target = validateBoilerplateBody(body);
+      if (this.endpoint.state.url === null) {
+        throw new EnvelopeError({ code: GUIDANCE_ENDPOINT_UNSET, message: "m", subject: "guidanceEndpoint" });
+      }
+      return {
+        applicationId: this.knownId as BoilerplateResult["applicationId"],
+        target,
+        archiveName: `domain-harness-${this.knownId}-${target}.tar.gz`,
+        archiveBase64: "H4sIAAAAAAAAAw==",
+        artifacts: [
+          { kind: "identification-file", path: ".domain-harness.json" },
+          { kind: "dependency-pins", path: "package.json" },
+        ],
+      };
+    });
+  }
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const notFound = (code: string, subject: string) => new EnvelopeError({ code, message: "m", subject });
@@ -451,13 +512,26 @@ describe("registry HTTP API", () => {
   const childPermissions = new FakeChildPermissions();
   const buildGrants = new FakeBuildGrants();
   const applications = new FakeApplications();
+  const guidanceEndpoint = new FakeGuidanceEndpoint();
+  const boilerplate = new FakeBoilerplate(applications.knownId, guidanceEndpoint);
   const events: LogEvent[] = [];
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
     server = createRegistryServer(
-      { signIn: service, modules, standards, projects, lockedRules, childPermissions, buildGrants, applications },
+      {
+        signIn: service,
+        modules,
+        standards,
+        projects,
+        lockedRules,
+        childPermissions,
+        buildGrants,
+        applications,
+        guidanceEndpoint,
+        boilerplate,
+      },
       (event) => events.push(event),
     );
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -480,6 +554,9 @@ describe("registry HTTP API", () => {
     childPermissions.calls = [];
     buildGrants.calls = [];
     applications.calls = [];
+    guidanceEndpoint.calls = [];
+    guidanceEndpoint.state = { url: null, changedAt: null };
+    boilerplate.calls = [];
     events.length = 0;
   });
 
@@ -1276,6 +1353,111 @@ describe("registry HTTP API", () => {
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
         .toEqual(Array(3).fill("/v1/applications/{id}/identification-file"));
       expect(JSON.stringify(events)).not.toContain(applications.knownId);
+    });
+  });
+
+  describe("Company Guidance endpoint", () => {
+    const buyerAuth = { authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { authorization: `Bearer ${BUILDER_SESSION}` };
+
+    it("serves the state to every role", async () => {
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await fetch(`${base}${GUIDANCE_ENDPOINT_PATH}`, { headers });
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        expect(isGuidanceEndpointState(body)).toBe(true);
+        expect(body).toEqual({ url: null, changedAt: null });
+      }
+    });
+
+    it("lets the Buyer set it: 200 with the trimmed URL", async () => {
+      const response = await post(GUIDANCE_ENDPOINT_PATH, { url: " https://g.acme.example/v1 " }, { headers: { ...buyerAuth, "content-type": "application/json" } });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ url: "https://g.acme.example/v1", changedAt: "2026-10-13T09:00:00.000Z" });
+    });
+
+    it("refuses a non-Buyer with 403 role_denied before the body is read", async () => {
+      const response = await post(GUIDANCE_ENDPOINT_PATH, "{not json", {
+        headers: { ...builderAuth, "content-type": "application/json" },
+      });
+      await expectEnvelope(response, 403, "role_denied");
+      expect(guidanceEndpoint.calls).toEqual([]);
+    });
+
+    it.each([
+      ["http", { url: "http://g.example" }, "url"],
+      ["an extra key", { url: "https://g.example", x: 1 }, "x"],
+    ])("answers 400 invalid_input for %s", async (_label, body, subject) => {
+      const response = await post(GUIDANCE_ENDPOINT_PATH, body, {
+        headers: { ...buyerAuth, "content-type": "application/json" },
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: "invalid_input", subject });
+    });
+
+    it("answers 401 without a session and 405 for other methods", async () => {
+      await expectEnvelope(await fetch(`${base}${GUIDANCE_ENDPOINT_PATH}`), 401, "session_invalid");
+      const response = await fetch(`${base}${GUIDANCE_ENDPOINT_PATH}`, { method: "PUT", headers: buyerAuth });
+      expect(response.headers.get("allow")).toBe("GET, POST");
+      await expectEnvelope(response, 405, "method_not_allowed");
+      expect(guidanceEndpoint.calls).toEqual([]);
+    });
+  });
+
+  describe("Boilerplate", () => {
+    const buyerAuth = { authorization: `Bearer ${GOOD_SESSION}`, "content-type": "application/json" };
+    const builderAuth = { authorization: `Bearer ${BUILDER_SESSION}`, "content-type": "application/json" };
+    const path = applicationBoilerplatePath;
+
+    it("answers 409 guidance_endpoint_unset when no endpoint is set", async () => {
+      const response = await post(path(applications.knownId), { target: "claude-code" }, { headers: builderAuth });
+      await expectEnvelope(response, 409, "guidance_endpoint_unset");
+    });
+
+    it("serves the result to every role and logs ids, target and file count only", async () => {
+      guidanceEndpoint.state = { url: "https://g.acme.example/v1", changedAt: "2026-10-13T09:00:00.000Z" };
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await post(path(applications.knownId), { target: "claude-code" }, { headers });
+        expect(response.status).toBe(200);
+        expect(isBoilerplateResult(await response.json())).toBe(true);
+      }
+      expect(boilerplate.calls).toEqual([
+        ["generate", "Buyer", applications.knownId, { target: "claude-code" }],
+        ["generate", "Builder", applications.knownId, { target: "claude-code" }],
+      ]);
+      const logged = events.filter((e) => e["event"] === "boilerplate_generated");
+      expect(logged).toEqual(
+        Array(2).fill({ event: "boilerplate_generated", applicationId: applications.knownId, target: "claude-code", files: 2 }),
+      );
+      expect(JSON.stringify(events)).not.toContain("g.acme.example");
+    });
+
+    it("answers 400 subject target for an unknown target and 404 for an unknown or malformed Application", async () => {
+      guidanceEndpoint.state = { url: "https://g.acme.example/v1", changedAt: "2026-10-13T09:00:00.000Z" };
+      const bad = await post(path(applications.knownId), { target: "cursor" }, { headers: buyerAuth });
+      expect(bad.status).toBe(400);
+      expect(await bad.json()).toMatchObject({ code: "invalid_input", subject: "target" });
+      for (const id of [mintUuidV7(), "nope"]) {
+        const response = await post(path(id), { target: "claude-code" }, { headers: buyerAuth });
+        expect(response.status).toBe(404);
+        expect(await response.json()).toMatchObject({ code: "application_not_found", subject: "applicationId" });
+      }
+    });
+
+    it("answers 401 without a session and 405 for any method but POST", async () => {
+      await expectEnvelope(await post(path(applications.knownId), { target: "claude-code" }), 401, "session_invalid");
+      for (const method of ["GET", "PUT"]) {
+        const response = await fetch(`${base}${path(applications.knownId)}`, {
+          method,
+          headers: { authorization: `Bearer ${GOOD_SESSION}` },
+        });
+        expect(response.headers.get("allow")).toBe("POST");
+        await expectEnvelope(response, 405, "method_not_allowed");
+      }
+      expect(boilerplate.calls).toEqual([]);
+      await expect
+        .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
+        .toEqual(Array(3).fill("/v1/applications/{id}/boilerplate"));
     });
   });
 

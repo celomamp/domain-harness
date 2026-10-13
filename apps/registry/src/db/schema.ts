@@ -3,7 +3,7 @@ import { isNull, sql } from "drizzle-orm";
 import { CODE_STACK_CATEGORIES, DESIGN_SYSTEM_ENTRY_KINDS, MODULE_KINDS, PLANS, ROLES } from "@domain-harness/contract";
 import type { StandardEntry } from "@domain-harness/contract";
 
-// Drizzle mirror of migrations/0001_tenancy.sql to 0007_locked_rules.sql, used for typed queries only.
+// Drizzle mirror of migrations/0001_tenancy.sql to 0010_guidance_endpoint.sql, used for typed queries only.
 // The SQL migration is the source of truth for constraints, RLS and grants.
 
 export const tenants = pgTable("tenants", {
@@ -424,7 +424,30 @@ export const applications = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0009. */
+/** Migration 0010: the Company Guidance endpoint URL changes (Story 3.3), append-only; the current URL is the highest sequence. */
+export const guidanceEndpointChanges = pgTable(
+  "guidance_endpoint_changes",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    sequence: integer("sequence").notNull(),
+    url: text("url").notNull(),
+    changedBy: uuid("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("guidance_endpoint_changes_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    foreignKey({
+      name: "guidance_endpoint_changes_changed_by_fkey",
+      columns: [table.tenantId, table.changedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0010. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -440,6 +463,7 @@ export const TENANT_TABLES = [
   "child_permission_changes",
   "build_grant_changes",
   "applications",
+  "guidance_endpoint_changes",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */

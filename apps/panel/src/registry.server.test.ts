@@ -22,6 +22,9 @@ import {
   getApplications,
   getBuildGrants,
   setBuildGrant,
+  generateBoilerplate,
+  getGuidanceEndpoint,
+  setGuidanceEndpoint,
 } from "./registry.server.ts";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
@@ -459,6 +462,51 @@ describe("registry client", () => {
       const denied = { code: "build_grant_denied", message: "m", subject: "projectId" };
       vi.stubGlobal("fetch", respond(403, denied));
       expect(await createApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "refused", error: denied });
+    });
+    it("reads and sets the Guidance endpoint with exactly { url }", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const state = { url: "https://g.example", changedAt: AT };
+      const fetch = respond(200, state);
+      vi.stubGlobal("fetch", fetch);
+      expect(await getGuidanceEndpoint("abc")).toEqual({ kind: "ok", value: state });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("http://registry.test/v1/guidance-endpoint");
+      expect(init.method).toBe("GET");
+      vi.stubGlobal("fetch", respond(200, { url: "https://g.example", changedAt: null }));
+      expect(await getGuidanceEndpoint("abc")).toEqual({ kind: "unavailable" });
+
+      const post = respond(200, state);
+      vi.stubGlobal("fetch", post);
+      expect(await setGuidanceEndpoint("abc", " https://g.example ")).toEqual({ kind: "ok", value: state });
+      const [, postInit] = post.mock.calls[0] as unknown as [string, RequestInit];
+      expect(postInit.method).toBe("POST");
+      expect(postInit.body).toBe(JSON.stringify({ url: " https://g.example " }));
+      expect(new Headers(postInit.headers).get("authorization")).toBe("Bearer abc");
+    });
+
+    it("generates a Boilerplate on the escaped path with exactly { target }", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const app = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f3";
+      const result = {
+        applicationId: app,
+        target: "claude-code",
+        archiveName: `domain-harness-${app}-claude-code.tar.gz`,
+        archiveBase64: "H4sI",
+        artifacts: [{ kind: "identification-file", path: ".domain-harness.json" }],
+      };
+      const post = respond(200, result);
+      vi.stubGlobal("fetch", post);
+      expect(await generateBoilerplate("abc", app, "claude-code")).toEqual({ kind: "ok", value: result });
+      const [url, init] = post.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`http://registry.test/v1/applications/${app}/boilerplate`);
+      expect(init.body).toBe(JSON.stringify({ target: "claude-code" }));
+      await generateBoilerplate("abc", "a/b", "claude-code");
+      expect((post.mock.calls[1] as unknown as [string])[0]).toMatch(/\/v1\/applications\/a%2Fb\/boilerplate$/);
+      vi.stubGlobal("fetch", respond(200, { ...result, artifacts: [] }));
+      expect(await generateBoilerplate("abc", app, "claude-code")).toEqual({ kind: "unavailable" });
+      const unset = { code: "guidance_endpoint_unset", message: "m", subject: "guidanceEndpoint" };
+      vi.stubGlobal("fetch", respond(409, unset));
+      expect(await generateBoilerplate("abc", app, "claude-code")).toEqual({ kind: "refused", error: unset });
     });
   });
 });
