@@ -186,3 +186,20 @@ export type {
   GuidanceEndpointRequest,
   GuidanceEndpointState,
 } from "./boilerplate.ts";
+export {
+  EXTRACTOR_VERSION,
+  FACT_SCHEMA_MAJOR,
+  FACT_SCHEMA_VERSION,
+  isDependencyFact,
+  isImportFact,
+  isRevisionFacts,
+  isTokenFact,
+  isUnreadableFile,
+} from "./facts.ts";
+export type {
+  DependencyFact,
+  ImportFact,
+  RevisionFacts,
+  TokenFact,
+  UnreadableFile,
+} from "./facts.ts";
