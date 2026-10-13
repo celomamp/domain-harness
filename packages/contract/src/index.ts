@@ -5,6 +5,7 @@ export { DEFAULT_PLAN, isPlan, isRole, PLANS, ROLES } from "./accounts.ts";
 export type { Plan, Role } from "./accounts.ts";
 export { isErrorEnvelope, PLAN_REFUSED } from "./errors.ts";
 export type { ErrorEnvelope } from "./errors.ts";
+export { isUtcIso } from "./guards.ts";
 export { isUuidV7 } from "./ids.ts";
 export type { UuidV7 } from "./ids.ts";
 export {
@@ -186,6 +187,13 @@ export type {
   GuidanceEndpointRequest,
   GuidanceEndpointState,
 } from "./boilerplate.ts";
+export {
+  DEVIATION_KINDS,
+  DEVIATION_STATUSES,
+  isAcceptedDeviation,
+  isDeviation,
+} from "./deviations.ts";
+export type { AcceptedDeviation, Deviation, DeviationKind, DeviationStatus } from "./deviations.ts";
 export {
   EXTRACTOR_VERSION,
   FACT_SCHEMA_MAJOR,

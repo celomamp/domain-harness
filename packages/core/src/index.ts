@@ -22,3 +22,5 @@ export { validateLockedRules } from "./locked.ts";
 export type { LockedRulesInput, LockedRulesResult } from "./locked.ts";
 export { resolveEffectiveSet } from "./resolve.ts";
 export type { EffectiveEntry, ResolveInput, ResolveResult } from "./resolve.ts";
+export { evaluateDeviations, satisfiesVersionConstraint } from "./evaluate.ts";
+export type { EvaluateInput, EvaluateResult } from "./evaluate.ts";

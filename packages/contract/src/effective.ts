@@ -54,7 +54,8 @@ function isProjectRef(value: unknown): value is ProjectRef {
   return isRecord(value) && isUuidV7(value["id"]) && typeof value["name"] === "string";
 }
 
-function isEffectiveSlot(value: unknown): value is EffectiveSlot {
+/** True when `value` is an {@link EffectiveSlot}: a Module kind, slot kind and name. Never throws. */
+export function isEffectiveSlot(value: unknown): value is EffectiveSlot {
   return (
     isRecord(value) &&
     isModuleKind(value["moduleKind"]) &&

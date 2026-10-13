@@ -1,4 +1,4 @@
-/** Small runtime-guard helpers shared by the wire-contract modules (not exported from the package). */
+/** Small runtime-guard helpers shared by the wire-contract modules. */
 
 /** A plain object (not null, not an array). */
 export function isRecord(value: unknown): value is Record<string, unknown> {
