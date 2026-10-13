@@ -50,7 +50,7 @@ development_status:
   2-3-resolve-and-preview-the-effective-standard-set-for-a-project: review
   2-4-buyer-marks-locked-rules-that-descendants-cannot-override: review
   2-5-child-project-creation-requires-a-buyer-granted-permission: review
-  2-6-community-plan-refuses-tree-capabilities-in-place: backlog
+  2-6-community-plan-refuses-tree-capabilities-in-place: review
   epic-2-retrospective: optional
 
   epic-3: backlog

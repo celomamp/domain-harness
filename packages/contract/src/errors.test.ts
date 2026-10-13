@@ -1,4 +1,5 @@
-import { describe, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { PLAN_REFUSED, PLANS } from "./index.ts";
 import type { ErrorEnvelope } from "./index.ts";
 
 describe("ErrorEnvelope", () => {
@@ -17,5 +18,12 @@ describe("ErrorEnvelope", () => {
     const extra: ErrorEnvelope = { code: "c", message: "m", subject: "s", detail: "x" };
     expectTypeOf(missing).toEqualTypeOf<ErrorEnvelope>();
     expectTypeOf(extra).toEqualTypeOf<ErrorEnvelope>();
+  });
+});
+
+describe("PLAN_REFUSED", () => {
+  it("is the stable code plan_refused and names no plan", () => {
+    expect(PLAN_REFUSED).toBe("plan_refused");
+    for (const plan of PLANS) expect(PLAN_REFUSED.toLowerCase()).not.toContain(plan.toLowerCase());
   });
 });

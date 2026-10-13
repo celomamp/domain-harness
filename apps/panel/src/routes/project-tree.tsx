@@ -6,6 +6,7 @@ import {
   entrySlotKind,
   entrySlotName,
   LOCKED_RULE_CONFLICT,
+  PLAN_REFUSED,
   PROJECT_CYCLE,
   PROJECT_NOT_FOUND,
   ROLE_DENIED,
@@ -219,6 +220,14 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
   const reply = (status: number, rest: Pick<ProjectTreeActionData, "status" | "fieldErrors">) =>
     data<ProjectTreeActionData>({ intent, values, ...rest }, { status });
   const denial = (status: number, message: string) => reply(status, { status: { tone: "denial", message }, fieldErrors: {} });
+  // A plan refusal leaves the top status empty and shows in place inside the
+  // submitted form or section; the submitted values are kept.
+  if (error?.code === PLAN_REFUSED && intent !== "permission") {
+    return data<ProjectTreeActionData>(
+      { intent, values, status: null, fieldErrors: {}, planRefusal: PROJECT_TREE_COPY.planRefusal[intent] },
+      { status: 403 },
+    );
+  }
 
   if (intent === "lock") {
     switch (error?.code) {
@@ -373,7 +382,11 @@ function Loaded({ projectParam, result, effective, permissions }: LoadedProps) {
               {tree.projects.length === 1 ? <p>{PROJECT_TREE_COPY.empty}</p> : null}
             </section>
             <div className="project-tree-side">
-              <EffectiveSet projectName={selected.name} effective={effective} />
+              <EffectiveSet
+                projectName={selected.name}
+                effective={effective}
+                planRefusal={actionData?.intent === "lock" ? actionData.planRefusal : undefined}
+              />
               <ChildPermissions projectName={selected.name} permissions={permissions} />
             </div>
           </div>
@@ -400,6 +413,8 @@ function Loaded({ projectParam, result, effective, permissions }: LoadedProps) {
 interface EffectiveSetProps {
   readonly projectName: string;
   readonly effective: Promise<RegistryResult<EffectiveStandardSet>>;
+  /** A plan refusal of a Locked-rule mark, shown in place above the table. */
+  readonly planRefusal: string | undefined;
 }
 
 /**
@@ -407,16 +422,16 @@ interface EffectiveSetProps {
  * tree and forms show first, the section is busy while the set loads, and a
  * failure shows the unavailable text without touching the tree or forms.
  */
-function EffectiveSet({ projectName, effective }: EffectiveSetProps) {
+function EffectiveSet({ projectName, effective, planRefusal }: EffectiveSetProps) {
   const unavailable = (
-    <EffectiveSetSection projectName={projectName}>
+    <EffectiveSetSection projectName={projectName} planRefusal={planRefusal}>
       <p>{PROJECT_TREE_COPY.effective.unavailable}</p>
     </EffectiveSetSection>
   );
   return (
     <Suspense
       fallback={
-        <EffectiveSetSection projectName={projectName} busy>
+        <EffectiveSetSection projectName={projectName} planRefusal={planRefusal} busy>
           <EffectiveSetLoading />
         </EffectiveSetSection>
       }
@@ -424,7 +439,7 @@ function EffectiveSet({ projectName, effective }: EffectiveSetProps) {
       <Await resolve={effective} errorElement={unavailable}>
         {(result: RegistryResult<EffectiveStandardSet>) =>
           result.kind === "ok" ? (
-            <EffectiveSetSection projectName={projectName}>
+            <EffectiveSetSection projectName={projectName} planRefusal={planRefusal}>
               <EffectiveSetTable set={result.value} />
             </EffectiveSetSection>
           ) : (

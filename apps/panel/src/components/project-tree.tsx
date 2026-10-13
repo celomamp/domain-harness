@@ -79,6 +79,15 @@ export const PROJECT_TREE_COPY = {
     conflict: (rule: string, other: string) =>
       `Nothing was changed. ${rule} contradicts the Locked rule ${other} in the same Conflict slot.`,
   },
+  /**
+   * Plan refusals, shown in place inside the form or section submitted. They
+   * name the first plan that includes the capability and never a price.
+   */
+  planRefusal: {
+    create: "Creating another Project is included in Team (first sale). Nothing was changed.",
+    parent: "Setting a parent is included in Team (first sale). Nothing was changed.",
+    lock: "Marking a Locked rule is included in Team (first sale). Nothing was changed.",
+  },
   /** The child-Project permission section, its notices and refusals. */
   permission: {
     heading: (name: string) => `Child-Project permission for ${name}`,
@@ -133,6 +142,21 @@ export interface ProjectTreeActionData {
   >;
   /** The Project just created or moved. */
   readonly changed?: ProjectInfo;
+  /** A plan refusal, shown in place inside the submitted form or section (the top status stays empty). */
+  readonly planRefusal?: string;
+}
+
+/**
+ * plan-refusal: a live status region always mounted in place, inside the form
+ * or section that can be refused, so the refusal is announced when it appears.
+ * The text (raised surface, ink text, hairline border) never shows a price.
+ */
+export function PlanRefusal({ message }: { readonly message: string | undefined }) {
+  return (
+    <div className="plan-refusal-region" role="status" aria-live="polite" aria-atomic="true">
+      {message === undefined ? null : <p className="plan-refusal">{message}</p>}
+    </div>
+  );
 }
 
 export interface ProjectTreeViewProps {
@@ -337,6 +361,7 @@ export function CreateProjectForm({ tree, selected, submitted }: ProjectFormProp
       <Button variant="primary" type="submit">
         {PROJECT_TREE_COPY.create}
       </Button>
+      <PlanRefusal message={submitted?.planRefusal} />
     </Form>
   );
 }
@@ -356,6 +381,7 @@ export function ChangeParentForm({ tree, selected, submitted }: ProjectFormProps
       <Button variant="inverse" type="submit">
         {PROJECT_TREE_COPY.change}
       </Button>
+      <PlanRefusal message={submitted?.planRefusal} />
     </Form>
   );
 }
@@ -365,11 +391,13 @@ export interface EffectiveSetSectionProps {
   readonly projectName: string;
   /** True while the set is pending. */
   readonly busy?: boolean;
+  /** A plan refusal of a Locked-rule mark, shown above the table. */
+  readonly planRefusal?: string | undefined;
   readonly children: ReactNode;
 }
 
 /** The section under the Project tree holding the selected Project's Effective Standard set. */
-export function EffectiveSetSection({ projectName, busy = false, children }: EffectiveSetSectionProps) {
+export function EffectiveSetSection({ projectName, busy = false, planRefusal, children }: EffectiveSetSectionProps) {
   return (
     <section
       className="effective-set"
@@ -379,6 +407,7 @@ export function EffectiveSetSection({ projectName, busy = false, children }: Eff
       <h2 id="effective-set-heading" className="type-title-sm">
         {PROJECT_TREE_COPY.effective.heading(projectName)}
       </h2>
+      <PlanRefusal message={planRefusal} />
       {children}
     </section>
   );

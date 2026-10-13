@@ -12,7 +12,7 @@ export interface StatusProps {
  */
 export function Status({ message, tone }: StatusProps) {
   return (
-    <div role="status" aria-live="polite" aria-atomic="true">
+    <div className="page-status" role="status" aria-live="polite" aria-atomic="true">
       {message === undefined ? null : <p className={tone === "denial" ? "denial" : "status-text"}>{message}</p>}
     </div>
   );

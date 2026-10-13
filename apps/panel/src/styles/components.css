@@ -50,6 +50,15 @@
   box-shadow: var(--shadow-form);
 }
 
+/* plan-refusal: in place inside the submitted form or section; raised surface, ink text, hairline border, no price. */
+.plan-refusal {
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
 /* A status line that is not a denial: plain ink body text on the canvas. */
 .status-text {
   color: var(--color-ink);

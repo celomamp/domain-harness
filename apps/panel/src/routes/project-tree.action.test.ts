@@ -408,3 +408,33 @@ describe("/projects action", () => {
     expect((none as Response).headers.get("location")).toBe("/sign-in");
   });
 });
+
+describe("/projects action: plan refusal", () => {
+  it("names Team (first sale) in every plan-refusal text, never a price or another plan", () => {
+    for (const text of Object.values(PROJECT_TREE_COPY.planRefusal)) {
+      expect(text).toContain("Team (first sale)");
+      expect(text).not.toMatch(/\$|€|£|price|per month/i);
+      for (const other of ["Community", "Business", "Enterprise"]) expect(text).not.toContain(other);
+    }
+  });
+
+  const S = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e601";
+  it.each([
+    ["create", create, "Creating another Project is included in Team (first sale). Nothing was changed."],
+    ["parent", parent, "Setting a parent is included in Team (first sale). Nothing was changed."],
+    [
+      "lock",
+      { intent: "lock", standardId: S, locked: "true" },
+      "Marking a Locked rule is included in Team (first sale). Nothing was changed.",
+    ],
+  ])("maps plan_refused on %s to 403, an empty top status and the in-place text, keeping the values", async (intent, fields, text) => {
+    const fetch = registryAnswers([403, refused("plan_refused", "plan")]);
+    const result = (await action(actionArgs(fields))) as unknown as DataResult;
+    expect(result.init?.status).toBe(403);
+    const values = Object.fromEntries(Object.entries(fields).filter(([key]) => key !== "intent"));
+    expect(result.data).toEqual({ intent, status: null, fieldErrors: {}, values, planRefusal: text });
+    expect(result.data.planRefusal).toBe(PROJECT_TREE_COPY.planRefusal[intent as "create" | "parent" | "lock"]);
+    // Nothing else is read: no tree or Standard lookup for the copy.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});

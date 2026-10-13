@@ -9,6 +9,7 @@ import { lockedRuleChanges } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { accountNames, accountRef } from "../modules/service.ts";
 import { currentProjects, treeNodes } from "../projects/current.ts";
+import { assertTreePlan } from "../tenancy/plan.ts";
 import { findStandard, liveSet, liveStandardInfos, lockBundle, standardNotFound } from "../standards/service.ts";
 import { currentLockedIds, latestLockedRuleRow } from "./current.ts";
 import type { LockedRuleRow } from "./current.ts";
@@ -53,7 +54,8 @@ async function nextSequence(tx: RegistryTx, tenantId: UuidV7): Promise<number> {
  * lock, first failure wins and nothing is written:
  * the Standard is the tenant's (404 `standard_not_found`) → the role (403
  * `role_denied`) → the body (400 `invalid_input`) → the same state as now
- * (200, nothing written) → for a mark, core validation of the whole proposed
+ * (200, nothing written) → for a mark, the tenant's plan includes marking
+ * Locked rules (403 `plan_refused`, subject `plan`) → for a mark, core validation of the whole proposed
  * bundle input with this Standard added to the Locked rules (409
  * `locked_rule_conflict`). Unmarking never conflicts.
  */
@@ -82,6 +84,8 @@ export async function setLockedRule(
     if ((latest?.locked ?? false) === locked) return toState(tx, tenantId, standardId, latest);
 
     if (locked) {
+      // Unmarking stays open on every plan, so a downgraded tenant can reduce its locks.
+      await assertTreePlan(tx, tenantId, "lock");
       const lockedIds = await currentLockedIds(tx, tenantId);
       const verdict = validateBundleInput({
         projects: treeNodes(await currentProjects(tx, tenantId)),

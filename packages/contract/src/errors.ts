@@ -21,3 +21,10 @@ export function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
     typeof record["code"] === "string" && typeof record["message"] === "string" && typeof record["subject"] === "string"
   );
 }
+
+/**
+ * The tenant's plan does not include the requested capability (403). The
+ * message names the capability only, never a plan or a price; nothing was
+ * written.
+ */
+export const PLAN_REFUSED = "plan_refused";

@@ -25,6 +25,7 @@ import type { RegistryDb, RegistryTx } from "../db/client.ts";
 import { projectParentChanges, projects } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { hasChildPermission } from "../child-permissions/current.ts";
+import { assertTreePlan } from "../tenancy/plan.ts";
 import { currentLockedIds, currentLockedMarks } from "../locked-rules/current.ts";
 import type { LockedRuleRow } from "../locked-rules/current.ts";
 import { accountNames, accountRef, toId } from "../modules/service.ts";
@@ -225,8 +226,9 @@ export async function getEffectiveSet(
  * Create a Project under a parent. The Buyer may create anywhere; any other
  * account only directly under a Project on which it holds a current
  * child-Project permission (a grant is never inherited down the tree).
- * Checks, first failure wins and nothing is written: the body (400
- * `invalid_input`) → the parent is a Project of the tenant (404
+ * Checks, first failure wins and nothing is written: the tenant's plan
+ * includes creating Projects (403 `plan_refused`, subject `plan`) → the body
+ * (400 `invalid_input`) → the parent is a Project of the tenant (404
  * `project_not_found`, subject `parentId`) → the caller is the Buyer or holds
  * a current grant on the parent (403 `child_permission_denied`, subject
  * `parentId`) → core validation of the whole proposed bundle input. Records
@@ -234,10 +236,13 @@ export async function getEffectiveSet(
  * under the tenant's bundle lock, so a revoke that commits first wins.
  */
 export async function createProject(db: RegistryDb, session: SessionInfo, body: unknown): Promise<ProjectInfo> {
-  const input = validateCreateBody(body);
   const { tenantId } = session;
   return withTenant(db, tenantId, async (tx) => {
     await lockBundle(tx, tenantId);
+    // The capability may not exist on this plan at all, so the plan comes
+    // before the body: field errors would invite a fix that can never succeed.
+    await assertTreePlan(tx, tenantId, "create");
+    const input = validateCreateBody(body);
     const current = await currentProjects(tx, tenantId);
     if (!current.has(input.parentId)) throw projectNotFound("parentId");
     if (session.role !== "Buyer" && !(await hasChildPermission(tx, tenantId, input.parentId, session.accountId))) {
@@ -280,7 +285,8 @@ export async function createProject(db: RegistryDb, session: SessionInfo, body: 
  * Change a Project's parent (Buyer only) by appending a change row; earlier
  * rows are never changed. Checks, first failure wins and nothing is written:
  * the Project exists in the tenant (404, subject `projectId`) → the role
- * (403) → the body (400) → the parent exists in the tenant (404, subject
+ * (403) → the tenant's plan includes setting a parent (403 `plan_refused`,
+ * subject `plan`) → the body (400) → the parent exists in the tenant (404, subject
  * `parentId`) → the Project is not the root (409 `root_project_fixed`) →
  * core validation of the whole proposed bundle input (409 `project_cycle`
  * naming the parent that closes the cycle, or 409 `locked_rule_conflict`
@@ -302,6 +308,7 @@ export async function changeParent(
     const project = current.get(projectId);
     if (project === undefined) throw projectNotFound("projectId");
     assertTreeBuyer(session);
+    await assertTreePlan(tx, tenantId, "parent");
     const { parentId } = validateParentBody(body);
     if (!current.has(parentId)) throw projectNotFound("parentId");
     if (project.parentId === null) {

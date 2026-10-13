@@ -198,13 +198,15 @@ const tree: ProjectTree = {
 
 /**
  * A fake Project service that records what reached it and checks in the real
- * order with the real validators. Create: the body, the parent, then the
+ * order with the real validators. Create: the plan, the body, the parent, then the
  * child-Project permission (a non-Buyer holds a grant on the child only).
  * Parent change: the Project, the role, the body, the parent, the root, then
  * a cycle (parent = the child itself).
  */
 class FakeProjects implements ProjectService {
   calls: unknown[] = [];
+  /** When set, the tenant's plan refuses create (before the body) and parent changes (after the role). */
+  planRefused = false;
   getTree(caller: SessionInfo): Promise<ProjectTree> {
     this.calls.push(["tree", caller.role]);
     return Promise.resolve(tree);
@@ -238,6 +240,7 @@ class FakeProjects implements ProjectService {
   createProject(caller: SessionInfo, body: unknown): Promise<ProjectInfo> {
     this.calls.push(["create", body]);
     return Promise.resolve().then(() => {
+      if (this.planRefused) throw new EnvelopeError({ code: "plan_refused", message: "m", subject: "plan" });
       const input = validateCreateBody(body);
       if (!tree.projects.some((p) => p.id === input.parentId)) throw notFound("project_not_found", "parentId");
       if (caller.role !== "Buyer" && input.parentId !== CHILD_ID) {
@@ -252,6 +255,7 @@ class FakeProjects implements ProjectService {
       const project = tree.projects.find((p) => p.id === projectId);
       if (project === undefined) throw notFound("project_not_found", "projectId");
       assertTreeBuyer(caller);
+      if (this.planRefused) throw new EnvelopeError({ code: "plan_refused", message: "m", subject: "plan" });
       const { parentId } = validateParentBody(body);
       if (!tree.projects.some((p) => p.id === parentId)) throw notFound("project_not_found", "parentId");
       if (project.parentId === null) throw new EnvelopeError({ code: "root_project_fixed", message: "m", subject: "projectId" });
@@ -270,12 +274,15 @@ class FakeProjects implements ProjectService {
 class FakeLockedRules implements LockedRuleService {
   calls: unknown[] = [];
   conflict = false;
+  /** When set, the tenant's plan refuses a mark (after the body); an unmark stays open. */
+  planRefused = false;
   setLockedRule(caller: SessionInfo, standardId: string, body: unknown): Promise<LockedRuleState> {
     this.calls.push(["lock", caller.role, standardId, body]);
     return Promise.resolve().then(() => {
       if (standardId !== STANDARD_ID) throw notFound("standard_not_found", "standardId");
       if (caller.role !== "Buyer") throw new EnvelopeError({ code: "role_denied", message: "m", subject: "role" });
       const { locked } = validateLockedRuleBody(body);
+      if (locked && this.planRefused) throw new EnvelopeError({ code: "plan_refused", message: "m", subject: "plan" });
       if (locked && this.conflict) {
         throw new EnvelopeError({ code: "locked_rule_conflict", message: "m", subject: mintUuidV7() });
       }
@@ -361,6 +368,8 @@ describe("registry HTTP API", () => {
     projects.calls = [];
     lockedRules.calls = [];
     lockedRules.conflict = false;
+    lockedRules.planRefused = false;
+    projects.planRefused = false;
     childPermissions.calls = [];
     events.length = 0;
   });
@@ -806,6 +815,22 @@ describe("registry HTTP API", () => {
       }
     });
 
+    it("maps plan_refused to 403: create before the body, a parent change after the role", async () => {
+      projects.planRefused = true;
+      const cases: [string, unknown, Record<string, string>, number, Record<string, string>][] = [
+        ["/v1/projects", create, buyerAuth, 403, { code: "plan_refused", subject: "plan" }],
+        ["/v1/projects", { ...create, name: "" }, buyerAuth, 403, { code: "plan_refused", subject: "plan" }],
+        ["/v1/projects", create, builderAuth, 403, { code: "plan_refused", subject: "plan" }],
+        [`/v1/projects/${CHILD_ID}/parent`, { parentId: ROOT_ID }, buyerAuth, 403, { code: "plan_refused", subject: "plan" }],
+        [`/v1/projects/${CHILD_ID}/parent`, { parentId: null }, buyerAuth, 403, { code: "plan_refused", subject: "plan" }],
+        [`/v1/projects/${CHILD_ID}/parent`, { parentId: ROOT_ID }, builderAuth, 403, { code: "role_denied", subject: "role" }],
+      ];
+      for (const [path, body, headers, status, expected] of cases) {
+        const response = await post(path, body, { headers });
+        expect([path, response.status, await response.json()]).toMatchObject([path, status, expected]);
+      }
+    });
+
     it("answers 404 for an unknown or malformed id on GET", async () => {
       await expectEnvelope(await fetch(`${base}/v1/projects/${mintUuidV7()}`, { headers: buyerAuth }), 404, "project_not_found");
       await expectEnvelope(await fetch(`${base}/v1/projects/nope`, { headers: buyerAuth }), 404, "project_not_found");
@@ -881,6 +906,16 @@ describe("registry HTTP API", () => {
         const response = await post(target, body, { headers });
         expect([target, response.status, await response.json()]).toMatchObject([target, status, expected]);
       }
+    });
+
+    it("maps plan_refused on a mark to 403 after the role and the body; an unmark still answers 200", async () => {
+      lockedRules.planRefused = true;
+      const refused = await post(path(STANDARD_ID), { locked: true }, { headers: buyerAuth });
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toMatchObject({ code: "plan_refused", subject: "plan" });
+      await expectEnvelope(await post(path(STANDARD_ID), { locked: true }, { headers: builderAuth }), 403, "role_denied");
+      await expectEnvelope(await post(path(STANDARD_ID), { locked: "yes" }, { headers: buyerAuth }), 400, "invalid_input");
+      expect((await post(path(STANDARD_ID), { locked: false }, { headers: buyerAuth })).status).toBe(200);
     });
 
     it("answers 405 with Allow for a wrong method and logs the route by its pattern", async () => {

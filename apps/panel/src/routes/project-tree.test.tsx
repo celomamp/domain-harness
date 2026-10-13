@@ -100,7 +100,13 @@ function registry(...answers: [number, unknown][]) {
   return fetch;
 }
 
-const status = () => screen.getByRole("status");
+/** The page's top status region (the Status component), never an in-place plan-refusal region. */
+const status = (): HTMLElement => {
+  const region = document.querySelector<HTMLElement>(".page-status");
+  if (region === null) expect.fail("the page's top status region (.page-status) is missing");
+  expect(region.getAttribute("role")).toBe("status");
+  return region;
+};
 const items = () => screen.getAllByRole("treeitem");
 
 afterEach(() => {
@@ -663,5 +669,120 @@ describe("child-Project permission", () => {
     });
     expect(status().querySelector(".denial")).not.toBeNull();
     expect(items()).toHaveLength(4);
+  });
+});
+
+describe("plan refusal", () => {
+  const planRefused = { code: "plan_refused", message: "m", subject: "plan" };
+  const topStatus = status;
+  /** The always-mounted plan-refusal live region inside `container`. */
+  const regionIn = (container: HTMLElement): HTMLElement => {
+    const region = container.querySelector<HTMLElement>(".plan-refusal-region");
+    if (region === null) expect.fail("the plan-refusal region is missing");
+    expect(region.getAttribute("role")).toBe("status");
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    expect(region.getAttribute("aria-atomic")).toBe("true");
+    return region;
+  };
+  /** Wait for the refusal text inside the region, and return its `<p class="plan-refusal">`. */
+  const refusalIn = async (region: HTMLElement, text: string): Promise<HTMLElement> => {
+    const shown = await within(region).findByText(text);
+    expect(shown.tagName).toBe("P");
+    expect(shown.className).toBe("plan-refusal");
+    return shown;
+  };
+  const expectNoPrice = (text: string) => {
+    expect(text).toContain("Team (first sale)");
+    expect(text).not.toMatch(/\$|€|£|price|per month|\d+\s*\/\s*(mo|month|seat)/i);
+    for (const other of ["Community", "Business", "Enterprise"]) expect(text).not.toContain(other);
+  };
+
+  it("shows a create refusal in place inside the Create a Project form, keeping the values and the top status empty", async () => {
+    const fetch = registry([403, planRefused]);
+    renderPage("Buyer", ok(onlyRoot));
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Second" } });
+    fireEvent.change(screen.getByLabelText("Level name"), { target: { value: "Team" } });
+    const form = screen.getByRole("form", { name: "Create a Project" });
+    // The live region is mounted empty before the submit, so the refusal is announced when it appears.
+    const region = regionIn(form);
+    expect(region.textContent).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+    const refusal = await refusalIn(region, "Creating another Project is included in Team (first sale). Nothing was changed.");
+    expect(regionIn(form)).toBe(region);
+    expectNoPrice(region.textContent);
+    // Under the button.
+    const button = within(form).getByRole("button", { name: "Create Project" });
+    expect(button.compareDocumentPosition(refusal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(topStatus().textContent).toBe("");
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("Second");
+    expect(screen.getByLabelText<HTMLInputElement>("Level name").value).toBe("Team");
+    expect(items()).toHaveLength(1);
+    expect(screen.getByText("No Project yet beyond the root Project.")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a parent refusal in place inside the Change parent form, keeping the chosen parent", async () => {
+    registry([403, planRefused]);
+    renderPage("Buyer", ok(fullTree), `/projects?project=${B}`);
+    await screen.findByRole("heading", { name: "Change the parent of Web" });
+    const parent = screen.getAllByLabelText<HTMLSelectElement>("Parent")[1] as HTMLSelectElement;
+    fireEvent.change(parent, { target: { value: C } });
+    const form = screen.getByRole("form", { name: "Change the parent of Web" });
+    const region = regionIn(form);
+    expect(region.textContent).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Change parent" }));
+    await refusalIn(region, "Setting a parent is included in Team (first sale). Nothing was changed.");
+    expectNoPrice(region.textContent);
+    expect(regionIn(screen.getByRole("form", { name: "Create a Project" })).textContent).toBe("");
+    expect(topStatus().textContent).toBe("");
+    expect((screen.getAllByLabelText<HTMLSelectElement>("Parent")[1] as HTMLSelectElement).value).toBe(C);
+    expect(items()).toHaveLength(4);
+  });
+
+  it("shows a lock refusal in place inside the Effective Standard set section, above the table", async () => {
+    const MODULE = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5fc";
+    const webRef = { id: B, name: "Web" };
+    const entry = { category: "library", name: "x", versionConstraint: null, status: "prohibited", correctionInstruction: null };
+    const webSet = {
+      project: webRef,
+      standards: [
+        {
+          slot: { moduleKind: "code-stack", slotKind: "library", name: "x" },
+          status: "prohibited",
+          standard: {
+            id: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e601",
+            version: 1,
+            module: { id: MODULE, kind: "code-stack", name: "Stack" },
+            project: webRef,
+            entry,
+            publishedAt: AT,
+            publishedBy: { accountId: BEA, name: "Bea" },
+          },
+          sourceProject: webRef,
+          locked: false,
+        },
+      ],
+    };
+    registry([403, planRefused]);
+    renderPage("Buyer", ok(fullTree), `/projects?project=${B}`, undefined, () => Promise.resolve(ok(webSet)));
+    const mark = await screen.findByRole("button", { name: 'Mark as Locked rule (code stack, library, "x")' });
+    const section = screen.getByRole("region", { name: "Effective Standard set for Web" });
+    expect(regionIn(section).textContent).toBe("");
+    fireEvent.click(mark);
+    // The section may re-render while the set revalidates; the region is re-read once the text shows.
+    await waitFor(() => {
+      expect(regionIn(screen.getByRole("region", { name: "Effective Standard set for Web" })).textContent).toBe(
+        "Marking a Locked rule is included in Team (first sale). Nothing was changed.",
+      );
+    });
+    const current = screen.getByRole("region", { name: "Effective Standard set for Web" });
+    const region = regionIn(current);
+    await refusalIn(region, "Marking a Locked rule is included in Team (first sale). Nothing was changed.");
+    expectNoPrice(region.textContent);
+    const table = await within(current).findByRole("table");
+    expect(region.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(topStatus().textContent).toBe("");
+    expect(screen.getByRole("tree")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
   });
 });
