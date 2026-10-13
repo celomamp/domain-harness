@@ -117,3 +117,17 @@ export { isLockedRuleMark, isLockedRuleState, LOCKED_RULE_CONFLICT, lockedRulePa
 export type { LockedRuleMark, LockedRuleRequest, LockedRuleState } from "./locked-rules.ts";
 export { effectiveStandardsPath, isEffectiveStandard, isEffectiveStandardSet } from "./effective.ts";
 export type { EffectiveSlot, EffectiveStandard, EffectiveStandardSet } from "./effective.ts";
+export {
+  CHILD_PERMISSION_DENIED,
+  childPermissionsPath,
+  isChildPermission,
+  isChildPermissionList,
+  isChildPermissionState,
+} from "./child-permissions.ts";
+export type {
+  ChildPermission,
+  ChildPermissionList,
+  ChildPermissionRequest,
+  ChildPermissionState,
+  RoledAccountRef,
+} from "./child-permissions.ts";

@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Form } from "react-router";
 import { MODULE_KIND_LABELS } from "@domain-harness/contract";
-import type { EffectiveSlot, EffectiveStandardSet, ProjectInfo, ProjectTree } from "@domain-harness/contract";
+import type {
+  ChildPermissionList,
+  EffectiveSlot,
+  EffectiveStandardSet,
+  ProjectInfo,
+  ProjectTree,
+  RoledAccountRef,
+} from "@domain-harness/contract";
 import { Button } from "./button.tsx";
 
 /** The fields of the two Project tree forms. */
@@ -72,6 +79,29 @@ export const PROJECT_TREE_COPY = {
     conflict: (rule: string, other: string) =>
       `Nothing was changed. ${rule} contradicts the Locked rule ${other} in the same Conflict slot.`,
   },
+  /** The child-Project permission section, its notices and refusals. */
+  permission: {
+    heading: (name: string) => `Child-Project permission for ${name}`,
+    loading: "Loading the child-Project permission…",
+    unavailable: "The child-Project permission is unavailable right now. Try again in a few minutes.",
+    empty: "No account has this permission yet. The Buyer can always create child Projects.",
+    allGranted: "Every account already has this permission.",
+    account: (account: RoledAccountRef) => `${account.name} (${account.role})`,
+    /** "<account> (<role>), granted by <Buyer> on <YYYY-MM-DD>" with the UTC date of the ISO timestamp. */
+    grant: (account: RoledAccountRef, grantedBy: string, grantedAt: string) =>
+      `${account.name} (${account.role}), granted by ${grantedBy} on ${grantedAt.slice(0, 10)}`,
+    accountLabel: "Account",
+    chooseAccount: "Choose an account",
+    grantButton: "Grant permission",
+    revoke: "Revoke",
+    granted: (account: string, projectName: string) => `${account} can now create child Projects under ${projectName}.`,
+    revoked: (account: string, projectName: string) =>
+      `${account} can no longer create child Projects under ${projectName}.`,
+    roleDenial: "Only the Buyer can grant or revoke the permission to create child Projects. Nothing was changed.",
+    invalidAccount: "Choose an account of this Company other than the Buyer. Nothing was changed.",
+    createDenied: (parentName: string) =>
+      `You do not have permission to create a child Project under ${parentName}. Ask the Buyer for it. Nothing was created.`,
+  },
   effective: {
     heading: (name: string) => `Effective Standard set for ${name}`,
     loading: "Loading the Effective Standard set…",
@@ -91,14 +121,16 @@ export const PROJECT_TREE_COPY = {
 
 /** What the Project tree action reports back to the page. */
 export interface ProjectTreeActionData {
-  /** The submitted form: `create`, `parent`, `lock`, or "" for an unknown intent. */
-  readonly intent: "create" | "parent" | "lock" | "";
+  /** The submitted form: `create`, `parent`, `lock`, `permission`, or "" for an unknown intent. */
+  readonly intent: "create" | "parent" | "lock" | "permission" | "";
   /** A status line (notice) or a refusal (denial), announced in the status region. */
   readonly status: { readonly tone: "denial" | "notice"; readonly message: string } | null;
   /** Ink text under the named field of the submitted form. */
   readonly fieldErrors: Readonly<Partial<Record<ProjectFormField, string>>>;
   /** The submitted values, kept in the fields on a refused submit. */
-  readonly values: Readonly<Partial<Record<ProjectFormField | "projectId" | "standardId" | "locked", string>>>;
+  readonly values: Readonly<
+    Partial<Record<ProjectFormField | "projectId" | "standardId" | "locked" | "accountId" | "granted", string>>
+  >;
   /** The Project just created or moved. */
   readonly changed?: ProjectInfo;
 }
@@ -438,5 +470,91 @@ export function EffectiveSetTable({ set }: EffectiveSetTableProps) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+export interface ChildPermissionSectionProps {
+  /** The selected Project's name, for the heading. */
+  readonly projectName: string;
+  /** True while the grants are pending. */
+  readonly busy?: boolean;
+  readonly children: ReactNode;
+}
+
+/** The section under the Effective Standard set holding the selected Project's child-Project permission. */
+export function ChildPermissionSection({ projectName, busy = false, children }: ChildPermissionSectionProps) {
+  return (
+    <section
+      className="child-permission"
+      aria-labelledby="child-permission-heading"
+      {...(busy ? { "aria-busy": true as const } : {})}
+    >
+      <h2 id="child-permission-heading" className="type-title-sm">
+        {PROJECT_TREE_COPY.permission.heading(projectName)}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+export interface ChildPermissionPanelProps {
+  readonly list: ChildPermissionList;
+}
+
+/**
+ * The current grants on a Project, each with a Revoke button, then the form
+ * to grant an eligible account that has none yet. Shown to every role: the
+ * registry refuses a non-Buyer.
+ */
+export function ChildPermissionPanel({ list }: ChildPermissionPanelProps) {
+  const copy = PROJECT_TREE_COPY.permission;
+  const granted = new Set(list.grants.map((grant) => grant.account.accountId));
+  const grantable = list.eligibleAccounts.filter((account) => !granted.has(account.accountId));
+  return (
+    <>
+      {list.grants.length === 0 ? (
+        <p>{copy.empty}</p>
+      ) : (
+        <ul className="child-permission__grants">
+          {list.grants.map((grant) => (
+            <li key={grant.account.accountId} className="child-permission__grant">
+              <span>{copy.grant(grant.account, grant.grantedBy.name, grant.grantedAt)}</span>
+              <Form method="post">
+                <input type="hidden" name="intent" value="permission" />
+                <input type="hidden" name="projectId" value={list.project.id} />
+                <input type="hidden" name="accountId" value={grant.account.accountId} />
+                <input type="hidden" name="granted" value="false" />
+                <Button variant="inverse" type="submit">
+                  {copy.revoke} <span className="visually-hidden">{grant.account.name}</span>
+                </Button>
+              </Form>
+            </li>
+          ))}
+        </ul>
+      )}
+      {grantable.length === 0 ? (
+        <p>{copy.allGranted}</p>
+      ) : (
+        <Form method="post" className="standard-form">
+          <input type="hidden" name="intent" value="permission" />
+          <input type="hidden" name="projectId" value={list.project.id} />
+          <input type="hidden" name="granted" value="true" />
+          <label htmlFor="child-permission-account" className="type-label">
+            {copy.accountLabel}
+          </label>
+          <select id="child-permission-account" name="accountId" defaultValue="">
+            <option value="">{copy.chooseAccount}</option>
+            {grantable.map((account) => (
+              <option key={account.accountId} value={account.accountId}>
+                {copy.account(account)}
+              </option>
+            ))}
+          </select>
+          <Button variant="inverse" type="submit">
+            {copy.grantButton}
+          </Button>
+        </Form>
+      )}
+    </>
   );
 }

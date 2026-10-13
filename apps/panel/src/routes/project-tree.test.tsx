@@ -37,12 +37,31 @@ const emptySetFor: EffectiveFor = (projectId) => {
   return Promise.resolve(ok({ project: { id: project.id, name: project.name }, standards: [] }));
 };
 
+/** The child-Project permission grants the stub loader answers for the selected Project id (the root when none). */
+type PermissionsFor = (projectId: string) => Promise<unknown>;
+
+const BO = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e610";
+const AL = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e611";
+const SAM = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e612";
+const BEA = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e613";
+const eligible = [
+  { accountId: AL, name: "Al Builder", role: "Builder" },
+  { accountId: BO, name: "Bo Builder", role: "Builder" },
+  { accountId: SAM, name: "Sam Owner", role: "Standard owner" },
+];
+
+const noGrantsFor: PermissionsFor = (projectId) => {
+  const project = fullTree.projects.find((p) => p.id === projectId) ?? root;
+  return Promise.resolve(ok({ project: { id: project.id, name: project.name }, grants: [], eligibleAccounts: eligible }));
+};
+
 function renderPage(
   role: Role,
   result: unknown,
   url = "/projects",
   pending?: Promise<unknown>,
   effectiveFor: EffectiveFor = emptySetFor,
+  permissionsFor: PermissionsFor = noGrantsFor,
 ) {
   const Layout = () => (
     <>
@@ -58,6 +77,7 @@ function renderPage(
       projectParam,
       tree: pending ?? Promise.resolve(result),
       effective: effectiveFor(projectParam ?? ROOT),
+      permissions: permissionsFor(projectParam ?? ROOT),
     };
   };
   const Stub = createRoutesStub([
@@ -206,7 +226,9 @@ describe("Project tree page", () => {
     renderPage("Builder", ok(fullTree));
     await screen.findByRole("tree");
     expect(screen.getByRole("heading", { name: "Create a Project" })).toBeTruthy();
-    const labels = [...document.querySelectorAll("form.standard-form label")].map((l) => l.textContent);
+    const labels = [...document.querySelectorAll("form[aria-labelledby='project-create-heading'] label")].map(
+      (l) => l.textContent,
+    );
     expect(labels).toEqual(["Name", "Level name", "Parent"]);
     const parent = screen.getByLabelText<HTMLSelectElement>("Parent");
     expect([...parent.options].map((o) => [o.value, o.textContent])).toEqual([
@@ -492,5 +514,154 @@ describe("Effective Standard set preview", () => {
     expect(screen.getByRole("tree")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Change parent" })).toBeTruthy();
+  });
+});
+
+describe("child-Project permission", () => {
+  const section = () => screen.getByRole("region", { name: /^Child-Project permission for / });
+  const grantsFor =
+    (grants: unknown[], accounts: unknown[] = eligible): PermissionsFor =>
+    (projectId) => {
+      const project = fullTree.projects.find((p) => p.id === projectId) ?? root;
+      return Promise.resolve(ok({ project: { id: project.id, name: project.name }, grants, eligibleAccounts: accounts }));
+    };
+  const boGrant = {
+    account: { accountId: BO, name: "Bo Builder", role: "Builder" },
+    grantedAt: "2026-10-12T23:30:00.000Z",
+    grantedBy: { accountId: BEA, name: "Bea Buyer" },
+  };
+
+  it("lists each current grant with its granter and UTC date, and a Revoke button per grant", async () => {
+    renderPage("Buyer", ok(fullTree), `/projects?project=${A}`, undefined, emptySetFor, grantsFor([boGrant]));
+    // Wait on the whole screen: the busy fallback section is replaced by a new one once the grants load.
+    const item = await screen.findByText("Bo Builder (Builder), granted by Bea Buyer on 2026-10-12");
+    expect(section().contains(item)).toBe(true);
+    expect(screen.getByRole("heading", { level: 2, name: "Child-Project permission for Platform" })).toBeTruthy();
+    const revoke = within(item.closest("li") as HTMLElement).getByRole("button", { name: "Revoke Bo Builder" });
+    expect(revoke.className).toBe("button-inverse");
+    expect(Object.fromEntries(new FormData(revoke.closest("form") as HTMLFormElement))).toEqual({
+      intent: "permission",
+      projectId: A,
+      accountId: BO,
+      granted: "false",
+    });
+    // The grant select offers the eligible accounts not yet granted.
+    const select = within(section()).getByLabelText<HTMLSelectElement>("Account");
+    expect([...select.options].map((o) => [o.value, o.textContent])).toEqual([
+      ["", "Choose an account"],
+      [AL, "Al Builder (Builder)"],
+      [SAM, "Sam Owner (Standard owner)"],
+    ]);
+    const grant = within(section()).getByRole("button", { name: "Grant permission" });
+    expect(Object.fromEntries(new FormData(grant.closest("form") as HTMLFormElement))).toEqual({
+      intent: "permission",
+      projectId: A,
+      granted: "true",
+      accountId: "",
+    });
+  });
+
+  it("shows the empty state and every eligible account when there is no grant", async () => {
+    renderPage("Builder", ok(fullTree));
+    expect(
+      await screen.findByText("No account has this permission yet. The Buyer can always create child Projects."),
+    ).toBeTruthy();
+    expect(section().getAttribute("aria-busy")).toBeNull();
+    const select = within(section()).getByLabelText<HTMLSelectElement>("Account");
+    expect([...select.options].map((o) => o.textContent)).toEqual([
+      "Choose an account",
+      "Al Builder (Builder)",
+      "Bo Builder (Builder)",
+      "Sam Owner (Standard owner)",
+    ]);
+    expect(within(section()).getByRole("button", { name: "Grant permission" })).toBeTruthy();
+  });
+
+  it("says every account already has the permission instead of the form when none is left", async () => {
+    renderPage("Buyer", ok(fullTree), "/projects", undefined, emptySetFor, grantsFor([boGrant], [boGrant.account]));
+    expect(await screen.findByText("Every account already has this permission.")).toBeTruthy();
+    expect(within(section()).queryByLabelText("Account")).toBeNull();
+    expect(within(section()).queryByRole("button", { name: "Grant permission" })).toBeNull();
+  });
+
+  it("shows a busy section while the grants load, with the tree and forms already there", async () => {
+    renderPage("Buyer", ok(fullTree), "/projects", undefined, emptySetFor, () => new Promise(() => undefined));
+    await screen.findByRole("tree");
+    expect(await screen.findByText("Loading the child-Project permission…")).toBeTruthy();
+    expect(section().getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
+  });
+
+  it.each([
+    ["an unavailable answer", () => Promise.resolve({ kind: "unavailable" })],
+    ["a refusal", () => Promise.resolve({ kind: "refused", error: { code: "project_not_found", message: "m", subject: "projectId" } })],
+    [
+      "a failed promise",
+      () => {
+        const failed = Promise.reject(new Error("down"));
+        failed.catch(() => undefined);
+        return failed;
+      },
+    ],
+  ])("says the permission is unavailable on %s, keeping the tree, the table and the forms", async (_label, permissionsFor: PermissionsFor) => {
+    renderPage("Buyer", ok(fullTree), `/projects?project=${B}`, undefined, emptySetFor, permissionsFor);
+    expect(
+      await screen.findByText("The child-Project permission is unavailable right now. Try again in a few minutes."),
+    ).toBeTruthy();
+    expect(section().getAttribute("aria-busy")).toBeNull();
+    expect(screen.getByRole("tree")).toBeTruthy();
+    expect(await screen.findByText("No Standard applies to Web yet.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Change parent" })).toBeTruthy();
+  });
+
+  it("announces the grant when the Buyer grants from the section", async () => {
+    const fetch = registry([
+      200,
+      {
+        project: { id: ROOT, name: "Acme" },
+        account: { accountId: AL, name: "Al Builder", role: "Builder" },
+        granted: true,
+        changedAt: AT,
+        changedBy: { accountId: BEA, name: "Bea Buyer" },
+      },
+    ]);
+    renderPage("Buyer", ok(fullTree));
+    const grant = await screen.findByRole("button", { name: "Grant permission" });
+    fireEvent.change(screen.getByLabelText("Account"), { target: { value: AL } });
+    fireEvent.click(grant);
+    await waitFor(() => {
+      expect(status().textContent).toBe("Al Builder can now create child Projects under Acme.");
+    });
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(new RegExp(`/v1/projects/${ROOT}/child-permissions$`));
+    expect(init.body).toBe(JSON.stringify({ accountId: AL, granted: true }));
+  });
+
+  it("asks for an account when the placeholder is submitted", async () => {
+    const fetch = registry([400, { code: "invalid_input", message: "m", subject: "accountId" }]);
+    renderPage("Buyer", ok(fullTree));
+    fireEvent.click(await screen.findByRole("button", { name: "Grant permission" }));
+    await waitFor(() => {
+      expect(status().textContent).toBe("Choose an account of this Company other than the Buyer. Nothing was changed.");
+    });
+    expect((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body).toBe(
+      JSON.stringify({ accountId: "", granted: true }),
+    );
+  });
+
+  it("names the parent when a Builder without the permission submits a create", async () => {
+    registry([403, { code: "child_permission_denied", message: "m", subject: "parentId" }], [200, fullTree]);
+    renderPage("Builder", ok(fullTree), `/projects?project=${A}`);
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "Mobile" } });
+    fireEvent.change(screen.getByLabelText("Level name"), { target: { value: "Team" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Project" }));
+    await waitFor(() => {
+      expect(status().textContent).toBe(
+        "You do not have permission to create a child Project under Platform. Ask the Buyer for it. Nothing was created.",
+      );
+    });
+    expect(status().querySelector(".denial")).not.toBeNull();
+    expect(items()).toHaveLength(4);
   });
 });

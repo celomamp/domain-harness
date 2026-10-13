@@ -15,6 +15,8 @@ import {
   publishStandardVersion,
   registryBaseUrl,
   requestSignInLink,
+  getChildPermissions,
+  setChildPermission,
   setLockedRule,
 } from "./registry.server.ts";
 
@@ -336,6 +338,57 @@ describe("registry client", () => {
       expect(await setLockedRule("abc", STANDARD, true)).toEqual({ kind: "refused", error: conflict });
       vi.stubGlobal("fetch", respond(200, { ...state, locked: "yes" }));
       expect(await setLockedRule("abc", STANDARD, true)).toEqual({ kind: "unavailable" });
+    });
+
+    it("reads a Project's child-Project permission grants on the escaped path and expects 200", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const builder = { accountId: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f2", name: "Bo", role: "Builder" };
+      const list = {
+        project: { id: WEB, name: "Web" },
+        grants: [{ account: builder, grantedAt: AT, grantedBy: { accountId: ACCOUNT, name: "Bea" } }],
+        eligibleAccounts: [builder],
+      };
+      const fetch = respond(200, list);
+      vi.stubGlobal("fetch", fetch);
+      expect(await getChildPermissions("abc", WEB)).toEqual({ kind: "ok", value: list });
+      await getChildPermissions("abc", "a/b");
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`http://registry.test/v1/projects/${WEB}/child-permissions`);
+      expect(init.method).toBe("GET");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+      expect((fetch.mock.calls[1] as unknown as [string])[0]).toMatch(/\/v1\/projects\/a%2Fb\/child-permissions$/);
+
+      const notFound = { code: "project_not_found", message: "m", subject: "projectId" };
+      vi.stubGlobal("fetch", respond(404, notFound));
+      expect(await getChildPermissions("abc", WEB)).toEqual({ kind: "refused", error: notFound });
+      vi.stubGlobal("fetch", respond(200, { ...list, eligibleAccounts: [{ ...builder, role: "Admin" }] }));
+      expect(await getChildPermissions("abc", WEB)).toEqual({ kind: "unavailable" });
+    });
+
+    it("grants or revokes with exactly { accountId, granted } and expects 200", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const builder = { accountId: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f2", name: "Bo", role: "Builder" };
+      const state = {
+        project: { id: WEB, name: "Web" },
+        account: builder,
+        granted: true,
+        changedAt: AT,
+        changedBy: { accountId: ACCOUNT, name: "Bea" },
+      };
+      const fetch = respond(200, state);
+      vi.stubGlobal("fetch", fetch);
+      expect(await setChildPermission("abc", WEB, builder.accountId, true)).toEqual({ kind: "ok", value: state });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`http://registry.test/v1/projects/${WEB}/child-permissions`);
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe(JSON.stringify({ accountId: builder.accountId, granted: true }));
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+
+      const denied = { code: "role_denied", message: "m", subject: "role" };
+      vi.stubGlobal("fetch", respond(403, denied));
+      expect(await setChildPermission("abc", WEB, builder.accountId, false)).toEqual({ kind: "refused", error: denied });
+      vi.stubGlobal("fetch", respond(200, { ...state, changedAt: null }));
+      expect(await setChildPermission("abc", WEB, builder.accountId, true)).toEqual({ kind: "unavailable" });
     });
   });
 });

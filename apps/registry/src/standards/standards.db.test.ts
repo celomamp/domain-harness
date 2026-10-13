@@ -26,6 +26,7 @@ import { provisionCompany } from "../tenancy/provision.ts";
 import { createStandardService, publishStandard } from "./service.ts";
 import { createProjectService } from "../projects/service.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
+import { createChildPermissionService } from "../child-permissions/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -218,6 +219,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standards against Po
         standards: createStandardService(db),
         projects: createProjectService(db),
         lockedRules: createLockedRuleService(db),
+        childPermissions: createChildPermissionService(db),
       },
       () => undefined,
     );

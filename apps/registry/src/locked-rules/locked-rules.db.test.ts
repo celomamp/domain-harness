@@ -38,6 +38,7 @@ import { consumeSignInLink, createSignInService, requestSignInLinks } from "../s
 import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { createLockedRuleService } from "./service.ts";
+import { createChildPermissionService } from "../child-permissions/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -226,6 +227,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Locked rules against
         standards: createStandardService(db),
         projects: createProjectService(db),
         lockedRules: createLockedRuleService(db),
+        childPermissions: createChildPermissionService(db),
       },
       () => undefined,
     );

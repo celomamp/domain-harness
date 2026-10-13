@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Await, data, Link, redirect, useActionData, useLoaderData, useNavigate } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
+  CHILD_PERMISSION_DENIED,
   entrySlotKind,
   entrySlotName,
   LOCKED_RULE_CONFLICT,
@@ -13,6 +14,7 @@ import {
   STANDARD_NOT_FOUND,
 } from "@domain-harness/contract";
 import type {
+  ChildPermissionList,
   EffectiveStandardSet,
   ErrorEnvelope,
   ProjectInfo,
@@ -21,6 +23,8 @@ import type {
 } from "@domain-harness/contract";
 import {
   ChangeParentForm,
+  ChildPermissionPanel,
+  ChildPermissionSection,
   CreateProjectForm,
   EffectiveSetLoading,
   EffectiveSetSection,
@@ -33,9 +37,11 @@ import { Status } from "../components/status.tsx";
 import {
   changeProjectParent,
   createProject,
+  getChildPermissions,
   getEffectiveStandards,
   getProjectTree,
   getStandardVersions,
+  setChildPermission,
   setLockedRule,
 } from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
@@ -54,6 +60,11 @@ export interface ProjectTreeLoaderData {
    * tree, otherwise the root). The tree shows first while it loads.
    */
   readonly effective: Promise<RegistryResult<EffectiveStandardSet>>;
+  /**
+   * The selected Project's child-Project permission grants, not awaited:
+   * chained off the tree in the same way as `effective`.
+   */
+  readonly permissions: Promise<RegistryResult<ChildPermissionList>>;
 }
 
 /** The selected Project: `?project=` when it is in the tree, otherwise the root. */
@@ -81,10 +92,15 @@ export function loader({ request }: LoaderFunctionArgs): Response | ProjectTreeL
     const selected = result.kind === "ok" ? selectedProject(result.value, projectParam) : null;
     return selected === null ? SET_UNAVAILABLE : getEffectiveStandards(token, selected.id);
   });
-  return { projectParam, tree, effective };
+  const permissions = tree.then((result): Promise<RegistryResult<ChildPermissionList>> | RegistryResult<ChildPermissionList> => {
+    const selected = result.kind === "ok" ? selectedProject(result.value, projectParam) : null;
+    return selected === null ? PERMISSIONS_UNAVAILABLE : getChildPermissions(token, selected.id);
+  });
+  return { projectParam, tree, effective, permissions };
 }
 
 const SET_UNAVAILABLE: RegistryResult<EffectiveStandardSet> = { kind: "unavailable" };
+const PERMISSIONS_UNAVAILABLE: RegistryResult<ChildPermissionList> = { kind: "unavailable" };
 
 const field = (form: FormData, name: string): string => {
   const value = form.get(name);
@@ -95,8 +111,10 @@ const FORM_FIELDS: readonly ProjectFormField[] = ["name", "levelName", "parentId
 
 /**
  * `intent=create` with Name, Level name and Parent, `intent=parent` with
- * the Project and its new Parent, or `intent=lock` with a Standard and its
- * new Locked-rule state (`locked` = "true" or "false"). Values go to the
+ * the Project and its new Parent, `intent=lock` with a Standard and its
+ * new Locked-rule state (`locked` = "true" or "false"), or
+ * `intent=permission` with a Project, an account and its new child-Project
+ * permission state (`granted` = "true" or "false"). Values go to the
  * registry as submitted; it checks the session, the Project or Standard, the
  * role, the body and the whole bundle in that order, so a non-Buyer's submit
  * is a denial whatever it holds.
@@ -128,6 +146,21 @@ export async function action({ request }: ActionFunctionArgs) {
         const message = locked
           ? PROJECT_TREE_COPY.locked.marked(slot, standard.project.name)
           : PROJECT_TREE_COPY.locked.unmarked(slot, standard.project.name);
+        return data<ProjectTreeActionData>({ intent, status: { tone: "notice", message }, fieldErrors: {}, values: {} });
+      }
+      return refusal(token, { intent, values }, result.kind === "refused" ? result.error : undefined);
+    }
+    return refusal(token, { intent, values }, undefined);
+  }
+  if (intent === "permission") {
+    const values = { projectId: field(form, "projectId"), accountId: field(form, "accountId"), granted: field(form, "granted") };
+    if (values.granted === "true" || values.granted === "false") {
+      const result = await setChildPermission(token, values.projectId, values.accountId, values.granted === "true");
+      if (result.kind === "ok") {
+        const { account, project, granted } = result.value;
+        const message = granted
+          ? PROJECT_TREE_COPY.permission.granted(account.name, project.name)
+          : PROJECT_TREE_COPY.permission.revoked(account.name, project.name);
         return data<ProjectTreeActionData>({ intent, status: { tone: "notice", message }, fieldErrors: {}, values: {} });
       }
       return refusal(token, { intent, values }, result.kind === "refused" ? result.error : undefined);
@@ -176,7 +209,7 @@ async function describeRule(token: string, standardId: string): Promise<string> 
 }
 
 interface Submitted {
-  readonly intent: "create" | "parent" | "lock";
+  readonly intent: "create" | "parent" | "lock" | "permission";
   readonly values: ProjectTreeActionData["values"];
 }
 
@@ -208,11 +241,33 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
     }
   }
 
+  if (intent === "permission") {
+    switch (error?.code) {
+      case SESSION_INVALID:
+        return redirect("/sign-in");
+      case ROLE_DENIED:
+        return denial(403, PROJECT_TREE_COPY.permission.roleDenial);
+      case PROJECT_NOT_FOUND:
+        return denial(404, PROJECT_TREE_COPY.projectNotFound);
+      case "invalid_input":
+        if (error.subject === "accountId") return denial(400, PROJECT_TREE_COPY.permission.invalidAccount);
+        return denial(503, PROJECT_TREE_COPY.actionUnavailable);
+      default:
+        // Any other refusal, or an outage.
+        return denial(503, PROJECT_TREE_COPY.actionUnavailable);
+    }
+  }
+
   switch (error?.code) {
     case SESSION_INVALID:
       return redirect("/sign-in");
     case ROLE_DENIED:
       return denial(403, PROJECT_TREE_COPY.roleDenial);
+    case CHILD_PERMISSION_DENIED: {
+      const parentId = values.parentId ?? "";
+      const parentName = (await projectNames(token)).get(parentId) ?? parentId;
+      return denial(403, PROJECT_TREE_COPY.permission.createDenied(parentName));
+    }
     case ROOT_PROJECT_FIXED:
       return denial(409, PROJECT_TREE_COPY.rootFixed);
     case PROJECT_NOT_FOUND:
@@ -243,15 +298,17 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
 
 /** The Project tree surface: the tree, then the forms to create a Project and change a parent. */
 export default function ProjectTreePage() {
-  const { projectParam, tree, effective } = useLoaderData<ProjectTreeLoaderData>();
+  const { projectParam, tree, effective, permissions } = useLoaderData<ProjectTreeLoaderData>();
   return (
     <Suspense fallback={<ColdLoad />}>
       <Await
         resolve={tree}
-        errorElement={<Loaded projectParam={projectParam} result={UNAVAILABLE} effective={effective} />}
+        errorElement={
+          <Loaded projectParam={projectParam} result={UNAVAILABLE} effective={effective} permissions={permissions} />
+        }
       >
         {(result: RegistryResult<ProjectTree>) => (
-          <Loaded projectParam={projectParam} result={result} effective={effective} />
+          <Loaded projectParam={projectParam} result={result} effective={effective} permissions={permissions} />
         )}
       </Await>
     </Suspense>
@@ -277,9 +334,10 @@ interface LoadedProps {
   readonly projectParam: string | null;
   readonly result: RegistryResult<ProjectTree>;
   readonly effective: Promise<RegistryResult<EffectiveStandardSet>>;
+  readonly permissions: Promise<RegistryResult<ChildPermissionList>>;
 }
 
-function Loaded({ projectParam, result, effective }: LoadedProps) {
+function Loaded({ projectParam, result, effective, permissions }: LoadedProps) {
   const actionData = useActionData<ProjectTreeActionData>();
   const navigate = useNavigate();
   const tree = result.kind === "ok" ? result.value : null;
@@ -314,7 +372,10 @@ function Loaded({ projectParam, result, effective }: LoadedProps) {
               <ProjectTreeView tree={tree} selectedId={selected.id} onSelect={select} />
               {tree.projects.length === 1 ? <p>{PROJECT_TREE_COPY.empty}</p> : null}
             </section>
-            <EffectiveSet projectName={selected.name} effective={effective} />
+            <div className="project-tree-side">
+              <EffectiveSet projectName={selected.name} effective={effective} />
+              <ChildPermissions projectName={selected.name} permissions={permissions} />
+            </div>
           </div>
           <CreateProjectForm
             key={`create:${formKey}`}
@@ -366,6 +427,46 @@ function EffectiveSet({ projectName, effective }: EffectiveSetProps) {
             <EffectiveSetSection projectName={projectName}>
               <EffectiveSetTable set={result.value} />
             </EffectiveSetSection>
+          ) : (
+            unavailable
+          )
+        }
+      </Await>
+    </Suspense>
+  );
+}
+
+interface ChildPermissionsProps {
+  readonly projectName: string;
+  readonly permissions: Promise<RegistryResult<ChildPermissionList>>;
+}
+
+/**
+ * The selected Project's child-Project permission under its own Suspense:
+ * busy while the grants load, and a failure shows the unavailable text
+ * without touching the tree, the table or the forms.
+ */
+function ChildPermissions({ projectName, permissions }: ChildPermissionsProps) {
+  const copy = PROJECT_TREE_COPY.permission;
+  const unavailable = (
+    <ChildPermissionSection projectName={projectName}>
+      <p>{copy.unavailable}</p>
+    </ChildPermissionSection>
+  );
+  return (
+    <Suspense
+      fallback={
+        <ChildPermissionSection projectName={projectName} busy>
+          <p>{copy.loading}</p>
+        </ChildPermissionSection>
+      }
+    >
+      <Await resolve={permissions} errorElement={unavailable}>
+        {(result: RegistryResult<ChildPermissionList>) =>
+          result.kind === "ok" ? (
+            <ChildPermissionSection projectName={projectName}>
+              <ChildPermissionPanel list={result.value} />
+            </ChildPermissionSection>
           ) : (
             unavailable
           )

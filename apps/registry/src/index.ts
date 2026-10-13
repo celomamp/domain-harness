@@ -66,5 +66,13 @@ export {
   validateLockedRuleBody,
 } from "./locked-rules/service.ts";
 export type { LockedRuleBody, LockedRuleService } from "./locked-rules/service.ts";
+export {
+  createChildPermissionService,
+  hasChildPermission,
+  listChildPermissions,
+  setChildPermission,
+  validateChildPermissionBody,
+} from "./child-permissions/service.ts";
+export type { ChildPermissionBody, ChildPermissionService } from "./child-permissions/service.ts";
 export { createRegistryServer, MAX_BODY_BYTES, stdoutLogger } from "./http/server.ts";
 export type { LogEvent, Logger, RegistryServices } from "./http/server.ts";

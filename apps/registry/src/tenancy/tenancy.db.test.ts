@@ -108,13 +108,14 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
   }, 60_000);
 
   describe("migration", () => {
-    it("creates only the tenancy, sign-in, Module, Standard, Project tree and Locked rule tables and registry_migrations", async () => {
+    it("creates only the tenancy, sign-in, Module, Standard, Project tree, Locked rule and child-Project permission tables and registry_migrations", async () => {
       const { rows } = await owner.query<{ relname: string }>(
         `select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
          where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm') order by 1`,
       );
       expect(rows.map((r) => r.relname)).toEqual([
         "accounts",
+        "child_permission_changes",
         "locked_rule_changes",
         "module_owner_assignments",
         "modules",
@@ -135,10 +136,11 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
          from pg_class c join pg_namespace n on n.oid = c.relnamespace
          where n.nspname = 'public'
            and c.relname in ('tenants', 'accounts', 'projects', 'sign_in_links', 'sessions', 'modules', 'module_owner_assignments',
-                             'standards', 'standard_versions', 'project_parent_changes', 'locked_rule_changes')
+                             'standards', 'standard_versions', 'project_parent_changes', 'locked_rule_changes',
+                             'child_permission_changes')
          order by 1`,
       );
-      expect(rows).toHaveLength(11);
+      expect(rows).toHaveLength(12);
       for (const row of rows) {
         expect(row).toMatchObject({ rls: true, forced: true });
         expect(row.owner).not.toBe(APP_ROLE);
@@ -166,6 +168,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
       expect(privileges.rows).toEqual(
         [
           "accounts",
+          "child_permission_changes",
           "locked_rule_changes",
           "module_owner_assignments",
           "modules",
@@ -185,7 +188,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
 
     it("is idempotent: a second run applies nothing", async () => {
       const report = await migrate(owner);
-      expect(report).toEqual({ applied: [], alreadyApplied: 7 });
+      expect(report).toEqual({ applied: [], alreadyApplied: 8 });
     });
 
     it("rejects a misnamed .sql file before applying anything", async () => {
@@ -231,7 +234,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         cwd: REGISTRY_ROOT,
         env: { ...process.env, REGISTRY_MIGRATION_DATABASE_URL: ownerUrl },
       });
-      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 7 });
+      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 8 });
     });
   });
 

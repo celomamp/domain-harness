@@ -5,7 +5,10 @@
  * thrown, so a registry outage cannot break a page.
  */
 import {
+  childPermissionsPath,
   effectiveStandardsPath,
+  isChildPermissionList,
+  isChildPermissionState,
   isEffectiveStandardSet,
   isErrorEnvelope,
   isLockedRuleState,
@@ -28,6 +31,9 @@ import {
   standardVersionsPath,
 } from "@domain-harness/contract";
 import type {
+  ChildPermissionList,
+  ChildPermissionRequest,
+  ChildPermissionState,
   EffectiveStandardSet,
   ErrorEnvelope,
   LockedRuleRequest,
@@ -200,7 +206,9 @@ export function getEffectiveStandards(
 }
 
 /**
- * Create a Project under a parent (the registry allows only the Buyer). The
+ * Create a Project under a parent (the registry allows the Buyer anywhere, and
+ * any other account under a Project on which it holds the child-Project
+ * permission). The
  * values are passed as submitted; the registry trims the name, keeps the
  * level name exactly as typed, validates and answers field errors.
  */
@@ -229,4 +237,27 @@ export function setLockedRule(
 ): Promise<RegistryResult<LockedRuleState>> {
   const body: LockedRuleRequest = { locked };
   return call(lockedRulePath(standardId), json(body, bearer(sessionToken)), 200, isLockedRuleState);
+}
+
+/** A Project's current child-Project permission grants and the accounts that can hold one (every role may read). */
+export function getChildPermissions(
+  sessionToken: string,
+  projectId: string,
+): Promise<RegistryResult<ChildPermissionList>> {
+  return call(childPermissionsPath(projectId), getJson(sessionToken), 200, isChildPermissionList);
+}
+
+/**
+ * Grant (`granted: true`) or revoke (`granted: false`) one account's
+ * permission to create child Projects under a Project (the registry allows
+ * only the Buyer).
+ */
+export function setChildPermission(
+  sessionToken: string,
+  projectId: string,
+  accountId: string,
+  granted: boolean,
+): Promise<RegistryResult<ChildPermissionState>> {
+  const body: ChildPermissionRequest = { accountId, granted };
+  return call(childPermissionsPath(projectId), json(body, bearer(sessionToken)), 200, isChildPermissionState);
 }

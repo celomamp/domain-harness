@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import {
+  CHILD_PERMISSION_DENIED,
   isEmailAddress,
   LOCKED_RULE_CONFLICT,
   MODULE_API_PATHS,
@@ -23,9 +24,9 @@ import {
 import type { ErrorEnvelope, SessionInfo } from "@domain-harness/contract";
 import { isEnvelopeError } from "../errors.ts";
 import { assertBuyer } from "../modules/service.ts";
+import type { ChildPermissionService } from "../child-permissions/service.ts";
 import type { LockedRuleService } from "../locked-rules/service.ts";
 import type { ModuleService } from "../modules/service.ts";
-import { assertTreeBuyer } from "../projects/service.ts";
 import type { ProjectService } from "../projects/service.ts";
 import type { SignInService } from "../sign-in/service.ts";
 import type { StandardService } from "../standards/service.ts";
@@ -52,6 +53,7 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
   [SESSION_INVALID]: 401,
   [ROLE_DENIED]: 403,
   [NOT_MODULE_OWNER]: 403,
+  [CHILD_PERMISSION_DENIED]: 403,
   not_found: 404,
   [MODULE_NOT_FOUND]: 404,
   [STANDARD_NOT_FOUND]: 404,
@@ -75,6 +77,7 @@ const STANDARD_LOCKED_RULE_ROUTE = `${STANDARD_API_PATHS.standards}/{id}/locked-
 const PROJECT_ROUTE = `${PROJECT_API_PATHS.projects}/{id}`;
 const PROJECT_PARENT_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/parent`;
 const PROJECT_EFFECTIVE_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/effective-standards`;
+const PROJECT_CHILD_PERMISSIONS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/child-permissions`;
 
 /** Each parameterised route and the pattern capturing its raw `{id}` segment. */
 const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
@@ -85,6 +88,7 @@ const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
   [PROJECT_ROUTE, /^\/v1\/projects\/([^/]+)$/],
   [PROJECT_PARENT_ROUTE, /^\/v1\/projects\/([^/]+)\/parent$/],
   [PROJECT_EFFECTIVE_ROUTE, /^\/v1\/projects\/([^/]+)\/effective-standards$/],
+  [PROJECT_CHILD_PERMISSIONS_ROUTE, /^\/v1\/projects\/([^/]+)\/child-permissions$/],
 ];
 
 /** Allowed methods per route. */
@@ -101,6 +105,7 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [PROJECT_ROUTE]: ["GET"],
   [PROJECT_PARENT_ROUTE]: ["POST"],
   [PROJECT_EFFECTIVE_ROUTE]: ["GET"],
+  [PROJECT_CHILD_PERMISSIONS_ROUTE]: ["GET", "POST"],
 };
 
 interface RouteMatch {
@@ -133,6 +138,7 @@ export interface RegistryServices {
   readonly standards: StandardService;
   readonly projects: ProjectService;
   readonly lockedRules: LockedRuleService;
+  readonly childPermissions: ChildPermissionService;
 }
 
 class HttpFailure extends Error {
@@ -151,9 +157,12 @@ class HttpFailure extends Error {
  * body is read. Standards calls authenticate the same way; reading is open to
  * every role and only a Module's current Standard owner may publish into it.
  * Project tree calls authenticate the same way; reading is open to every
- * role and only the Buyer may create a Project or change its parent. The
+ * role; the Buyer may create a Project anywhere, any other account only
+ * directly under a Project on which the Buyer granted it the child-Project
+ * permission, and only the Buyer may change a Project's parent. The
  * Effective Standard set of a Project is open to every role. Only the Buyer
- * may mark or remove a Locked rule.
+ * may mark or remove a Locked rule, or grant or revoke the child-Project
+ * permission; the grants on a Project are open to every role.
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
@@ -282,9 +291,8 @@ async function handle(
         sendJson(res, 200, await services.projects.getTree(session));
         return;
       }
-      // Creating has no Project in the path, so the role is checked first,
-      // before the body is read; the service checks the body and the parent.
-      requireBuyer(req, session, assertTreeBuyer);
+      // Whether the caller may create depends on the parent named in the body,
+      // so the service checks the body, then the parent, then the permission.
       sendJson(res, 201, await services.projects.createProject(session, await readJson(req)));
       return;
     }
@@ -303,6 +311,17 @@ async function handle(
       // The service checks the Project, then the role, then the body and the
       // parent, so the first failure in that order wins.
       sendJson(res, 200, await services.projects.changeParent(session, match.id, await readJson(req)));
+      return;
+    }
+    case PROJECT_CHILD_PERMISSIONS_ROUTE: {
+      const session = await service.getSession(bearerToken(req));
+      if (req.method === "GET") {
+        sendJson(res, 200, await services.childPermissions.listChildPermissions(session, match.id));
+        return;
+      }
+      // The service checks the Project, then the role, then the body and the
+      // account, so the first failure in that order wins.
+      sendJson(res, 200, await services.childPermissions.setChildPermission(session, match.id, await readJson(req)));
       return;
     }
     case STANDARD_LOCKED_RULE_ROUTE: {

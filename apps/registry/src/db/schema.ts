@@ -312,7 +312,47 @@ export const lockedRuleChanges = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0007. */
+export const childPermissionChanges = pgTable(
+  "child_permission_changes",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    projectId: uuid("project_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    granted: boolean("granted").notNull(),
+    changedBy: uuid("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("child_permission_changes_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    index("child_permission_changes_pair_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.accountId,
+      table.sequence.desc(),
+    ),
+    foreignKey({
+      name: "child_permission_changes_project_fkey",
+      columns: [table.tenantId, table.projectId],
+      foreignColumns: [projects.tenantId, projects.id],
+    }),
+    foreignKey({
+      name: "child_permission_changes_account_fkey",
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+    foreignKey({
+      name: "child_permission_changes_changed_by_fkey",
+      columns: [table.tenantId, table.changedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0008. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -325,6 +365,7 @@ export const TENANT_TABLES = [
   "standard_versions",
   "project_parent_changes",
   "locked_rule_changes",
+  "child_permission_changes",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */

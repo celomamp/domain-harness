@@ -1,5 +1,6 @@
 import { eq, max } from "drizzle-orm";
 import {
+  CHILD_PERMISSION_DENIED,
   entrySlotKind,
   entrySlotName,
   isUuidV7,
@@ -23,6 +24,7 @@ import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb, RegistryTx } from "../db/client.ts";
 import { projectParentChanges, projects } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
+import { hasChildPermission } from "../child-permissions/current.ts";
 import { currentLockedIds, currentLockedMarks } from "../locked-rules/current.ts";
 import type { LockedRuleRow } from "../locked-rules/current.ts";
 import { accountNames, accountRef, toId } from "../modules/service.ts";
@@ -31,7 +33,8 @@ import { currentProjects, treeNodes } from "./current.ts";
 import type { CurrentProject } from "./current.ts";
 import { validateCreateBody, validateParentBody } from "./validate.ts";
 
-const projectNotFound = (subject: "projectId" | "parentId"): EnvelopeError =>
+/** `project_not_found` for a Project id (subject `projectId`) or a parent id (subject `parentId`). */
+export const projectNotFound = (subject: "projectId" | "parentId"): EnvelopeError =>
   new EnvelopeError({
     code: PROJECT_NOT_FOUND,
     message:
@@ -219,21 +222,31 @@ export async function getEffectiveSet(
 }
 
 /**
- * Create a Project under a parent (Buyer only). Checks, first failure wins
- * and nothing is written: the role (403 `role_denied`) → the body (400
+ * Create a Project under a parent. The Buyer may create anywhere; any other
+ * account only directly under a Project on which it holds a current
+ * child-Project permission (a grant is never inherited down the tree).
+ * Checks, first failure wins and nothing is written: the body (400
  * `invalid_input`) → the parent is a Project of the tenant (404
- * `project_not_found`, subject `parentId`) → core validation of the whole
- * proposed bundle input. Records the create as the Project's first parent
- * change. Runs under the tenant's bundle lock.
+ * `project_not_found`, subject `parentId`) → the caller is the Buyer or holds
+ * a current grant on the parent (403 `child_permission_denied`, subject
+ * `parentId`) → core validation of the whole proposed bundle input. Records
+ * the create as the Project's first parent change, made by the caller. Runs
+ * under the tenant's bundle lock, so a revoke that commits first wins.
  */
 export async function createProject(db: RegistryDb, session: SessionInfo, body: unknown): Promise<ProjectInfo> {
-  assertTreeBuyer(session);
   const input = validateCreateBody(body);
   const { tenantId } = session;
   return withTenant(db, tenantId, async (tx) => {
     await lockBundle(tx, tenantId);
     const current = await currentProjects(tx, tenantId);
     if (!current.has(input.parentId)) throw projectNotFound("parentId");
+    if (session.role !== "Buyer" && !(await hasChildPermission(tx, tenantId, input.parentId, session.accountId))) {
+      throw new EnvelopeError({
+        code: CHILD_PERMISSION_DENIED,
+        message: "you have no permission to create a child Project under this Project; nothing was created",
+        subject: "parentId",
+      });
+    }
 
     const id = mintUuidV7();
     const change = { projectId: id, parentId: input.parentId };

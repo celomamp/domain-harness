@@ -24,6 +24,7 @@ import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { createProjectService } from "./service.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
+import { createChildPermissionService } from "../child-permissions/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -182,6 +183,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Project tree against
         standards: createStandardService(db),
         projects: createProjectService(db),
         lockedRules: createLockedRuleService(db),
+        childPermissions: createChildPermissionService(db),
       },
       () => undefined,
     );
@@ -314,14 +316,21 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Project tree against
       expect(change.rows).toEqual([{ sequence: before.changes + 1, parent_id: rootA, changed_by: buyer.accountId }]);
     });
 
-    it("refuses a Standard owner and a Builder with 403 role_denied and writes nothing", async () => {
+    it("refuses a Standard owner and a Builder without a grant with 403 child_permission_denied and writes nothing", async () => {
       const before = await counts();
       for (const who of ["sam", "builder"]) {
         await expectRefused(
           await post("/v1/projects", who, { name: "X", levelName: "Team", parentId: rootA }),
           403,
-          "role_denied",
-          "role",
+          "child_permission_denied",
+          "parentId",
+        );
+        // The body is read first, so a malformed one is a 400.
+        await expectRefused(
+          await post("/v1/projects", who, { name: "", levelName: "Team", parentId: rootA }),
+          400,
+          "invalid_input",
+          "name",
         );
       }
       expect(await counts()).toEqual(before);

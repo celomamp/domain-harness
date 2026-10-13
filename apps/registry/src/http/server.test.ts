@@ -3,6 +3,8 @@ import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   entrySlotName,
+  isChildPermissionList,
+  isChildPermissionState,
   isEffectiveStandardSet,
   isErrorEnvelope,
   isLockedRuleState,
@@ -17,6 +19,8 @@ import {
   isStandardVersionList,
 } from "@domain-harness/contract";
 import type {
+  ChildPermissionList,
+  ChildPermissionState,
   EffectiveStandardSet,
   LockedRuleState,
   ModuleInfo,
@@ -29,6 +33,8 @@ import type {
   StandardList,
   StandardVersionList,
 } from "@domain-harness/contract";
+import { validateChildPermissionBody } from "../child-permissions/service.ts";
+import type { ChildPermissionService } from "../child-permissions/service.ts";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import { validateLockedRuleBody } from "../locked-rules/service.ts";
@@ -192,8 +198,10 @@ const tree: ProjectTree = {
 
 /**
  * A fake Project service that records what reached it and checks in the real
- * order with the real validators: the Project, the role, the body, the
- * parent, the root, then a cycle (parent = the child itself).
+ * order with the real validators. Create: the body, the parent, then the
+ * child-Project permission (a non-Buyer holds a grant on the child only).
+ * Parent change: the Project, the role, the body, the parent, the root, then
+ * a cycle (parent = the child itself).
  */
 class FakeProjects implements ProjectService {
   calls: unknown[] = [];
@@ -230,9 +238,11 @@ class FakeProjects implements ProjectService {
   createProject(caller: SessionInfo, body: unknown): Promise<ProjectInfo> {
     this.calls.push(["create", body]);
     return Promise.resolve().then(() => {
-      assertTreeBuyer(caller);
       const input = validateCreateBody(body);
       if (!tree.projects.some((p) => p.id === input.parentId)) throw notFound("project_not_found", "parentId");
+      if (caller.role !== "Buyer" && input.parentId !== CHILD_ID) {
+        throw new EnvelopeError({ code: "child_permission_denied", message: "m", subject: "parentId" });
+      }
       return { ...childInfo, id: mintUuidV7(), name: input.name, levelName: input.levelName, parentId: input.parentId };
     });
   }
@@ -279,6 +289,43 @@ class FakeLockedRules implements LockedRuleService {
   }
 }
 
+/**
+ * A fake child-Project permission service that records what reached it and
+ * checks in the real order with the real validator: the Project, the role,
+ * the body, then the account (only OWNER_ID is eligible).
+ */
+class FakeChildPermissions implements ChildPermissionService {
+  calls: unknown[] = [];
+  listChildPermissions(caller: SessionInfo, projectId: string): Promise<ChildPermissionList> {
+    this.calls.push(["list", caller.role, projectId]);
+    const found = tree.projects.find((p) => p.id === projectId);
+    if (found === undefined) return Promise.reject(notFound("project_not_found", "projectId"));
+    const account = { accountId: OWNER_ID, name: "Sam", role: "Standard owner" as const };
+    return Promise.resolve({
+      project: { id: found.id, name: found.name },
+      grants: [{ account, grantedAt: "2026-10-12T09:00:00.000Z", grantedBy: { accountId: session.accountId, name: "Bea" } }],
+      eligibleAccounts: [account],
+    });
+  }
+  setChildPermission(caller: SessionInfo, projectId: string, body: unknown): Promise<ChildPermissionState> {
+    this.calls.push(["set", caller.role, projectId, body]);
+    return Promise.resolve().then(() => {
+      const found = tree.projects.find((p) => p.id === projectId);
+      if (found === undefined) throw notFound("project_not_found", "projectId");
+      if (caller.role !== "Buyer") throw new EnvelopeError({ code: "role_denied", message: "m", subject: "role" });
+      const { accountId, granted } = validateChildPermissionBody(body);
+      if (accountId !== OWNER_ID) throw new EnvelopeError({ code: "invalid_input", message: "m", subject: "accountId" });
+      return {
+        project: { id: found.id, name: found.name },
+        account: { accountId: OWNER_ID, name: "Sam", role: "Standard owner" },
+        granted,
+        changedAt: "2026-10-12T09:00:00.000Z",
+        changedBy: { accountId: caller.accountId, name: "Bea" },
+      };
+    });
+  }
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const notFound = (code: string, subject: string) => new EnvelopeError({ code, message: "m", subject });
@@ -289,12 +336,16 @@ describe("registry HTTP API", () => {
   const standards = new FakeStandards();
   const projects = new FakeProjects();
   const lockedRules = new FakeLockedRules();
+  const childPermissions = new FakeChildPermissions();
   const events: LogEvent[] = [];
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
-    server = createRegistryServer({ signIn: service, modules, standards, projects, lockedRules }, (event) => events.push(event));
+    server = createRegistryServer(
+      { signIn: service, modules, standards, projects, lockedRules, childPermissions },
+      (event) => events.push(event),
+    );
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
   });
@@ -310,6 +361,7 @@ describe("registry HTTP API", () => {
     projects.calls = [];
     lockedRules.calls = [];
     lockedRules.conflict = false;
+    childPermissions.calls = [];
     events.length = 0;
   });
 
@@ -712,9 +764,24 @@ describe("registry HTTP API", () => {
       expect(projects.calls).toEqual([]);
     });
 
-    it("refuses a non-Buyer's create with 403 before the body is read", async () => {
-      await expectEnvelope(await post("/v1/projects", "{ not json", { headers: builderAuth }), 403, "role_denied");
+    it("reads a non-Buyer's create body first: 400 for a malformed one, 403 child_permission_denied without a grant", async () => {
+      await expectEnvelope(await post("/v1/projects", "{ not json", { headers: builderAuth }), 400, "invalid_input");
       expect(projects.calls).toEqual([]);
+      const bad = await post("/v1/projects", { ...create, name: "" }, { headers: builderAuth });
+      expect(bad.status).toBe(400);
+      expect(await bad.json()).toMatchObject({ code: "invalid_input", subject: "name" });
+      const denied = await post("/v1/projects", create, { headers: builderAuth });
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toMatchObject({ code: "child_permission_denied", subject: "parentId" });
+      const unknown = await post("/v1/projects", { ...create, parentId: mintUuidV7() }, { headers: builderAuth });
+      expect(unknown.status).toBe(404);
+      expect(await unknown.json()).toMatchObject({ code: "project_not_found", subject: "parentId" });
+    });
+
+    it("answers 201 to a non-Buyer's create under a Project it holds a grant on", async () => {
+      const response = await post("/v1/projects", { ...create, parentId: CHILD_ID }, { headers: builderAuth });
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ parentId: CHILD_ID });
     });
 
     it("maps the refusals in the check order to 404, 403, 400 and 409", async () => {
@@ -824,6 +891,69 @@ describe("registry HTTP API", () => {
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
         .toEqual(["/v1/standards/{id}/locked-rule"]);
       expect(JSON.stringify(events)).not.toContain(STANDARD_ID);
+    });
+  });
+
+  describe("child-Project permission", () => {
+    const json = { "content-type": "application/json" };
+    const buyerAuth = { ...json, authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { ...json, authorization: `Bearer ${BUILDER_SESSION}` };
+    const path = (id: string) => `/v1/projects/${id}/child-permissions`;
+
+    it("serves a Project's grants to every role", async () => {
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await fetch(`${base}${path(CHILD_ID)}`, { headers });
+        expect(response.status).toBe(200);
+        expect(isChildPermissionList(await response.json())).toBe(true);
+      }
+      expect(childPermissions.calls).toEqual([
+        ["list", "Buyer", CHILD_ID],
+        ["list", "Builder", CHILD_ID],
+      ]);
+    });
+
+    it("answers 200 with the pair's state on a grant and a revoke", async () => {
+      for (const granted of [true, false]) {
+        const response = await post(path(CHILD_ID), { accountId: OWNER_ID, granted }, { headers: buyerAuth });
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        expect(isChildPermissionState(body)).toBe(true);
+        expect(body).toMatchObject({ granted });
+      }
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(await fetch(`${base}${path(CHILD_ID)}`), 401, "session_invalid");
+      await expectEnvelope(await post(path(CHILD_ID), { accountId: OWNER_ID, granted: true }), 401, "session_invalid");
+      expect(childPermissions.calls).toEqual([]);
+    });
+
+    it("maps the refusals in the check order to 404, 403 and 400", async () => {
+      await expectEnvelope(await fetch(`${base}${path("nope")}`, { headers: builderAuth }), 404, "project_not_found");
+      const grant = { accountId: OWNER_ID, granted: true };
+      const cases: [string, unknown, Record<string, string>, number, Record<string, string>][] = [
+        [path(mintUuidV7()), grant, builderAuth, 404, { code: "project_not_found", subject: "projectId" }],
+        [path("nope"), grant, buyerAuth, 404, { code: "project_not_found", subject: "projectId" }],
+        [path(CHILD_ID), grant, builderAuth, 403, { code: "role_denied", subject: "role" }],
+        [path(CHILD_ID), { granted: true }, buyerAuth, 400, { code: "invalid_input", subject: "accountId" }],
+        [path(CHILD_ID), { accountId: OWNER_ID, granted: "yes" }, buyerAuth, 400, { code: "invalid_input", subject: "granted" }],
+        [path(CHILD_ID), { ...grant, note: 1 }, buyerAuth, 400, { code: "invalid_input", subject: "note" }],
+        [path(CHILD_ID), { ...grant, accountId: mintUuidV7() }, buyerAuth, 400, { code: "invalid_input", subject: "accountId" }],
+      ];
+      for (const [target, body, headers, status, expected] of cases) {
+        const response = await post(target, body, { headers });
+        expect([target, response.status, await response.json()]).toMatchObject([target, status, expected]);
+      }
+    });
+
+    it("answers 405 with Allow for a wrong method and logs the route by its pattern", async () => {
+      const response = await fetch(`${base}${path(CHILD_ID)}`, { method: "PUT", headers: buyerAuth });
+      expect(response.headers.get("allow")).toBe("GET, POST");
+      await expectEnvelope(response, 405, "method_not_allowed");
+      await expect
+        .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
+        .toEqual(["/v1/projects/{id}/child-permissions"]);
+      expect(JSON.stringify(events)).not.toContain(CHILD_ID);
     });
   });
 

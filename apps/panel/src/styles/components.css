@@ -333,6 +333,34 @@
   }
 }
 
+/* The column beside the Project tree: the Effective Standard set, then the child-Project permission. */
+.project-tree-side {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+.child-permission {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.child-permission__grants {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.child-permission__grant {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+
 /* The Locked-rule mark/unmark form inside an Effective Standard set cell. */
 .locked-rule-form {
   display: grid;
