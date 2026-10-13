@@ -33,7 +33,7 @@ import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
 import { applications } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
-import { createRegistryServer } from "../http/server.ts";
+import { createRegistryServer, MAX_BODY_BYTES } from "../http/server.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
 import { MemoryTransport } from "../mail/memory.ts";
 import { createModuleService } from "../modules/service.ts";
@@ -85,6 +85,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Applications against
   let tenantA: UuidV7;
   let rootA: UuidV7;
   let rootB: UuidV7;
+  let buyer: SessionInfo;
   let bo: SessionInfo;
   let boltApp: ApplicationInfo;
 
@@ -191,6 +192,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Applications against
       return { accountId: account.id, tenantId, role: account.role };
     };
     bo = session(a.tenantId, a.accounts[2]);
+    buyer = session(a.tenantId, a.accounts[0]);
 
     server = createRegistryServer(
       {
@@ -381,6 +383,170 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Applications against
     it("accepts a description of exactly 500 characters", async () => {
       const app = await placed("y".repeat(500), p.id, "buyer");
       expect(app.description).toHaveLength(500);
+    });
+  });
+
+  describe("registering an existing Application", () => {
+    let r: ProjectInfo;
+    const REGISTERED = "/v1/applications/registered";
+
+    /** A POST whose body is sent raw, so a non-Buyer's unreadable body can be proven not read. */
+    const rawPost = (path: string, who: string, body: string, contentType = "application/json") =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": contentType, ...(auth[who] ?? {}) },
+        body,
+      });
+
+    beforeAll(async () => {
+      r = await created("App R", rootA);
+    }, 60_000);
+
+    it("registers for the Buyer: 201 with only the identification file, and the row is not from the flow", async () => {
+      const before = await appRows();
+      const response = await post(REGISTERED, "buyer", { description: "  Legacy checkout  ", projectId: r.id });
+      const body: unknown = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(201);
+      if (!isIdentificationFileRendering(body)) throw new Error("not an IdentificationFileRendering");
+      expect(body.fileName).toBe(".domain-harness.json");
+      const parsed = parseIdentificationFile(body.content);
+      if (parsed.kind !== "parsed") throw new Error("not a parsed identification file");
+      const id = parsed.file.applicationId;
+      expect(body.content).toBe(formatIdentificationFile(id, r.id));
+      const { rows } = await owner.query(
+        "select from_flow, created_by::text, project_id::text, description from applications where id = $1",
+        [id],
+      );
+      expect(rows).toEqual([
+        { from_flow: false, created_by: buyer.accountId, project_id: r.id, description: "Legacy checkout" },
+      ]);
+      expect(await appRows()).toBe(before + 1);
+      // The list shows it at once, flagged Registered, with no agent tool.
+      const entry = (await listed("buyer")).applications.find((a) => a.id === id);
+      expect(entry).toMatchObject({
+        description: "Legacy checkout",
+        project: { id: r.id, name: "App R" },
+        fromFlow: false,
+        agentTool: null,
+      });
+      // Byte-identical to the identification-file endpoint's answer.
+      const file = await get(applicationIdentificationFilePath(id), "buyer");
+      expect(await file.json()).toMatchObject({ fileName: ".domain-harness.json", content: body.content });
+    });
+
+    it("refuses a Builder with 403 role_denied before the body is read, writing nothing", async () => {
+      // Even with a current build grant the role check still wins for a Builder.
+      await setGrant(r.id, bo.accountId, true);
+      const before = await appRows();
+      for (const body of ["{not json", JSON.stringify({ description: "x", projectId: r.id }), "x".repeat(MAX_BODY_BYTES * 2)]) {
+        const response = await rawPost(REGISTERED, "builder", body);
+        const envelope = (await response.json()) as { message: string };
+        expect([response.status, envelope]).toMatchObject([403, { code: "role_denied", subject: "role" }]);
+        expect(envelope.message).toBe("only the Buyer can register an existing Application; nothing was created");
+      }
+      expect(await appRows()).toBe(before);
+    });
+
+    it("refuses a Standard owner with 403 role_denied, writing nothing", async () => {
+      const before = await appRows();
+      await expectRefused(
+        await post(REGISTERED, "sam", { description: "Legacy", projectId: r.id }),
+        403,
+        "role_denied",
+        "role",
+      );
+      expect(await appRows()).toBe(before);
+    });
+
+    it("refuses the Buyer's body at the transport, writing nothing", async () => {
+      const before = await appRows();
+      await expectRefused(await rawPost(REGISTERED, "buyer", "{not json"), 400, "invalid_input", "body");
+      await expectRefused(await rawPost(REGISTERED, "buyer", "x".repeat(MAX_BODY_BYTES * 2)), 413, "payload_too_large");
+      await expectRefused(
+        await rawPost(REGISTERED, "buyer", JSON.stringify({ description: "Legacy", projectId: r.id }), "text/plain"),
+        415,
+        "unsupported_media_type",
+      );
+      expect(await appRows()).toBe(before);
+    });
+
+    it.each([
+      ["a non-object body", [], "body"],
+      ["an extra key", { description: "x", projectId: "P", note: 1 }, "note"],
+      ["a missing description", { projectId: "P" }, "description"],
+      ["a numeric description", { description: 7, projectId: "P" }, "description"],
+      ["a blank description", { description: "   ", projectId: "P" }, "description"],
+      ["a 501-character description", { description: "x".repeat(501), projectId: "P" }, "description"],
+      ["a missing Project", { description: "Legacy" }, "projectId"],
+      ["a numeric Project", { description: "Legacy", projectId: 7 }, "projectId"],
+    ])("answers 400 invalid_input for %s, writing nothing", async (_label, body, subject) => {
+      // The "P" placeholder becomes the real Project, but an invalid projectId
+      // (the numeric row) is sent as is so the 400 names it.
+      const sent =
+        Array.isArray(body) || ("projectId" in body && typeof body.projectId !== "string")
+          ? body
+          : { ...body, ...("projectId" in body ? { projectId: r.id } : {}) };
+      const before = await appRows();
+      await expectRefused(await post(REGISTERED, "buyer", sent), 400, "invalid_input", subject);
+      expect(await appRows()).toBe(before);
+    });
+
+    it("answers 404 project_not_found for a foreign, unknown or malformed Project, writing nothing", async () => {
+      const before = await appRows();
+      // The Buyer against Company B's root; Company B's Buyer against Company A's.
+      for (const [who, foreign] of [
+        ["buyer", rootB],
+        ["bob", rootA],
+      ] as const) {
+        for (const projectId of [foreign, "01928c7e-5b2a-7c3d-8e4f-000000000009", "nope"]) {
+          await expectRefused(await post(REGISTERED, who, { description: "Lost", projectId }), 404, "project_not_found", "projectId");
+        }
+      }
+      expect(await appRows()).toBe(before);
+      // The refusal wrote nothing: Company B still holds its one Application.
+      expect((await listed("bob")).applications.map((a) => a.description)).toEqual(["Bolt app"]);
+    });
+
+    it("answers 401 without a session and 405 for any method but POST, writing nothing", async () => {
+      const before = await appRows();
+      await expectRefused(
+        await post(REGISTERED, "no", { description: "Legacy", projectId: r.id }),
+        401,
+        "session_invalid",
+      );
+      for (const method of ["GET", "PUT"]) {
+        const response = await fetch(`${base}${REGISTERED}`, { method, headers: auth["buyer"] ?? {} });
+        expect(response.headers.get("allow")).toBe("POST");
+        await expectRefused(response, 405, "method_not_allowed");
+      }
+      expect(await appRows()).toBe(before);
+    });
+
+    // The matrix's "core validation fails" row: no API path can make the
+    // proposed Application node itself fail (a fresh id on a checked
+    // Project), so this seeds the only reachable invalid bundle state — a
+    // two-Project cycle written out of band — and proves core's envelope
+    // passes through with nothing written.
+    it("passes core's envelope through when the proposed bundle input is invalid, writing nothing", async () => {
+      const x = "01928c7e-5b2a-7c3d-8e4f-00000000000a";
+      const y = "01928c7e-5b2a-7c3d-8e4f-00000000000b";
+      // One root per tenant, so the pair is born parented and then closed into a cycle.
+      await owner.query("insert into projects (id, tenant_id, parent_id, name) values ($1, $2, $3, 'Loop Y')", [y, tenantA, rootA]);
+      await owner.query("insert into projects (id, tenant_id, parent_id, name) values ($1, $2, $3, 'Loop X')", [x, tenantA, y]);
+      await owner.query("update projects set parent_id = $1 where id = $2", [x, y]);
+      try {
+        const before = await appRows();
+        const response = await post(REGISTERED, "buyer", { description: "Orphan probe", projectId: r.id });
+        const envelope = (await response.json()) as { code: string; subject: string; message: string };
+        expect([response.status, envelope.code]).toEqual([409, "project_cycle"]);
+        expect(envelope.subject).toBe(y);
+        // Nothing was written: the valid registration on `r.id` too.
+        expect(await appRows()).toBe(before);
+      } finally {
+        // One statement: the two rows reference each other, so per-row
+        // deletes would dangle the surviving parent.
+        await owner.query("delete from projects where id = any($1)", [[x, y]]);
+      }
     });
   });
 

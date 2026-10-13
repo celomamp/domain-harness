@@ -54,6 +54,14 @@ export const APPLICATION_API_PATHS = {
    * or an account with a build grant on the Project).
    */
   applications: "/v1/applications",
+  /**
+   * `POST` an {@link ApplicationCreateRequest}: 201
+   * {@link IdentificationFileRendering} — the Project identification file to
+   * commit, and nothing else (the Buyer only; any other role `role_denied`).
+   * The request reuses {@link ApplicationCreateRequest}; the response is
+   * guarded by `isIdentificationFileRendering`.
+   */
+  registered: "/v1/applications/registered",
 } as const;
 
 function isProjectRef(value: unknown): value is ProjectRef {

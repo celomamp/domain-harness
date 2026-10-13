@@ -422,3 +422,13 @@
   min-height: var(--size-target-min);
   color: var(--color-ink);
 }
+
+/* The registered Application's file content: its exact bytes, unformatted. */
+.boilerplate-result pre {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--color-surface-base);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}

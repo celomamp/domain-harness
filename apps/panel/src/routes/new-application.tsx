@@ -19,6 +19,9 @@ import {
   NEW_APPLICATION_COPY,
   NewApplicationForm,
   ProjectField,
+  REGISTER_FIELD_PREFIX,
+  RegisterApplicationForm,
+  RegistrationResultSection,
 } from "../components/new-application.tsx";
 import type { NewApplicationActionData, NewApplicationField } from "../components/new-application.tsx";
 import { Status } from "../components/status.tsx";
@@ -27,6 +30,7 @@ import {
   generateBoilerplate,
   getGuidanceEndpoint,
   getProjectTree,
+  registerApplication,
   setGuidanceEndpoint,
 } from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
@@ -64,13 +68,14 @@ async function projectName(token: string, projectId: string): Promise<string> {
 }
 
 /**
- * One of three forms, by `intent`: `guidance-endpoint` sets the Company
+ * One of four forms, by `intent`: `guidance-endpoint` sets the Company
  * Guidance endpoint URL (the registry allows only the Buyer);
  * `boilerplate` generates the Boilerplate of the Application just placed;
- * anything else places the Application with the Description and Project as
- * submitted. The registry checks the session, the body, the Project and the
- * build grant in that order; nothing is created on any refusal, and the
- * submitted values are kept.
+ * `register` registers an existing Application (the registry allows only the
+ * Buyer); anything else places the Application with the Description and
+ * Project as submitted. The registry checks the session, the body, the
+ * Project and the grant in that order; nothing is created on any refusal,
+ * and the submitted values are kept.
  */
 export async function action({ request }: ActionFunctionArgs) {
   const token = readSessionToken(request);
@@ -79,6 +84,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const intent = field(form, "intent");
   if (intent === "guidance-endpoint") return endpointAction(token, field(form, "url"), optional(field(form, "applicationId")));
   if (intent === "boilerplate") return boilerplateAction(token, field(form, "applicationId"), field(form, "target"));
+  if (intent === "register") return registerAction(token, field(form, "description"), field(form, "projectId"));
   const values = { description: field(form, "description"), projectId: field(form, "projectId") };
   const result = await createApplication(token, values);
   if (result.kind === "ok") {
@@ -122,6 +128,50 @@ async function refusal(token: string, values: NewApplicationActionData["values"]
 }
 
 const optional = (value: string): string | undefined => (value === "" ? undefined : value);
+
+/**
+ * Register an existing Application; a refusal keeps the submitted values.
+ * The registry checks the role before the body, so a non-Buyer's refusal is
+ * `role_denied` whatever was submitted.
+ */
+async function registerAction(token: string, description: string, projectId: string) {
+  const copy = NEW_APPLICATION_COPY.register;
+  const values = { description, projectId };
+  const base = { intent: "register" as const, fieldErrors: {}, values };
+  const result = await registerApplication(token, values);
+  if (result.kind === "ok") {
+    return data<NewApplicationActionData>({
+      ...base,
+      status: { tone: "notice", message: copy.registered(result.value.fileName) },
+      registration: result.value,
+    });
+  }
+  const error = result.kind === "refused" ? result.error : undefined;
+  const denial = (status: number, message: string) =>
+    data<NewApplicationActionData>({ ...base, status: { tone: "denial", message } }, { status });
+  switch (error?.code) {
+    case SESSION_INVALID:
+      return redirect("/sign-in");
+    case ROLE_DENIED:
+      return denial(403, copy.roleDenied);
+    case PROJECT_NOT_FOUND:
+      return denial(404, copy.projectNotFound);
+    case "invalid_input": {
+      const subject = (["description", "projectId"] as const).find((name: NewApplicationField) => name === error.subject);
+      if (subject !== undefined) {
+        return data<NewApplicationActionData>(
+          { ...base, status: null, fieldErrors: { [subject]: NEW_APPLICATION_COPY.fieldErrors[subject] } },
+          { status: 400 },
+        );
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  // Any other refusal (a misrouted registry URL answering 404 or 415) or an outage.
+  return denial(503, copy.actionUnavailable);
+}
 
 /** Set the Company Guidance endpoint; a refusal keeps the submitted URL. `placedId` is carried back. */
 async function endpointAction(token: string, url: string, placedId: string | undefined) {
@@ -194,6 +244,19 @@ export default function NewApplicationPage() {
   const formKey = actionData?.placedId ?? "form";
   const submitted = actionData?.intent === "place" && actionData.placedId === undefined ? actionData : undefined;
   const unavailable = <ProjectField projects={[]} note={NEW_APPLICATION_COPY.unavailable} submitted={submitted} />;
+  // The register form: cleared after a successful registration (the file's
+  // content is unique, it embeds the minted id), values kept on a refusal.
+  const registerSubmitted =
+    actionData?.intent === "register" && actionData.registration === undefined ? actionData : undefined;
+  const registerKey = actionData?.registration?.content ?? "register-form";
+  const registerUnavailable = (
+    <ProjectField
+      projects={[]}
+      note={NEW_APPLICATION_COPY.unavailable}
+      submitted={registerSubmitted}
+      idPrefix={REGISTER_FIELD_PREFIX}
+    />
+  );
   const endpointSubmitted = actionData?.endpoint;
   const endpointCopy = NEW_APPLICATION_COPY.endpoint;
   const endpointUnavailable = (
@@ -216,6 +279,34 @@ export default function NewApplicationPage() {
           </Await>
         </Suspense>
       </NewApplicationForm>
+      <RegisterApplicationForm key={registerKey} submitted={registerSubmitted}>
+        <Suspense
+          fallback={
+            <ProjectField
+              projects={[]}
+              busy
+              note={NEW_APPLICATION_COPY.loading}
+              submitted={registerSubmitted}
+              idPrefix={REGISTER_FIELD_PREFIX}
+            />
+          }
+        >
+          <Await resolve={tree} errorElement={registerUnavailable}>
+            {(result: RegistryResult<ProjectTree>) =>
+              result.kind === "ok" ? (
+                <ProjectField
+                  projects={result.value.projects}
+                  submitted={registerSubmitted}
+                  idPrefix={REGISTER_FIELD_PREFIX}
+                />
+              ) : (
+                registerUnavailable
+              )
+            }
+          </Await>
+        </Suspense>
+      </RegisterApplicationForm>
+      {actionData?.registration === undefined ? null : <RegistrationResultSection rendering={actionData.registration} />}
       {actionData?.placedId === undefined ? null : <BoilerplateForm applicationId={actionData.placedId} />}
       {actionData?.boilerplate === undefined ? null : <BoilerplateResultSection result={actionData.boilerplate} />}
       <GuidanceEndpointForm placedId={actionData?.placedId}>

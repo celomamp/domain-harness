@@ -15,8 +15,9 @@ const app = {
 };
 
 describe("Application wire contract", () => {
-  it("names the path and the limit once", () => {
+  it("names the paths and the limit once", () => {
     expect(APPLICATION_API_PATHS.applications).toBe("/v1/applications");
+    expect(APPLICATION_API_PATHS.registered).toBe("/v1/applications/registered");
     expect(APPLICATION_DESCRIPTION_MAX).toBe(500);
   });
 

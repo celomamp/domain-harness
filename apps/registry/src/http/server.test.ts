@@ -55,6 +55,7 @@ import type {
   StandardVersionList,
 } from "@domain-harness/contract";
 import type { ApplicationService } from "../applications/service.ts";
+import { assertApplicationBuyer } from "../applications/service.ts";
 import { validateApplicationBody } from "../applications/validate.ts";
 import { validateBoilerplateBody } from "../boilerplate/service.ts";
 import type { BoilerplateService } from "../boilerplate/service.ts";
@@ -448,6 +449,17 @@ class FakeApplications implements ApplicationService {
         agentTool: null,
         createdAt: "2026-10-13T09:00:00.000Z",
       };
+    });
+  }
+  registerApplication(caller: SessionInfo, body: unknown): Promise<IdentificationFileRendering> {
+    this.calls.push(["register", caller.role, body]);
+    return Promise.resolve().then(() => {
+      assertApplicationBuyer(caller);
+      const input = validateApplicationBody(body);
+      const found = tree.projects.find((p) => p.id === input.projectId);
+      if (found === undefined) throw notFound("project_not_found", "projectId");
+      const id = mintUuidV7();
+      return { fileName: IDENTIFICATION_FILE_NAME, content: formatIdentificationFile(id, found.id) };
     });
   }
 }
@@ -1306,6 +1318,63 @@ describe("registry HTTP API", () => {
       await expect
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
         .toEqual(["/v1/applications"]);
+    });
+  });
+
+  describe("Application registration", () => {
+    const json = { "content-type": "application/json" };
+    const buyerAuth = { ...json, authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { ...json, authorization: `Bearer ${BUILDER_SESSION}` };
+    const path = "/v1/applications/registered";
+
+    it("answers 201 with the identification file of the minted Application, for the Buyer only", async () => {
+      const response = await post(path, { description: " Existing ", projectId: CHILD_ID }, { headers: buyerAuth });
+      expect(response.status).toBe(201);
+      const body: unknown = await response.json();
+      expect(isIdentificationFileRendering(body)).toBe(true);
+      expect(body).toMatchObject({ fileName: ".domain-harness.json" });
+      expect(applications.calls).toEqual([["register", "Buyer", { description: " Existing ", projectId: CHILD_ID }]]);
+    });
+
+    it("refuses a non-Buyer with 403 role_denied before the body is read", async () => {
+      const response = await post(path, "{not json", { headers: builderAuth });
+      await expectEnvelope(response, 403, "role_denied");
+      expect(applications.calls).toEqual([]);
+      await expect
+        .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
+        .toEqual(["/v1/applications/registered"]);
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(
+        await post(path, { description: "x", projectId: CHILD_ID }, { headers: { ...json } }),
+        401,
+        "session_invalid",
+      );
+      expect(applications.calls).toEqual([]);
+    });
+
+    it("maps the service's refusals in the check order", async () => {
+      const cases: [unknown, Record<string, string>, number, Record<string, string>][] = [
+        [[], buyerAuth, 400, { code: "invalid_input", subject: "body" }],
+        [{ description: "x", projectId: CHILD_ID, note: 1 }, buyerAuth, 400, { code: "invalid_input", subject: "note" }],
+        [{ description: "  ", projectId: CHILD_ID }, buyerAuth, 400, { code: "invalid_input", subject: "description" }],
+        [{ description: "x" }, buyerAuth, 400, { code: "invalid_input", subject: "projectId" }],
+        [{ description: "x", projectId: "nope" }, buyerAuth, 404, { code: "project_not_found", subject: "projectId" }],
+      ];
+      for (const [body, headers, status, expected] of cases) {
+        const response = await post(path, body, { headers });
+        expect([body, response.status, await response.json()]).toMatchObject([body, status, expected]);
+      }
+    });
+
+    it("answers 405 with the Allow: POST header for a wrong method", async () => {
+      for (const method of ["GET", "PUT"]) {
+        const response = await fetch(`${base}${path}`, { method, headers: buyerAuth });
+        expect(response.headers.get("allow")).toBe("POST");
+        await expectEnvelope(response, 405, "method_not_allowed");
+      }
+      expect(applications.calls).toEqual([]);
     });
   });
 

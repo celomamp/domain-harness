@@ -6,6 +6,7 @@ import type {
   BoilerplateResult,
   BoilerplateTarget,
   GuidanceEndpointState,
+  IdentificationFileRendering,
   ProjectInfo,
 } from "@domain-harness/contract";
 import { Button } from "./button.tsx";
@@ -62,10 +63,21 @@ export const NEW_APPLICATION_COPY = {
     endpointUnset: "The Company Guidance endpoint is not set. Ask the Buyer to set it. Nothing was generated.",
     unavailable: "The Boilerplate is unavailable right now, so nothing was generated. Try again in a few minutes.",
   },
+  register: {
+    heading: "Register an existing Application",
+    submit: "Register the Application",
+    roleDenied: "Only the Buyer can register an existing Application. Nothing was created.",
+    projectNotFound: "That Project no longer exists. Choose another Project. Nothing was created.",
+    actionUnavailable: "The Application could not be registered right now, so nothing was created. Try again in a few minutes.",
+    registered: (fileName: string) =>
+      `The Application is registered. Commit ${fileName} to the repository root. No Boilerplate is generated for a registered Application.`,
+    resultHeading: "Project identification file",
+    file: (fileName: string) => `File: ${fileName}`,
+  },
 } as const;
 
 /** The forms of the New-application flow surface. */
-export type NewApplicationIntent = "place" | "guidance-endpoint" | "boilerplate";
+export type NewApplicationIntent = "place" | "register" | "guidance-endpoint" | "boilerplate";
 
 /** What the New-application flow action reports back to the page. */
 export interface NewApplicationActionData {
@@ -86,9 +98,16 @@ export interface NewApplicationActionData {
   readonly endpoint?: { readonly value: string; readonly error: string | undefined };
   /** The Boilerplate just generated. */
   readonly boilerplate?: BoilerplateResult;
+  /** The identification file of the Application just registered (the register form is emptied after a success). */
+  readonly registration?: IdentificationFileRendering;
 }
 
-const fieldId = (field: NewApplicationField) => `new-application-${field}`;
+/** The DOM id prefix of the place form's fields. */
+const PLACE_FIELD_PREFIX = "new-application";
+/** The DOM id prefix of the register form's fields (both forms are mounted at once). */
+export const REGISTER_FIELD_PREFIX = "register-application";
+
+const fieldId = (prefix: string, field: NewApplicationField) => `${prefix}-${field}`;
 
 export interface NewApplicationFormProps {
   /** A refused submit: its values and field errors, kept in the fields. */
@@ -97,12 +116,20 @@ export interface NewApplicationFormProps {
   readonly children: ReactNode;
 }
 
-const described = (errors: NewApplicationActionData["fieldErrors"], field: NewApplicationField) =>
-  errors[field] === undefined ? {} : { "aria-invalid": true as const, "aria-describedby": `${fieldId(field)}-error` };
+const described = (errors: NewApplicationActionData["fieldErrors"], field: NewApplicationField, prefix: string) =>
+  errors[field] === undefined ? {} : { "aria-invalid": true as const, "aria-describedby": `${fieldId(prefix, field)}-error` };
 
-function FieldError({ errors, field }: { errors: NewApplicationActionData["fieldErrors"]; field: NewApplicationField }) {
+function FieldError({
+  errors,
+  field,
+  prefix,
+}: {
+  errors: NewApplicationActionData["fieldErrors"];
+  field: NewApplicationField;
+  prefix: string;
+}) {
   return errors[field] === undefined ? null : (
-    <p id={`${fieldId(field)}-error`} className="field-error">
+    <p id={`${fieldId(prefix, field)}-error`} className="field-error">
       {errors[field]}
     </p>
   );
@@ -118,17 +145,17 @@ export function NewApplicationForm({ submitted, children }: NewApplicationFormPr
   const errors = submitted?.fieldErrors ?? {};
   return (
     <Form method="post" className="standard-form" aria-label={NEW_APPLICATION_COPY.heading} noValidate>
-      <label htmlFor={fieldId("description")} className="type-label">
+      <label htmlFor={fieldId(PLACE_FIELD_PREFIX, "description")} className="type-label">
         {NEW_APPLICATION_COPY.labels.description}
       </label>
       <textarea
-        id={fieldId("description")}
+        id={fieldId(PLACE_FIELD_PREFIX, "description")}
         name="description"
         rows={4}
         defaultValue={submitted?.values.description ?? ""}
-        {...described(errors, "description")}
+        {...described(errors, "description", PLACE_FIELD_PREFIX)}
       />
-      <FieldError errors={errors} field="description" />
+      <FieldError errors={errors} field="description" prefix={PLACE_FIELD_PREFIX} />
       {children}
       <Button variant="primary" type="submit">
         {NEW_APPLICATION_COPY.place}
@@ -146,21 +173,23 @@ export interface ProjectFieldProps {
   readonly note?: string | undefined;
   /** A refused submit: its chosen Project and field error, kept. */
   readonly submitted: NewApplicationActionData | undefined;
+  /** The DOM id prefix of the field and its ink text; the place form's by default. */
+  readonly idPrefix?: string;
 }
 
 /** The "Project" select: the "Choose a Project" placeholder (value ""), then every Project in tree order, labelled as on the Project tree. */
-export function ProjectField({ projects, busy = false, note, submitted }: ProjectFieldProps) {
+export function ProjectField({ projects, busy = false, note, submitted, idPrefix = PLACE_FIELD_PREFIX }: ProjectFieldProps) {
   const errors = submitted?.fieldErrors ?? {};
   return (
     <div className="standard-form__fields" {...(busy ? { "aria-busy": true as const } : {})}>
-      <label htmlFor={fieldId("projectId")} className="type-label">
+      <label htmlFor={fieldId(idPrefix, "projectId")} className="type-label">
         {NEW_APPLICATION_COPY.labels.projectId}
       </label>
       <select
-        id={fieldId("projectId")}
+        id={fieldId(idPrefix, "projectId")}
         name="projectId"
         defaultValue={submitted?.values.projectId ?? ""}
-        {...described(errors, "projectId")}
+        {...described(errors, "projectId", idPrefix)}
       >
         <option value="">{NEW_APPLICATION_COPY.chooseProject}</option>
         {projects.map((project) => (
@@ -169,13 +198,54 @@ export function ProjectField({ projects, busy = false, note, submitted }: Projec
           </option>
         ))}
       </select>
-      <FieldError errors={errors} field="projectId" />
+      <FieldError errors={errors} field="projectId" prefix={idPrefix} />
       {note === undefined ? null : <p>{note}</p>}
     </div>
   );
 }
 
 const ENDPOINT_FIELD_ID = "guidance-endpoint-url";
+
+export interface RegisterApplicationFormProps {
+  /** A refused submit: its values and field errors, kept in the fields. */
+  readonly submitted: NewApplicationActionData | undefined;
+  /** The Project field: the register form's {@link ProjectField} once the Projects load, or its busy or unavailable form. */
+  readonly children: ReactNode;
+}
+
+/**
+ * standard-form for registering an Application that already exists in the
+ * Company's repositories: a Description textarea, the Project field and a
+ * secondary button (gold stays on the place form's primary action). Shown to
+ * every role: the registry refuses anyone but the Buyer, and the refusal is
+ * announced as a denial.
+ */
+export function RegisterApplicationForm({ submitted, children }: RegisterApplicationFormProps) {
+  const errors = submitted?.fieldErrors ?? {};
+  return (
+    <Form method="post" className="standard-form" aria-labelledby="register-application-heading" noValidate>
+      <h2 id="register-application-heading" className="type-title-sm">
+        {NEW_APPLICATION_COPY.register.heading}
+      </h2>
+      <input type="hidden" name="intent" value="register" />
+      <label htmlFor={fieldId(REGISTER_FIELD_PREFIX, "description")} className="type-label">
+        {NEW_APPLICATION_COPY.labels.description}
+      </label>
+      <textarea
+        id={fieldId(REGISTER_FIELD_PREFIX, "description")}
+        name="description"
+        rows={4}
+        defaultValue={submitted?.values.description ?? ""}
+        {...described(errors, "description", REGISTER_FIELD_PREFIX)}
+      />
+      <FieldError errors={errors} field="description" prefix={REGISTER_FIELD_PREFIX} />
+      {children}
+      <Button variant="inverse" type="submit">
+        {NEW_APPLICATION_COPY.register.submit}
+      </Button>
+    </Form>
+  );
+}
 
 export interface GuidanceEndpointFormProps {
   /** The Application just placed, carried so the Boilerplate form stays after this submit. */
@@ -298,6 +368,23 @@ export function BoilerplateResultSection({ result }: { readonly result: Boilerpl
       <a href={`data:application/gzip;base64,${result.archiveBase64}`} download={result.archiveName}>
         {copy.download}
       </a>
+    </section>
+  );
+}
+
+/**
+ * The Application just registered: a raised surface (the boilerplate-result
+ * pattern) naming its identification file and showing its exact content.
+ */
+export function RegistrationResultSection({ rendering }: { readonly rendering: IdentificationFileRendering }) {
+  const copy = NEW_APPLICATION_COPY.register;
+  return (
+    <section className="boilerplate-result" aria-labelledby="registration-result-heading">
+      <h2 id="registration-result-heading" className="type-title-sm">
+        {copy.resultHeading}
+      </h2>
+      <p>{copy.file(rendering.fileName)}</p>
+      <pre>{rendering.content}</pre>
     </section>
   );
 }
