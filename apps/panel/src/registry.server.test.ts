@@ -24,6 +24,7 @@ import {
   setBuildGrant,
   generateBoilerplate,
   getGuidanceEndpoint,
+  registerApplication,
   setGuidanceEndpoint,
 } from "./registry.server.ts";
 
@@ -471,6 +472,36 @@ describe("registry client", () => {
       const denied = { code: "build_grant_denied", message: "m", subject: "projectId" };
       vi.stubGlobal("fetch", respond(403, denied));
       expect(await createApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "refused", error: denied });
+    });
+
+    it("registers an existing Application on the registered path, expecting 201", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const rendering = { fileName: ".domain-harness.json", content: '{"version":"1.0.0"}' };
+      const post = respond(201, rendering);
+      vi.stubGlobal("fetch", post);
+      expect(await registerApplication("abc", { description: " Legacy ", projectId: WEB })).toEqual({
+        kind: "ok",
+        value: rendering,
+      });
+      const [url, init] = post.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("http://registry.test/v1/applications/registered");
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe(JSON.stringify({ description: " Legacy ", projectId: WEB }));
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+      expect(new Headers(init.headers).get("content-type")).toBe("application/json");
+
+      const denied = { code: "role_denied", message: "m", subject: "role" };
+      vi.stubGlobal("fetch", respond(403, denied));
+      expect(await registerApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "refused", error: denied });
+      const notFound = { code: "project_not_found", message: "m", subject: "projectId" };
+      vi.stubGlobal("fetch", respond(404, notFound));
+      expect(await registerApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "refused", error: notFound });
+      vi.stubGlobal("fetch", respond(200, rendering));
+      expect(await registerApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(201, { ...rendering, content: 7 }));
+      expect(await registerApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(201, { ...rendering, fileName: "other.json" }));
+      expect(await registerApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "unavailable" });
     });
     it("reads and sets the Guidance endpoint with exactly { url }", async () => {
       vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");

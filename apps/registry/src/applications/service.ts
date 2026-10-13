@@ -2,6 +2,7 @@ import { and, asc, eq, max } from "drizzle-orm";
 import {
   APPLICATION_NOT_FOUND,
   BUILD_GRANT_DENIED,
+  ROLE_DENIED,
   formatIdentificationFile,
   IDENTIFICATION_FILE_NAME,
   isUuidV7,
@@ -120,30 +121,98 @@ export async function createApplication(db: RegistryDb, session: SessionInfo, bo
       });
     }
 
-    const id = mintUuidV7();
-    const verdict = validateBundleInput({
-      projects: treeNodes(current),
-      standards: await liveSet(tx, tenantId),
-      lockedStandardIds: await currentLockedIds(tx, tenantId),
-      applications: [...applicationNodes(await applicationRows(tx, tenantId)), { id, projectId }],
+    const row = await insertApplication(tx, tenantId, current, {
+      projectId,
+      description: input.description,
+      fromFlow: true,
+      createdBy: session.accountId,
     });
-    if (!verdict.ok) throw new EnvelopeError(verdict.error);
-
-    const [row] = await tx
-      .insert(applications)
-      .values({
-        id,
-        tenantId,
-        projectId,
-        description: input.description,
-        fromFlow: true,
-        sequence: await nextSequence(tx, tenantId),
-        createdBy: session.accountId,
-      })
-      .returning();
-    if (row === undefined) throw new Error("insert returned no row");
     // No Boilerplate was generated for a just-placed Application yet.
     return toInfo(row, current, new Map());
+  });
+}
+
+/**
+ * The mint/validate/insert tail both create paths share, run under the
+ * tenant's bundle lock: the registry mints the id, core validates the whole
+ * proposed bundle input with every live Application plus the new one, and the
+ * row is inserted with the given `fromFlow` and creator. The caller has
+ * already validated the body and the Project and holds whatever grant it
+ * needs; first failure inside here wins and nothing is written.
+ */
+async function insertApplication(
+  tx: RegistryTx,
+  tenantId: UuidV7,
+  current: ReadonlyMap<string, CurrentProject>,
+  proposed: { readonly projectId: UuidV7; readonly description: string; readonly fromFlow: boolean; readonly createdBy: UuidV7 },
+): Promise<ApplicationRow> {
+  const id = mintUuidV7();
+  const verdict = validateBundleInput({
+    projects: treeNodes(current),
+    standards: await liveSet(tx, tenantId),
+    lockedStandardIds: await currentLockedIds(tx, tenantId),
+    applications: [...applicationNodes(await applicationRows(tx, tenantId)), { id, projectId: proposed.projectId }],
+  });
+  if (!verdict.ok) throw new EnvelopeError(verdict.error);
+
+  const [row] = await tx
+    .insert(applications)
+    .values({
+      id,
+      tenantId,
+      projectId: proposed.projectId,
+      description: proposed.description,
+      fromFlow: proposed.fromFlow,
+      sequence: await nextSequence(tx, tenantId),
+      createdBy: proposed.createdBy,
+    })
+    .returning();
+  if (row === undefined) throw new Error("insert returned no row");
+  return row;
+}
+
+/** Throw `role_denied` unless the session is the Buyer's: only the Buyer registers an existing Application. */
+export function assertApplicationBuyer(session: SessionInfo): void {
+  if (session.role !== "Buyer") {
+    throw new EnvelopeError({
+      code: ROLE_DENIED,
+      message: "only the Buyer can register an existing Application; nothing was created",
+      subject: "role",
+    });
+  }
+}
+
+/**
+ * Register an Application that already exists in the Company's repositories
+ * (Buyer only): it is created from the same body as a placement, flagged as
+ * not created by the New-application flow, and the answer is only its Project
+ * identification file to commit — no Boilerplate, no archive. First failure
+ * wins and nothing is written: the role (403 `role_denied`, subject `role`)
+ * → the body (400 `invalid_input`, subject `body`, the extra key,
+ * `description` or `projectId`) → the Project is the tenant's (404
+ * `project_not_found`, subject `projectId`) → core validation of the whole
+ * proposed bundle input with every Application plus the new one. Runs under
+ * the tenant's bundle lock.
+ */
+export async function registerApplication(
+  db: RegistryDb,
+  session: SessionInfo,
+  body: unknown,
+): Promise<IdentificationFileRendering> {
+  assertApplicationBuyer(session);
+  const { tenantId } = session;
+  return withTenant(db, tenantId, async (tx) => {
+    await lockBundle(tx, tenantId);
+    const input = validateApplicationBody(body);
+    const current = await currentProjects(tx, tenantId);
+    if (!isUuidV7(input.projectId) || !current.has(input.projectId)) throw projectNotFound("projectId");
+    const row = await insertApplication(tx, tenantId, current, {
+      projectId: input.projectId,
+      description: input.description,
+      fromFlow: false,
+      createdBy: session.accountId,
+    });
+    return { fileName: IDENTIFICATION_FILE_NAME, content: formatIdentificationFile(toId(row.id), toId(row.projectId)) };
   });
 }
 
@@ -182,6 +251,7 @@ export async function getIdentificationFile(
 export interface ApplicationService {
   listApplications(session: SessionInfo): Promise<ApplicationList>;
   createApplication(session: SessionInfo, body: unknown): Promise<ApplicationInfo>;
+  registerApplication(session: SessionInfo, body: unknown): Promise<IdentificationFileRendering>;
   getIdentificationFile(session: SessionInfo, applicationId: string): Promise<IdentificationFileRendering>;
 }
 
@@ -189,6 +259,7 @@ export function createApplicationService(db: RegistryDb): ApplicationService {
   return {
     listApplications: (session) => listApplications(db, session),
     createApplication: (session, body) => createApplication(db, session, body),
+    registerApplication: (session, body) => registerApplication(db, session, body),
     getIdentificationFile: (session, applicationId) => getIdentificationFile(db, session, applicationId),
   };
 }

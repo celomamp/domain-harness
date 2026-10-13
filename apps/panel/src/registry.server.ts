@@ -21,6 +21,7 @@ import {
   isEffectiveStandardSet,
   isErrorEnvelope,
   isGuidanceEndpointState,
+  isIdentificationFileRendering,
   isLockedRuleState,
   isModuleInfo,
   isModuleList,
@@ -56,6 +57,7 @@ import type {
   ErrorEnvelope,
   GuidanceEndpointRequest,
   GuidanceEndpointState,
+  IdentificationFileRendering,
   LockedRuleRequest,
   LockedRuleState,
   ModuleInfo,
@@ -318,6 +320,20 @@ export function createApplication(
 ): Promise<RegistryResult<ApplicationInfo>> {
   const body: ApplicationCreateRequest = { description: input.description, projectId: input.projectId };
   return call(APPLICATION_API_PATHS.applications, json(body, bearer(sessionToken)), 201, isApplicationInfo);
+}
+
+/**
+ * Register an existing Application (the registry allows only the Buyer). The
+ * values are passed as submitted; the registry trims the description,
+ * validates and answers field errors, and answers only the Project
+ * identification file to commit — no Boilerplate.
+ */
+export function registerApplication(
+  sessionToken: string,
+  input: { readonly description: string; readonly projectId: string },
+): Promise<RegistryResult<IdentificationFileRendering>> {
+  const body: ApplicationCreateRequest = { description: input.description, projectId: input.projectId };
+  return call(APPLICATION_API_PATHS.registered, json(body, bearer(sessionToken)), 201, isIdentificationFileRendering);
 }
 
 /** The Company Guidance endpoint (every role may read). */

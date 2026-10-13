@@ -33,6 +33,7 @@ import type { ErrorEnvelope, SessionInfo } from "@domain-harness/contract";
 import { isEnvelopeError } from "../errors.ts";
 import { assertBuyer } from "../modules/service.ts";
 import type { ApplicationService } from "../applications/service.ts";
+import { assertApplicationBuyer } from "../applications/service.ts";
 import type { BoilerplateService } from "../boilerplate/service.ts";
 import type { BuildGrantService } from "../build-grants/service.ts";
 import type { ChildPermissionService } from "../child-permissions/service.ts";
@@ -133,6 +134,7 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [PROJECT_CHILD_PERMISSIONS_ROUTE]: ["GET", "POST"],
   [PROJECT_BUILD_GRANTS_ROUTE]: ["GET", "POST"],
   [APPLICATION_API_PATHS.applications]: ["GET", "POST"],
+  [APPLICATION_API_PATHS.registered]: ["POST"],
   [APPLICATION_IDENTIFICATION_FILE_ROUTE]: ["GET"],
   [APPLICATION_BOILERPLATE_ROUTE]: ["POST"],
   [GUIDANCE_ENDPOINT_PATH]: ["GET", "POST"],
@@ -202,7 +204,9 @@ class HttpFailure extends Error {
  * current build grant. An Application's Project identification file is open
  * to every role. The Company Guidance endpoint is open to every role and only
  * the Buyer may set it (`role_denied` before the body is read). Generating an
- * Application's Boilerplate is open to every role.
+ * Application's Boilerplate is open to every role. Only the Buyer may register
+ * an existing Application (`role_denied` before the body is read); the answer
+ * is only its Project identification file, and no Boilerplate is generated.
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
@@ -389,6 +393,15 @@ async function handle(
     case APPLICATION_IDENTIFICATION_FILE_ROUTE: {
       const session = await service.getSession(bearerToken(req));
       sendJson(res, 200, await services.applications.getIdentificationFile(session, match.id));
+      return;
+    }
+    case APPLICATION_API_PATHS.registered: {
+      const session = await service.getSession(bearerToken(req));
+      // Only the Buyer registers, before the body is read (it is drained,
+      // never parsed for any other role); then the service checks the body,
+      // the Project and the core bundle, so the first failure wins.
+      requireBuyer(req, session, assertApplicationBuyer);
+      sendJson(res, 201, await services.applications.registerApplication(session, await readJson(req)));
       return;
     }
     case APPLICATION_BOILERPLATE_ROUTE: {

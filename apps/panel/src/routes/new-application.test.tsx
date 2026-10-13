@@ -72,12 +72,37 @@ const status = (): HTMLElement => {
   return region;
 };
 
-const description = () => screen.getByLabelText<HTMLTextAreaElement>("Description");
-const project = () => screen.getByLabelText<HTMLSelectElement>("Project");
+/**
+ * The place form's fields, by their DOM id. Both forms on the page label their
+ * fields "Description" and "Project", so the id prefix tells them apart.
+ */
+const description = (): HTMLTextAreaElement => must("#new-application-description") as HTMLTextAreaElement;
+const project = (): HTMLSelectElement => must("#new-application-projectId") as HTMLSelectElement;
+
+const must = (selector: string): Element => {
+  const element = document.querySelector(selector);
+  if (element === null) expect.fail(`missing element ${selector}`);
+  return element;
+};
+
+/** Waits until the "Web" Project of the tree has loaded into `select`. */
+const webOption = async (select: () => HTMLSelectElement): Promise<void> => {
+  await waitFor(() => {
+    const option = [...select().options].find((o) => o.textContent === "Web (level Product line)");
+    expect(option).toBeTruthy();
+  });
+};
+
+/** Waits until the given field is mounted (the stub's first render is asynchronous). */
+const mounted = (selector: string): Promise<void> =>
+  waitFor(() => {
+    expect(document.querySelector(selector)).not.toBeNull();
+  });
 
 async function submit(text: string, projectId: string): Promise<void> {
-  fireEvent.change(await screen.findByLabelText("Description"), { target: { value: text } });
-  await screen.findByRole("option", { name: "Web (level Product line)" });
+  await mounted("#new-application-description");
+  fireEvent.change(description(), { target: { value: text } });
+  await webOption(project);
   fireEvent.change(project(), { target: { value: projectId } });
   fireEvent.click(screen.getByRole("button", { name: "Place the Application" }));
 }
@@ -90,7 +115,7 @@ afterEach(() => {
 describe("New-application flow page", () => {
   it("shows the heading, the nav entry, a Description, a Project select with the placeholder first and the one gold button", async () => {
     renderPage("Builder", Promise.resolve(ok(tree)));
-    expect(await screen.findByRole("option", { name: "Web (level Product line)" })).toBeTruthy();
+    await webOption(project);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("New-application flow");
     expect(screen.getByRole("link", { name: "New-application flow" }).getAttribute("aria-current")).toBe("page");
     expect(description().tagName).toBe("TEXTAREA");
@@ -108,7 +133,10 @@ describe("New-application flow page", () => {
 
   it("keeps the form structure busy while the Projects load", async () => {
     renderPage("Builder", new Promise(() => undefined));
-    expect(await screen.findByText("Loading the Projects…")).toBeTruthy();
+    // Both forms' Project fields stream the same busy fallback.
+    await waitFor(() => {
+      expect(screen.getAllByText("Loading the Projects…")).toHaveLength(2);
+    });
     expect(project().closest("[aria-busy]")?.getAttribute("aria-busy")).toBe("true");
     expect(description()).toBeTruthy();
     expect([...project().options].map((o) => o.textContent)).toEqual(["Choose a Project"]);
@@ -127,7 +155,11 @@ describe("New-application flow page", () => {
     ],
   ])("says the Projects are unavailable on %s, keeping the form structure", async (_label, result: () => Promise<unknown>) => {
     renderPage("Builder", result());
-    expect(await screen.findByText("The Projects are unavailable right now. Try again in a few minutes.")).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("The Projects are unavailable right now. Try again in a few minutes."),
+      ).toHaveLength(2);
+    });
     expect(description()).toBeTruthy();
     expect(project()).toBeTruthy();
     expect(screen.getByRole("button", { name: "Place the Application" })).toBeTruthy();
@@ -194,6 +226,123 @@ describe("New-application flow page", () => {
       expect(status().textContent).toBe("That Project no longer exists. Choose another Project. Nothing was created.");
     });
   });
+});
+
+describe("Registering an existing Application", () => {
+  const rendering = {
+    fileName: ".domain-harness.json",
+    content: `{"version":"1.0.0","applicationId":"${APP}","projectId":"${B}"}`,
+  };
+  const registerDescription = (): HTMLTextAreaElement =>
+    must("#register-application-description") as HTMLTextAreaElement;
+  const registerProject = (): HTMLSelectElement => must("#register-application-projectId") as HTMLSelectElement;
+
+  async function submitRegister(text: string, projectId: string): Promise<void> {
+    await mounted("#register-application-description");
+    fireEvent.change(registerDescription(), { target: { value: text } });
+    await webOption(registerProject);
+    fireEvent.change(registerProject(), { target: { value: projectId } });
+    fireEvent.click(screen.getByRole("button", { name: "Register the Application" }));
+  }
+
+  it("shows the register form to every role, with a secondary button and gold kept on the place form", async () => {
+    renderPage("Buyer", Promise.resolve(ok(tree)));
+    expect(await screen.findByRole("heading", { name: "Register an existing Application" })).toBeTruthy();
+    expect(registerDescription().tagName).toBe("TEXTAREA");
+    await webOption(registerProject);
+    expect([...registerProject().options].map((o) => [o.value, o.textContent])).toEqual([
+      ["", "Choose a Project"],
+      [ROOT, "Acme (root Project)"],
+      [A, "Platform (level Division)"],
+      [B, "Web (level Product line)"],
+    ]);
+    expect(registerProject().value).toBe("");
+    expect(screen.getByRole("button", { name: "Register the Application" }).className).toBe("button-inverse");
+    expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
+  });
+
+  it("registers for the Buyer: names the file, shows its exact content, and empties the form", async () => {
+    const fetch = registry([201, rendering]);
+    renderPage("Buyer", Promise.resolve(ok(tree)));
+    await submitRegister(" Legacy checkout ", B);
+    await waitFor(() => {
+      expect(status().textContent).toBe(
+        "The Application is registered. Commit .domain-harness.json to the repository root. No Boilerplate is generated for a registered Application.",
+      );
+    });
+    expect(status().querySelector(".denial")).toBeNull();
+    const section = await screen.findByRole("region", { name: "Project identification file" });
+    expect(section.className).toBe("boilerplate-result");
+    expect(screen.getByText("File: .domain-harness.json")).toBeTruthy();
+    expect(section.querySelector("pre")?.textContent).toBe(rendering.content);
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(/\/v1\/applications\/registered$/);
+    expect(init.body).toBe(JSON.stringify({ description: " Legacy checkout ", projectId: B }));
+    await waitFor(() => {
+      expect(registerDescription().value).toBe("");
+    });
+    expect(registerProject().value).toBe("");
+  });
+
+  it("announces a denial when a Builder registers, keeping the submitted values", async () => {
+    registry([403, { code: "role_denied", message: "m", subject: "role" }]);
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    await submitRegister("Legacy", A);
+    await waitFor(() => {
+      expect(status().textContent).toBe("Only the Buyer can register an existing Application. Nothing was created.");
+    });
+    expect(status().querySelector(".denial")).not.toBeNull();
+    expect(registerDescription().value).toBe("Legacy");
+    expect(registerProject().value).toBe(A);
+  });
+
+  it("puts ink text under the register form's Description on a bad description, keeping the Project", async () => {
+    registry([400, { code: "invalid_input", message: "m", subject: "description" }]);
+    renderPage("Buyer", Promise.resolve(ok(tree)));
+    await submitRegister("   ", A);
+    expect(await screen.findByText("Describe the Application in 1 to 500 characters. Nothing was created.")).toBeTruthy();
+    expect(registerDescription().getAttribute("aria-invalid")).toBe("true");
+    expect(registerDescription().getAttribute("aria-describedby")).toBe("register-application-description-error");
+    expect(registerProject().value).toBe(A);
+    // The place form is untouched.
+    expect(document.querySelector("#new-application-description-error")).toBeNull();
+  });
+
+  it("names the register form's Project field when no Project is chosen, keeping the description", async () => {
+    registry([400, { code: "invalid_input", message: "m", subject: "projectId" }]);
+    renderPage("Buyer", Promise.resolve(ok(tree)));
+    await submitRegister("Legacy", "");
+    expect(await screen.findByText("A description with no Project is not created. Choose a Project.")).toBeTruthy();
+    expect(registerProject().getAttribute("aria-invalid")).toBe("true");
+    expect(registerProject().getAttribute("aria-describedby")).toBe("register-application-projectId-error");
+    expect(registerDescription().value).toBe("Legacy");
+  });
+
+  it("asks for another Project when the chosen one no longer exists", async () => {
+    registry([404, { code: "project_not_found", message: "m", subject: "projectId" }]);
+    renderPage("Buyer", Promise.resolve(ok(tree)));
+    await submitRegister("Legacy", A);
+    await waitFor(() => {
+      expect(status().textContent).toBe("That Project no longer exists. Choose another Project. Nothing was created.");
+    });
+  });
+
+  it("says the registration is unavailable on anything else", async () => {
+    await submitRegisterExpectingUnavailable([409, { code: "slot_conflict", message: "m", subject: "s" }]);
+    await submitRegisterExpectingUnavailable([500, {}]);
+  });
+
+  async function submitRegisterExpectingUnavailable(...answers: [number, unknown][]): Promise<void> {
+    registry(...answers);
+    renderPage("Buyer", Promise.resolve(ok(tree)));
+    await submitRegister("Legacy", A);
+    await waitFor(() => {
+      expect(status().textContent).toBe(
+        "The Application could not be registered right now, so nothing was created. Try again in a few minutes.",
+      );
+    });
+    cleanup();
+  }
 });
 
 describe("Boilerplate and Guidance endpoint on the New-application flow", () => {
@@ -481,5 +630,28 @@ describe("/new-application loader and action", () => {
     registry([403, { code: "build_grant_denied", message: "m", subject: "projectId" }], [503, {}]);
     const result = (await action(actionArgs({ description: "x", projectId: A }))) as unknown as { data: { status: { message: string } } };
     expect(result.data.status.message).toBe(`You have no build grant on ${A}. Ask the Buyer for one. Nothing was created.`);
+  });
+
+  it("redirects to sign-in on a lapsed session for the register form", async () => {
+    registry([401, { code: "session_invalid", message: "m", subject: "session" }]);
+    const lapsed = await action(actionArgs({ intent: "register", description: "x", projectId: A }));
+    expect((lapsed as Response).headers.get("location")).toBe("/sign-in");
+  });
+
+  it.each([
+    ["an outage", () => Promise.reject(new Error("down"))],
+    ["an unexpected refusal", () => Promise.resolve(new Response(JSON.stringify({ code: "not_found", message: "m", subject: "/" }), { status: 404 }))],
+  ])("reports a refused registration on %s as a 503 denial, keeping the values", async (_label, answer) => {
+    vi.stubGlobal("fetch", vi.fn(answer));
+    const result = (await action(actionArgs({ intent: "register", description: "x", projectId: A }))) as unknown as {
+      data: { status: unknown; values: unknown };
+      init: { status: number };
+    };
+    expect(result.init.status).toBe(503);
+    expect(result.data.status).toEqual({
+      tone: "denial",
+      message: "The Application could not be registered right now, so nothing was created. Try again in a few minutes.",
+    });
+    expect(result.data.values).toEqual({ description: "x", projectId: A });
   });
 });
