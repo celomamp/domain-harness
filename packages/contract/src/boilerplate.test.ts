@@ -29,10 +29,11 @@ describe("Boilerplate wire contract", () => {
   it("names the paths, constants and codes once", () => {
     expect(GUIDANCE_ENDPOINT_PATH).toBe("/v1/guidance-endpoint");
     expect(GUIDANCE_ENDPOINT_URL_MAX).toBe(2048);
-    expect(BOILERPLATE_TARGETS).toEqual(["claude-code"]);
+    expect(BOILERPLATE_TARGETS).toEqual(["claude-code", "cursor"]);
     expect(applicationBoilerplatePath(APP)).toBe(`/v1/applications/${APP}/boilerplate`);
     expect(applicationBoilerplatePath("a/b")).toBe("/v1/applications/a%2Fb/boilerplate");
     expect(boilerplateArchiveName(APP, "claude-code")).toBe(`domain-harness-${APP}-claude-code.tar.gz`);
+    expect(boilerplateArchiveName(APP, "cursor")).toBe(`domain-harness-${APP}-cursor.tar.gz`);
     expect(MCP_BRIDGE_PACKAGE).toBe("@domain-harness/mcp-bridge");
     expect(GUIDANCE_ENDPOINT_UNSET).toBe("guidance_endpoint_unset");
     expect(UNSUPPORTED_ECOSYSTEM).toBe("unsupported_ecosystem");
@@ -41,7 +42,8 @@ describe("Boilerplate wire contract", () => {
 
   it("knows the targets", () => {
     expect(isBoilerplateTarget("claude-code")).toBe(true);
-    expect(isBoilerplateTarget("cursor")).toBe(false);
+    expect(isBoilerplateTarget("cursor")).toBe(true);
+    expect(isBoilerplateTarget("windsurf")).toBe(false);
     expect(isBoilerplateTarget(null)).toBe(false);
   });
 
@@ -66,7 +68,7 @@ describe("Boilerplate wire contract", () => {
 
   it.each([
     ["a bad id", { ...result, applicationId: "x" }],
-    ["an unknown target", { ...result, target: "cursor" }],
+    ["an unknown target", { ...result, target: "windsurf" }],
     ["an empty archive", { ...result, archiveBase64: "" }],
     ["no artifacts", { ...result, artifacts: [] }],
     ["an unknown artifact kind", { ...result, artifacts: [{ kind: "hooks", path: "x" }] }],

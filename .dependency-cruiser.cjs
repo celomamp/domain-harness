@@ -78,10 +78,11 @@ module.exports = {
     },
     {
       name: "no-circular",
-      comment: "No dependency cycles.",
+      comment:
+        "No dependency cycles, except the one pair the contract blesses: applications.ts imports isBoilerplateTarget from boilerplate.ts while boilerplate.ts imports APPLICATION_API_PATHS from applications.ts (Story 3.4 design notes — both are used at call time only, so ESM resolves the cycle). via.pathNot lets a cycle pass only when every module in it is one of these two files; any cycle that touches any other module still fires.",
       severity: "error",
       from: {},
-      to: { circular: true },
+      to: { circular: true, via: { pathNot: "^packages/contract/src/(applications|boilerplate)\\.ts$" } },
     },
   ],
   options: {

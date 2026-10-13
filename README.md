@@ -282,8 +282,8 @@ An Application is bound to exactly one Project. The registry mints its id (a UUI
 
 | Endpoint | Body | Success | Who |
 |---|---|---|---|
-| `GET /v1/applications` | none | `200 { applications }`: every Application of the Company `{ id, description, project: { id, name }, fromFlow, createdAt }`, ordered by `createdAt`, then id | every role |
-| `POST /v1/applications` | exactly `{ "description", "projectId" }` | `201` the Application, `fromFlow: true`, the description stored trimmed | the Buyer on any Project; any other account on a Project it holds a build grant on |
+| `GET /v1/applications` | none | `200 { applications }`: every Application of the Company `{ id, description, project: { id, name }, fromFlow, agentTool, createdAt }` (`agentTool` is the target of the latest successful Boilerplate generation, `null` when none), ordered by `createdAt`, then id | every role |
+| `POST /v1/applications` | exactly `{ "description", "projectId" }` | `201` the Application, `fromFlow: true`, `agentTool: null`, the description stored trimmed | the Buyer on any Project; any other account on a Project it holds a build grant on |
 
 The GET answers `401 session_invalid` without a session. A placement is checked in this order; the first failure wins and nothing is written: `401 session_invalid` → the transport refusals (`415`, `413`, `400 invalid_input` subject `body` for malformed JSON) → under the bundle lock, `400 invalid_input` with subject `body` (not an object) or the unexpected key → `400 invalid_input` subject `description` (not a string, or empty or longer than 500 characters once trimmed) → `400 invalid_input` subject `projectId` ("choose a Project for the Application; nothing was created") when it is absent, not a string or empty → `404 project_not_found` subject `projectId` (malformed, unknown or another Company's) → `403 build_grant_denied` subject `projectId` ("you have no build grant on this Project; nothing was created") when the caller is not the Buyer and holds no current build grant on that Project (the child-Project permission does not count) → core validation of the whole bundle → the row is inserted. No plan or band check applies.
 
@@ -315,7 +315,7 @@ It answers `401 session_invalid` without a session, `405` for any method but GET
 
 ### Boilerplate
 
-A Boilerplate is a starter repository for one Application and one agent tool (`claude-code` for now), already placed inside the Standards and wired to Company Guidance with no manual MCP setup.
+A Boilerplate is a starter repository for one Application and one agent tool — Claude Code or Cursor — already placed inside the Standards and wired to Company Guidance with no manual MCP setup.
 
 **Company Guidance endpoint.** The Buyer sets one Guidance endpoint URL per Company on the New-application flow surface. Every change is one row of `guidance_endpoint_changes` (migration `0010`, append-only, RLS forced, SELECT and INSERT only); the current URL is the highest sequence. The URL is trimmed and must be 1 to 2048 characters, parse as a URL, use `https:`, and carry no whitespace, user name, password or fragment. Setting the current URL again writes nothing.
 
@@ -323,26 +323,30 @@ A Boilerplate is a starter repository for one Application and one agent tool (`c
 |---|---|---|---|
 | `GET /v1/guidance-endpoint` | none | `200 { url, changedAt }`, both `null` when unset | every role |
 | `POST /v1/guidance-endpoint` | `{ url }` | `200 { url, changedAt }` | Buyer only (`403 role_denied` before the body is read) |
-| `POST /v1/applications/{id}/boilerplate` | `{ target: "claude-code" }` | `200 { applicationId, target, archiveName, archiveBase64, artifacts }` | every role |
+| `POST /v1/applications/{id}/boilerplate` | `{ target }`: `"claude-code"` or `"cursor"` | `200 { applicationId, target, archiveName, archiveBase64, artifacts }` | every role |
 
-**Generation.** Under the tenant transaction and the bundle lock, first failure wins and nothing is returned partially: the Application exists (`404 application_not_found`) → the body is exactly `{ target }` with a known target (`400 invalid_input`, subject `target`) → the endpoint is set (`409 guidance_endpoint_unset`: ask the Buyer to set it) → the Effective Standard set of the Application's Project resolves through `core` → the ecosystem check → the conflict check → render.
+**Agent-tool recording.** A successful generation records its target as the Application's agent tool: one row of `application_agent_tool_changes` (migration `0011`, append-only, RLS forced, SELECT and INSERT only, `agent_tool` one of the two targets). An Application's current agent tool is its highest per-Application sequence; generating the current target again writes nothing, and a refusal writes nothing. `GET /v1/applications` answers it as `agentTool` — the target of the latest successful generation, `null` when none.
+
+**Generation.** Under the tenant transaction and the bundle lock, first failure wins and nothing is returned partially: the Application exists (`404 application_not_found`) → the body is exactly `{ target }` with a known target (`400 invalid_input`, subject `target`) → the endpoint is set (`409 guidance_endpoint_unset`: ask the Buyer to set it) → the Effective Standard set of the Application's Project resolves through `core` → the ecosystem check → the conflict check → render and pack → the target is recorded as the Application's agent tool (nothing recorded when a refusal won above).
 
 **Ecosystem rule.** The pilot supports TypeScript and npm only. A required `language` must be `typescript` (pinned as `devDependencies.typescript`) or `javascript` (no pin); a required `framework` or `library` must have a valid npm package name once lowercased and becomes `dependencies[name]`. The pin is the version constraint verbatim, or `"*"`. Any other required entry stops generation with `409 unsupported_ecosystem`, one sentence naming each as `<category> <name>`. Approved and prohibited entries are never pinned; the instructions list them. A pin named like a prohibited code-stack entry (case-insensitively), or one package pinned to two versions, is `409 boilerplate_conflict`.
 
-**Files**, at the archive root, in this order:
+**Files**, at the archive root, in this order — the three shared files, then the target's own:
 
 | Artifact | Path | Content |
 |---|---|---|
 | Project identification file | `.domain-harness.json` | `formatIdentificationFile(applicationId, projectId)` |
 | Dependency pins | `package.json` | `application-<id>`, private, ESM, the required pins (keys sorted) |
 | Design-system references | `design-system.json` | required and prohibited imports and tokens, components with usage rules and tokens |
-| MCP configuration | `.mcp.json` | the `domain-harness` server: `npx -y @domain-harness/mcp-bridge <endpoint URL>` |
-| Instructions | `CLAUDE.md` | the Project, the pinned, approved and prohibited stack, the design-system rules |
-| Skills | `.claude/skills/domain-harness-guidance/SKILL.md` | how to request Guidance through the `domain-harness` MCP server |
 
-`CLAUDE.md` and the skill both tell the agent to make an initial commit before calling Guidance, because the bridge identifies the repository by its root commit. The first three files are target-independent, so every target ships them byte for byte the same. The archive never holds hook configuration (no `settings.json`, no `hooks` key).
+| Target | MCP configuration | Instructions | Skills |
+|---|---|---|---|
+| Claude Code | `.mcp.json`: the `domain-harness` server, `npx -y @domain-harness/mcp-bridge <endpoint URL>` | `CLAUDE.md` | `.claude/skills/domain-harness-guidance/SKILL.md` |
+| Cursor | `.cursor/mcp.json`: the same bridge entry plus Cursor's `type: "stdio"` | `AGENTS.md` | `.cursor/skills/domain-harness-guidance/SKILL.md` |
 
-**Archive format.** A ustar tar (regular files only, mode 0644, uid/gid 0, mtime 0, no owner names) in the order above, gzip-compressed, returned base64 in JSON as `domain-harness-<applicationId>-claude-code.tar.gz`. Equal inputs give identical bytes. Logs carry the Application id, the target and the file count only. On the panel, after a placement, the Builder picks the agent tool and generates the Boilerplate; the result lists each artifact in text with a download link.
+`AGENTS.md` is the exact `CLAUDE.md` content with the one path reference `.mcp.json` → `.cursor/mcp.json`, and the Cursor skill is the exact Claude skill content with the same one path swap. The instruction file and the skill both tell the agent to make an initial commit before calling Guidance, because the bridge identifies the repository by its root commit. The first three files are target-independent, so every target ships them byte for byte the same; only the MCP configuration and the instruction and skill file locations and formats differ. The archive never holds hook configuration (no `settings.json`, no `hooks` key, no `hooks.json`).
+
+**Archive format.** A ustar tar (regular files only, mode 0644, uid/gid 0, mtime 0, no owner names) in the order above, gzip-compressed, returned base64 in JSON as `domain-harness-<applicationId>-<target>.tar.gz`. Equal inputs give identical bytes. Logs carry the Application id, the target and the file count only. On the panel, after a placement, the Builder picks the agent tool (Claude Code or Cursor) and generates the Boilerplate; the result lists each artifact in text with a download link.
 
 ## Telemetry
 

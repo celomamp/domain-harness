@@ -46,7 +46,7 @@ export const NEW_APPLICATION_COPY = {
   boilerplate: {
     heading: "Boilerplate",
     targetLabel: "Agent tool",
-    targets: { "claude-code": "Claude Code" } satisfies Record<BoilerplateTarget, string>,
+    targets: { "claude-code": "Claude Code", cursor: "Cursor" } satisfies Record<BoilerplateTarget, string>,
     submit: "Generate the Boilerplate",
     resultHeading: (target: string) => `Boilerplate for ${target}`,
     ready: (target: string) => `The ${target} Boilerplate is ready to download.`,

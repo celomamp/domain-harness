@@ -15,6 +15,7 @@ const flow = {
   description: "Checkout service",
   project: { id: WEB, name: "Web" },
   fromFlow: true,
+  agentTool: "claude-code",
   createdAt: "2026-10-13T23:30:00.000Z",
 };
 const registered = {
@@ -22,6 +23,7 @@ const registered = {
   description: "Legacy billing",
   project: { id: ROOT, name: "Acme" },
   fromFlow: false,
+  agentTool: null,
   createdAt: "2026-10-14T08:00:00.000Z",
 };
 

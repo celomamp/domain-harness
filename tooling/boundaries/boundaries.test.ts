@@ -74,6 +74,12 @@ describe("boundary check on fixtures", () => {
     );
   });
 
+  it("fails on a dependency cycle among contract files that are not the blessed pair", async () => {
+    expect(lines(await checkBoundaries(fixture("contract-circular")))).toContain(
+      'no-circular: packages/contract/src/a.ts imports "./b.ts" (resolves to packages/contract/src/b.ts)',
+    );
+  });
+
   it("fails when core imports a third-party package or a Node built-in", async () => {
     const found = lines(await checkBoundaries(fixture("core-imports-third-party")));
     expect(found).toContain('core-imports-only-contract: packages/core/src/index.ts imports "zod"');

@@ -136,7 +136,7 @@ describe("New-application flow page", () => {
   it("announces a placed Application naming its Project, and empties the form", async () => {
     const fetch = registry([
       201,
-      { id: APP, description: "Checkout", project: { id: B, name: "Web" }, fromFlow: true, createdAt: AT },
+      { id: APP, description: "Checkout", project: { id: B, name: "Web" }, fromFlow: true, agentTool: null, createdAt: AT },
     ]);
     renderPage("Builder", Promise.resolve(ok(tree)));
     await submit(" Checkout ", B);
@@ -199,7 +199,7 @@ describe("New-application flow page", () => {
 describe("Boilerplate and Guidance endpoint on the New-application flow", () => {
   const placedAnswer: [number, unknown] = [
     201,
-    { id: APP, description: "Checkout", project: { id: B, name: "Web" }, fromFlow: true, createdAt: AT },
+    { id: APP, description: "Checkout", project: { id: B, name: "Web" }, fromFlow: true, agentTool: null, createdAt: AT },
   ];
   const result = {
     applicationId: APP,
@@ -213,6 +213,20 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
       { kind: "mcp-configuration", path: ".mcp.json" },
       { kind: "instructions", path: "CLAUDE.md" },
       { kind: "skills", path: ".claude/skills/domain-harness-guidance/SKILL.md" },
+    ],
+  };
+  const cursorResult = {
+    applicationId: APP,
+    target: "cursor",
+    archiveName: `domain-harness-${APP}-cursor.tar.gz`,
+    archiveBase64: "H4sIAAAAAAACA2NgGAWjYBSMglEwCoYmAAA1dk3oAAQAAA==",
+    artifacts: [
+      { kind: "identification-file", path: ".domain-harness.json" },
+      { kind: "dependency-pins", path: "package.json" },
+      { kind: "design-system-references", path: "design-system.json" },
+      { kind: "mcp-configuration", path: ".cursor/mcp.json" },
+      { kind: "instructions", path: "AGENTS.md" },
+      { kind: "skills", path: ".cursor/skills/domain-harness-guidance/SKILL.md" },
     ],
   };
   const endpointField = () => screen.getByLabelText<HTMLInputElement>("Guidance endpoint URL");
@@ -290,12 +304,16 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     expect(endpointField().value).toBe("http://x");
   });
 
-  it("offers the Boilerplate after a placement: a labelled Agent tool select with Claude Code only", async () => {
+  it("offers the Boilerplate after a placement: a labelled Agent tool select with both agent tools", async () => {
     registry(placedAnswer);
     renderPage("Builder", Promise.resolve(ok(tree)));
     await submit("Checkout", B);
     const tool = await screen.findByLabelText<HTMLSelectElement>("Agent tool");
-    expect([...tool.options].map((o) => [o.value, o.textContent])).toEqual([["claude-code", "Claude Code"]]);
+    expect([...tool.options].map((o) => [o.value, o.textContent])).toEqual([
+      ["claude-code", "Claude Code"],
+      ["cursor", "Cursor"],
+    ]);
+    expect(tool.value).toBe("claude-code");
     expect(screen.getByRole("button", { name: "Generate the Boilerplate" }).className).toBe("button-inverse");
     expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
   });
@@ -320,6 +338,31 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     const [url, init] = fetch.mock.calls[1] as unknown as [string, RequestInit];
     expect(url).toMatch(new RegExp(`/v1/applications/${APP}/boilerplate$`));
     expect(init.body).toBe(JSON.stringify({ target: "claude-code" }));
+  });
+
+  it("generates for Cursor when it is chosen in the select, with the Cursor result surface", async () => {
+    const fetch = registry(placedAnswer, [200, cursorResult]);
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    await submit("Checkout", B);
+    fireEvent.change(await screen.findByLabelText("Agent tool"), { target: { value: "cursor" } });
+    fireEvent.click(screen.getByRole("button", { name: "Generate the Boilerplate" }));
+    const section = await screen.findByRole("region", { name: "Boilerplate for Cursor" });
+    expect(section.className).toBe("boilerplate-result");
+    expect([...section.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
+      "Project identification file: .domain-harness.json",
+      "Dependency pins: package.json",
+      "Design-system references: design-system.json",
+      "MCP configuration: .cursor/mcp.json",
+      "Instructions: AGENTS.md",
+      "Skills: .cursor/skills/domain-harness-guidance/SKILL.md",
+    ]);
+    const link = screen.getByRole("link", { name: "Download the archive" });
+    expect(link.getAttribute("download")).toBe(cursorResult.archiveName);
+    expect(link.getAttribute("href")).toBe(`data:application/gzip;base64,${cursorResult.archiveBase64}`);
+    expect(status().textContent).toBe("The Cursor Boilerplate is ready to download.");
+    const [url, init] = fetch.mock.calls[1] as unknown as [string, RequestInit];
+    expect(url).toMatch(new RegExp(`/v1/applications/${APP}/boilerplate$`));
+    expect(init.body).toBe('{"target":"cursor"}');
   });
 
   it("asks for the Buyer when the endpoint is unset, keeping the Boilerplate form", async () => {

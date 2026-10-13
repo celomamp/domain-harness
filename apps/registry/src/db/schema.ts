@@ -447,7 +447,44 @@ export const guidanceEndpointChanges = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0010. */
+/**
+ * Migration 0011: the Application agent-tool changes (Story 3.4), append-only,
+ * a per-Application sibling of the endpoint changes; the current tool of an
+ * Application is the highest sequence of its rows.
+ */
+export const applicationAgentToolChanges = pgTable(
+  "application_agent_tool_changes",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    applicationId: uuid("application_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    agentTool: text("agent_tool").notNull(),
+    changedBy: uuid("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("application_agent_tool_changes_tenant_id_application_id_sequence_key").on(
+      table.tenantId,
+      table.applicationId,
+      table.sequence,
+    ),
+    foreignKey({
+      name: "application_agent_tool_changes_application_fkey",
+      columns: [table.tenantId, table.applicationId],
+      foreignColumns: [applications.tenantId, applications.id],
+    }),
+    foreignKey({
+      name: "application_agent_tool_changes_changed_by_fkey",
+      columns: [table.tenantId, table.changedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0011. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -464,6 +501,7 @@ export const TENANT_TABLES = [
   "build_grant_changes",
   "applications",
   "guidance_endpoint_changes",
+  "application_agent_tool_changes",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */

@@ -12,6 +12,7 @@ import type { RegistryDb } from "../db/client.ts";
 import { applications } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { applicationNotFound } from "../applications/service.ts";
+import { recordAgentTool } from "../applications/agent-tool.ts";
 import { currentGuidanceEndpoint } from "../guidance-endpoint/service.ts";
 import { toId } from "../modules/service.ts";
 import { currentProjects } from "../projects/current.ts";
@@ -46,7 +47,8 @@ export function validateBoilerplateBody(body: unknown): BoilerplateTarget {
  * `guidance_endpoint_unset`) → the Effective Standard set of the
  * Application's stored Project resolves (core's error as is) → the ecosystem
  * check (409 `unsupported_ecosystem`) → the conflict check (409
- * `boilerplate_conflict`) → render and pack.
+ * `boilerplate_conflict`) → render and pack → the target is recorded as the
+ * Application's agent tool (nothing recorded when a refusal won above).
  */
 export async function generateBoilerplate(
   db: RegistryDb,
@@ -90,13 +92,15 @@ export async function generateBoilerplate(
       guidanceUrl: endpoint.url,
       plan: planned.plan,
     });
-    return {
+    const result = {
       applicationId: id,
       target,
       archiveName: boilerplateArchiveName(id, target),
       archiveBase64: tarGz(files).toString("base64"),
       artifacts: files.map((file) => ({ kind: file.kind, path: file.path })),
     };
+    await recordAgentTool(tx, tenantId, id, target, session.accountId);
+    return result;
   });
 }
 

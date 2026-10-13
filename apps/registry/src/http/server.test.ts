@@ -425,6 +425,7 @@ class FakeApplications implements ApplicationService {
           description: "Checkout",
           project: { id: CHILD_ID, name: "Web" },
           fromFlow: true,
+          agentTool: "claude-code",
           createdAt: "2026-10-13T09:00:00.000Z",
         },
       ],
@@ -444,6 +445,7 @@ class FakeApplications implements ApplicationService {
         description: input.description,
         project: { id: found.id, name: found.name },
         fromFlow: true,
+        agentTool: null,
         createdAt: "2026-10-13T09:00:00.000Z",
       };
     });
@@ -1434,7 +1436,7 @@ describe("registry HTTP API", () => {
 
     it("answers 400 subject target for an unknown target and 404 for an unknown or malformed Application", async () => {
       guidanceEndpoint.state = { url: "https://g.acme.example/v1", changedAt: "2026-10-13T09:00:00.000Z" };
-      const bad = await post(path(applications.knownId), { target: "cursor" }, { headers: buyerAuth });
+      const bad = await post(path(applications.knownId), { target: "windsurf" }, { headers: buyerAuth });
       expect(bad.status).toBe(400);
       expect(await bad.json()).toMatchObject({ code: "invalid_input", subject: "target" });
       for (const id of [mintUuidV7(), "nope"]) {

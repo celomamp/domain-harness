@@ -438,6 +438,7 @@ describe("registry client", () => {
         description: "Checkout",
         project: { id: WEB, name: "Web" },
         fromFlow: true,
+        agentTool: "cursor",
         createdAt: AT,
       };
       const fetch = respond(200, { applications: [app] });
@@ -449,6 +450,10 @@ describe("registry client", () => {
       expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
       vi.stubGlobal("fetch", respond(200, { applications: [{ ...app, fromFlow: "yes" }] }));
       expect(await getApplications("abc")).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(200, { applications: [{ ...app, agentTool: "windsurf" }] }));
+      expect(await getApplications("abc")).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(200, { applications: [{ ...app, agentTool: undefined }] }));
+      expect(await getApplications("abc")).toEqual({ kind: "unavailable" });
 
       const post = respond(201, app);
       vi.stubGlobal("fetch", post);
@@ -458,6 +463,10 @@ describe("registry client", () => {
       expect(postInit.method).toBe("POST");
       expect(postInit.body).toBe(JSON.stringify({ description: " Checkout ", projectId: WEB }));
       vi.stubGlobal("fetch", respond(200, app));
+      expect(await createApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(201, { ...app, agentTool: "windsurf" }));
+      expect(await createApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(201, { ...app, agentTool: undefined }));
       expect(await createApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "unavailable" });
       const denied = { code: "build_grant_denied", message: "m", subject: "projectId" };
       vi.stubGlobal("fetch", respond(403, denied));

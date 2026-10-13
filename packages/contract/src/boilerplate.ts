@@ -33,8 +33,8 @@ export interface GuidanceEndpointRequest {
   readonly url: string;
 }
 
-/** The agent tools a Boilerplate can be generated for. */
-export const BOILERPLATE_TARGETS = ["claude-code"] as const;
+/** The agent tools a Boilerplate can be generated for: Claude Code and Cursor. */
+export const BOILERPLATE_TARGETS = ["claude-code", "cursor"] as const;
 export type BoilerplateTarget = (typeof BOILERPLATE_TARGETS)[number];
 
 /** True when `value` is exactly one of {@link BOILERPLATE_TARGETS}. Never throws. */

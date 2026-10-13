@@ -1,5 +1,6 @@
-// Database suite for the Company Guidance endpoint and the Claude Code
-// Boilerplate (Story 3.3): runs against a real PostgreSQL named by
+// Database suite for the Company Guidance endpoint, the Claude Code and
+// Cursor Boilerplates and the Application agent-tool recording (Stories 3.3
+// and 3.4): runs against a real PostgreSQL named by
 // REGISTRY_TEST_DATABASE_URL (an admin connection). Like the other suites it
 // creates a throwaway database, migrates it as the admin (owner) and runs
 // every data-access call as dh_registry_app. Every matrix row is exercised
@@ -28,6 +29,7 @@ import { createRegistryDb } from "../db/client.ts";
 import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
 import { withTenant } from "../db/tenant-scope.ts";
+import { mintUuidV7 } from "../ids.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createRegistryServer } from "../http/server.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
@@ -147,6 +149,34 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
     return body;
   }
 
+  /** Generate one Application's Boilerplate for an explicit target. */
+  async function generatedFor(applicationId: string, target: "claude-code" | "cursor", who = "builder"): Promise<BoilerplateResult> {
+    const response = await post(applicationBoilerplatePath(applicationId), who, { target });
+    const body: unknown = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    if (!isBoilerplateResult(body)) throw new Error("not a BoilerplateResult");
+    return body;
+  }
+
+  /** The rows of one Application's agent-tool changes. */
+  async function agentToolRows(applicationId: string): Promise<number> {
+    const { rows } = await owner.query<{ n: number }>(
+      "select count(*)::int as n from application_agent_tool_changes where application_id = $1",
+      [applicationId],
+    );
+    return rows[0]?.n ?? 0;
+  }
+
+  /** One Application's current agent tool, as the Applications list answers it. */
+  async function listedAgentTool(who: string, applicationId: string): Promise<unknown> {
+    const list = (await (await get("/v1/applications", who)).json()) as {
+      applications: { id: string; agentTool: unknown }[];
+    };
+    const found = list.applications.find((a) => a.id === applicationId);
+    if (found === undefined) throw new Error("the Application is missing from the list");
+    return found.agentTool;
+  }
+
   beforeAll(async () => {
     admin = new pg.Client({ connectionString: adminUrl });
     await admin.connect();
@@ -256,6 +286,37 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
     });
   });
 
+  describe("migration 0011 (application_agent_tool_changes)", () => {
+    it("enables and forces RLS with the tenant_isolation policy and grants SELECT and INSERT only", async () => {
+      const { rows } = await owner.query<{ rls: boolean; forced: boolean; policies: string[] }>(
+        `select c.relrowsecurity as rls, c.relforcerowsecurity as forced,
+                array(select p.polname::text from pg_policy p where p.polrelid = c.oid order by 1) as policies
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace
+         where n.nspname = 'public' and c.relname = 'application_agent_tool_changes'`,
+      );
+      expect(rows).toEqual([{ rls: true, forced: true, policies: ["tenant_isolation"] }]);
+      const grants = await owner.query<{ privilege_type: string }>(
+        `select privilege_type from information_schema.role_table_grants
+         where grantee = $1 and table_name = 'application_agent_tool_changes' order by 1`,
+        [APP_ROLE],
+      );
+      expect(grants.rows).toEqual([{ privilege_type: "INSERT" }, { privilege_type: "SELECT" }]);
+    });
+
+    it("refuses UPDATE and DELETE for the app role", async () => {
+      for (const statement of [
+        "update application_agent_tool_changes set agent_tool = agent_tool",
+        "delete from application_agent_tool_changes",
+      ]) {
+        await expect(
+          withTenant(db, tenantA, async (tx) => {
+            await tx.execute(sql.raw(statement));
+          }),
+        ).rejects.toThrow();
+      }
+    });
+  });
+
   describe("before the endpoint is set", () => {
     it("answers { url: null, changedAt: null } to every role", async () => {
       for (const who of ["buyer", "sam", "builder"]) {
@@ -282,7 +343,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
       const p = await created("Unset body P", rootA);
       const app = await placed("Unset body app", p.id);
       await expectRefused(
-        await post(applicationBoilerplatePath(app.id), "builder", { target: "cursor" }),
+        await post(applicationBoilerplatePath(app.id), "builder", { target: "windsurf" }),
         400,
         "invalid_input",
         "target",
@@ -391,7 +452,6 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
 
   describe("generating a Claude Code Boilerplate", () => {
     let happy: ApplicationInfo;
-
     beforeAll(async () => {
       const h = await created("Happy P", rootA);
       await publish(codeStack, { category: "language", name: "TypeScript", versionConstraint: "~5.6", status: "required" }, h.id);
@@ -490,7 +550,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
     });
 
     it.each([
-      ["cursor", { target: "cursor" }, "target"],
+      ["an unknown target", { target: "windsurf" }, "target"],
       ["no target", {}, "target"],
       ["an extra key", { target: "claude-code", x: 1 }, "x"],
     ])("answers 400 invalid_input for %s", async (_label, body, subject) => {
@@ -500,7 +560,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
     it("answers 404 application_not_found for a malformed, unknown or other Company's Application, before the body", async () => {
       for (const id of ["nope", "01928c7e-5b2a-7c3d-8e4f-000000000009", boltApp.id]) {
         await expectRefused(
-          await post(applicationBoilerplatePath(id), "builder", { target: "cursor" }),
+          await post(applicationBoilerplatePath(id), "builder", { target: "windsurf" }),
           404,
           "application_not_found",
           "applicationId",
@@ -521,6 +581,173 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
       const response = await get(applicationBoilerplatePath(happy.id), "builder");
       expect(response.status).toBe(405);
       expect(response.headers.get("allow")).toBe("POST");
+    });
+  });
+
+  describe("generating a Cursor Boilerplate and recording the agent tool", () => {
+    let cursorApp: ApplicationInfo;
+
+    const filesOf = (result: BoilerplateResult) => untarGz(Buffer.from(result.archiveBase64, "base64"));
+    const contentOf = (files: ReturnType<typeof filesOf>, path: string): string =>
+      files.find((f) => f.path === path)?.content ?? "";
+
+    beforeAll(async () => {
+      const p = await created("Cursor P", rootA);
+      await publish(codeStack, { category: "language", name: "TypeScript", versionConstraint: "~5.6", status: "required" }, p.id);
+      await publish(codeStack, { category: "library", name: "React", versionConstraint: "^19", status: "required" }, p.id);
+      cursorApp = await placed("Cursor app", p.id);
+    }, 60_000);
+
+    it("answers agentTool: null before any generation", async () => {
+      expect(await listedAgentTool("builder", cursorApp.id)).toBe(null);
+    });
+
+    it("returns the six Cursor files with the initial-commit rule in AGENTS.md and the skill", async () => {
+      const result = await generatedFor(cursorApp.id, "cursor");
+      expect(result).toMatchObject({
+        applicationId: cursorApp.id,
+        target: "cursor",
+        archiveName: `domain-harness-${cursorApp.id}-cursor.tar.gz`,
+      });
+      expect(result.artifacts).toEqual([
+        { kind: "identification-file", path: ".domain-harness.json" },
+        { kind: "dependency-pins", path: "package.json" },
+        { kind: "design-system-references", path: "design-system.json" },
+        { kind: "mcp-configuration", path: ".cursor/mcp.json" },
+        { kind: "instructions", path: "AGENTS.md" },
+        { kind: "skills", path: ".cursor/skills/domain-harness-guidance/SKILL.md" },
+      ]);
+      const files = filesOf(result);
+      expect(files.map((f) => f.path)).toEqual(result.artifacts.map((a) => a.path));
+      const mcp = JSON.parse(contentOf(files, ".cursor/mcp.json")) as {
+        mcpServers: Record<string, { type?: string; command?: string; args?: string[] }>;
+      };
+      expect(mcp.mcpServers["domain-harness"]).toMatchObject({ type: "stdio", command: "npx" });
+      expect(mcp.mcpServers["domain-harness"]?.args?.at(-1)).toBe(URL_A);
+      for (const path of ["AGENTS.md", ".cursor/skills/domain-harness-guidance/SKILL.md"]) {
+        expect(contentOf(files, path).toLowerCase()).toContain("make an initial commit before calling guidance");
+      }
+      expect(contentOf(files, "AGENTS.md")).toContain("declared in `.cursor/mcp.json`");
+    });
+
+    it("records the generated target as the Application's agent tool", async () => {
+      expect(await agentToolRows(cursorApp.id)).toBe(1);
+      expect(await listedAgentTool("builder", cursorApp.id)).toBe("cursor");
+      expect(await listedAgentTool("buyer", cursorApp.id)).toBe("cursor");
+      expect(await listedAgentTool("sam", cursorApp.id)).toBe("cursor");
+    });
+
+    it("writes no new row when the current target is generated again", async () => {
+      await generatedFor(cursorApp.id, "cursor");
+      expect(await agentToolRows(cursorApp.id)).toBe(1);
+      expect(await listedAgentTool("builder", cursorApp.id)).toBe("cursor");
+    });
+
+    it("appends one row when the other target is generated, and the list shows the new target", async () => {
+      await generatedFor(cursorApp.id, "claude-code");
+      expect(await agentToolRows(cursorApp.id)).toBe(2);
+      expect(await listedAgentTool("builder", cursorApp.id)).toBe("claude-code");
+    });
+
+    it("refuses an agent tool or a sequence outside the table's CHECKs", async () => {
+      for (const [agentTool, sequence] of [
+        ["windsurf", 1],
+        ["claude-code", 0],
+      ] as const) {
+        await expect(
+          owner.query(
+            "insert into application_agent_tool_changes (id, tenant_id, application_id, sequence, agent_tool, changed_by) values ($1, $2, $3, $4, $5, $6)",
+            [mintUuidV7(), tenantA, cursorApp.id, sequence, agentTool, buyer.accountId],
+          ),
+        ).rejects.toThrow();
+      }
+      expect(await agentToolRows(cursorApp.id)).toBe(2);
+    });
+
+    it("records nothing on a refusal: the unknown target, the unknown Application and the unset endpoint", async () => {
+      await expectRefused(
+        await post(applicationBoilerplatePath(cursorApp.id), "builder", { target: "windsurf" }),
+        400,
+        "invalid_input",
+        "target",
+      );
+      for (const id of ["nope", "01928c7e-5b2a-7c3d-8e4f-000000000009", boltApp.id]) {
+        await expectRefused(
+          await post(applicationBoilerplatePath(id), "builder", { target: "cursor" }),
+          404,
+          "application_not_found",
+          "applicationId",
+        );
+      }
+      await expectRefused(
+        await post(applicationBoilerplatePath(boltApp.id), "bob", { target: "cursor" }),
+        409,
+        "guidance_endpoint_unset",
+      );
+      expect(await agentToolRows(cursorApp.id)).toBe(2);
+      expect(await listedAgentTool("builder", cursorApp.id)).toBe("claude-code");
+      expect(await agentToolRows(boltApp.id)).toBe(0);
+    });
+
+    it("records nothing on an unsupported ecosystem or a conflict refusal", async () => {
+      const u = await created("Cursor unsupported P", rootA);
+      await publish(codeStack, { category: "language", name: "Go", status: "required" }, u.id);
+      const unsupported = await placed("Cursor Go app", u.id);
+      await expectRefused(
+        await post(applicationBoilerplatePath(unsupported.id), "builder", { target: "cursor" }),
+        409,
+        "unsupported_ecosystem",
+        "standards",
+      );
+      const k = await created("Cursor conflict P", rootA);
+      await publish(codeStack, { category: "library", name: "react", status: "required" }, k.id);
+      await publish(codeStack, { category: "framework", name: "React", status: "prohibited" }, k.id);
+      const conflict = await placed("Cursor conflict app", k.id);
+      await expectRefused(
+        await post(applicationBoilerplatePath(conflict.id), "builder", { target: "cursor" }),
+        409,
+        "boilerplate_conflict",
+        "standards",
+      );
+      for (const app of [unsupported, conflict]) {
+        expect(await agentToolRows(app.id)).toBe(0);
+        expect(await listedAgentTool("builder", app.id)).toBe(null);
+      }
+    });
+
+    it("keeps each Company's rows to itself: B generates only its own Application", async () => {
+      expect((await post(GUIDANCE_ENDPOINT_PATH, "bob", { url: "https://g.bolt.example/v1" })).status).toBe(200);
+      const result = await generatedFor(boltApp.id, "cursor", "bob");
+      expect(result).toMatchObject({ applicationId: boltApp.id, target: "cursor" });
+      expect(await agentToolRows(boltApp.id)).toBe(1);
+      expect(await listedAgentTool("bob", boltApp.id)).toBe("cursor");
+      expect(await agentToolRows(cursorApp.id)).toBe(2);
+      expect(await listedAgentTool("builder", cursorApp.id)).toBe("claude-code");
+      await expectRefused(
+        await post(applicationBoilerplatePath(cursorApp.id), "bob", { target: "cursor" }),
+        404,
+        "application_not_found",
+        "applicationId",
+      );
+    });
+
+    it("ships the identification file and the pins byte for byte the same as Claude Code", async () => {
+      const cursor = filesOf(await generatedFor(cursorApp.id, "cursor"));
+      const claude = filesOf(await generatedFor(cursorApp.id, "claude-code"));
+      for (const path of [".domain-harness.json", "package.json", "design-system.json"]) {
+        expect(contentOf(cursor, path)).toBe(contentOf(claude, path));
+      }
+      expect(parseIdentificationFile(contentOf(cursor, ".domain-harness.json"))).toEqual({
+        kind: "parsed",
+        file: { version: "1.0.0", applicationId: cursorApp.id, projectId: cursorApp.project.id },
+      });
+    });
+
+    it("stays neutral: no settings path and no hooks key in any file", async () => {
+      for (const file of filesOf(await generatedFor(cursorApp.id, "cursor"))) {
+        expect(file.path).not.toContain("settings");
+        expect(file.content).not.toContain('"hooks"');
+      }
     });
   });
 });

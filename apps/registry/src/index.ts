@@ -116,10 +116,13 @@ export type {
 export {
   GUIDANCE_SKILL_NAME,
   MCP_SERVER_NAME,
+  renderAgentsMd,
   renderBoilerplateFiles,
   renderClaudeMcpJson,
   renderClaudeMd,
   renderClaudeSkill,
+  renderCursorMcpJson,
+  renderCursorSkill,
   renderDesignSystem,
   renderIdentificationFile,
   renderPackageJson,

@@ -1,12 +1,14 @@
 /**
- * The Boilerplate file renderers (Story 3.3). Pure functions: equal inputs
- * give byte-identical files, each ending in "\n"; JSON uses two-space
- * indentation, with keys sorted where they come from data.
+ * The Boilerplate file renderers (Stories 3.3 and 3.4). Pure functions:
+ * equal inputs give byte-identical files, each ending in "\n"; JSON uses
+ * two-space indentation, with keys sorted where they come from data.
  *
  * The identification file, `package.json` and `design-system.json` are
  * target-independent, so every target ships them byte for byte the same.
- * Only the MCP configuration and the instruction files differ per target.
- * No file holds hook configuration of any kind.
+ * Only the MCP configuration and the instruction/skill file locations and
+ * formats differ per target (`CLAUDE.md`/`.mcp.json` and `.claude/skills/`
+ * for Claude Code; `AGENTS.md`/`.cursor/mcp.json` and `.cursor/skills/`
+ * for Cursor). No file holds hook configuration of any kind.
  */
 import { formatIdentificationFile, IDENTIFICATION_FILE_NAME, MCP_BRIDGE_PACKAGE } from "@domain-harness/contract";
 import type { BoilerplateArtifactKind, BoilerplateTarget, UuidV7 } from "@domain-harness/contract";
@@ -68,6 +70,18 @@ export function renderClaudeMcpJson(guidanceUrl: string): string {
   });
 }
 
+/**
+ * `.cursor/mcp.json`: the same stdio bridge entry as `.mcp.json`, plus
+ * Cursor's documented `type` field for a STDIO server.
+ */
+export function renderCursorMcpJson(guidanceUrl: string): string {
+  return json({
+    mcpServers: {
+      [MCP_SERVER_NAME]: { type: "stdio", command: "npx", args: ["-y", MCP_BRIDGE_PACKAGE, guidanceUrl] },
+    },
+  });
+}
+
 const INITIAL_COMMIT_RULE =
   "Make an initial commit before calling Guidance: the Domain Harness bridge identifies this repository by its root commit, so Guidance cannot answer before one exists.";
 
@@ -78,8 +92,8 @@ const bullets = (lines: readonly string[], none: string): string => (lines.lengt
 
 const code = (text: string): string => `\`${oneLine(text).replace(/`/g, "'")}\``;
 
-/** `CLAUDE.md`: the Project, the stack, the design-system rules and the initial-commit rule. */
-export function renderClaudeMd(applicationId: UuidV7, plan: BoilerplatePlan): string {
+/** The instruction file every target ships: the Project, the stack, the design-system rules and the initial-commit rule; only the MCP config path differs. */
+function renderInstructionsMd(applicationId: UuidV7, plan: BoilerplatePlan, mcpConfigPath: string): string {
   const ds = plan.designSystem;
   const pinned = plan.required.map((item) => {
     const where = item.pin === null ? "no package" : `${item.pin.dev ? "devDependencies" : "dependencies"}.${oneLine(item.pin.packageName)} = "${oneLine(item.pin.version)}"`;
@@ -100,7 +114,7 @@ export function renderClaudeMd(applicationId: UuidV7, plan: BoilerplatePlan): st
     "",
     INITIAL_COMMIT_RULE,
     "",
-    `Then request Guidance through the \`${MCP_SERVER_NAME}\` MCP server (declared in \`.mcp.json\`) before you add a dependency, a component or a design token.`,
+    `Then request Guidance through the \`${MCP_SERVER_NAME}\` MCP server (declared in \`${mcpConfigPath}\`) before you add a dependency, a component or a design token.`,
     "",
     "## Code stack",
     "",
@@ -143,8 +157,22 @@ export function renderClaudeMd(applicationId: UuidV7, plan: BoilerplatePlan): st
   return `${sections.join("\n")}\n`;
 }
 
-/** `.claude/skills/domain-harness-guidance/SKILL.md`: how to request Guidance, and the initial-commit rule. */
-export function renderClaudeSkill(): string {
+/** `CLAUDE.md`: the Project, the stack, the design-system rules and the initial-commit rule, pointing at `.mcp.json`. */
+export function renderClaudeMd(applicationId: UuidV7, plan: BoilerplatePlan): string {
+  return renderInstructionsMd(applicationId, plan, ".mcp.json");
+}
+
+/**
+ * `AGENTS.md`: the exact `CLAUDE.md` content with the one path reference
+ * `.mcp.json` → `.cursor/mcp.json` — Cursor's plain-markdown instruction file,
+ * the direct analog of `CLAUDE.md`.
+ */
+export function renderAgentsMd(applicationId: UuidV7, plan: BoilerplatePlan): string {
+  return renderInstructionsMd(applicationId, plan, ".cursor/mcp.json");
+}
+
+/** The skill file every target ships: how to request Guidance, and the initial-commit rule; only the MCP config path differs. */
+function renderGuidanceSkill(mcpConfigPath: string): string {
   return `${[
     "---",
     `name: ${GUIDANCE_SKILL_NAME}`,
@@ -157,12 +185,25 @@ export function renderClaudeSkill(): string {
     "",
     "## How to request Guidance",
     "",
-    `1. Use the tools of the \`${MCP_SERVER_NAME}\` MCP server. It is declared in \`.mcp.json\` and needs no manual setup.`,
+    `1. Use the tools of the \`${MCP_SERVER_NAME}\` MCP server. It is declared in \`${mcpConfigPath}\` and needs no manual setup.`,
     "2. Describe what you are about to add or change, and follow the Guidance it returns.",
     `3. Keep \`${IDENTIFICATION_FILE_NAME}\` at the repository root; Guidance finds this Application through it.`,
     "",
     "The Standards this Application must follow are summarised in `CLAUDE.md`, `package.json` and `design-system.json`.",
   ].join("\n")}\n`;
+}
+
+/** `.claude/skills/domain-harness-guidance/SKILL.md`: how to request Guidance, and the initial-commit rule, pointing at `.mcp.json`. */
+export function renderClaudeSkill(): string {
+  return renderGuidanceSkill(".mcp.json");
+}
+
+/**
+ * `.cursor/skills/domain-harness-guidance/SKILL.md`: the exact Claude skill
+ * content with the one path reference `.mcp.json` → `.cursor/mcp.json`.
+ */
+export function renderCursorSkill(): string {
+  return renderGuidanceSkill(".cursor/mcp.json");
 }
 
 /** The inputs every renderer reads. */
@@ -192,6 +233,11 @@ const TARGET_FILES: Readonly<Record<BoilerplateTarget, (input: RenderInput) => B
     { kind: "mcp-configuration", path: ".mcp.json", content: renderClaudeMcpJson(input.guidanceUrl) },
     { kind: "instructions", path: "CLAUDE.md", content: renderClaudeMd(input.applicationId, input.plan) },
     { kind: "skills", path: `.claude/skills/${GUIDANCE_SKILL_NAME}/SKILL.md`, content: renderClaudeSkill() },
+  ],
+  cursor: (input) => [
+    { kind: "mcp-configuration", path: ".cursor/mcp.json", content: renderCursorMcpJson(input.guidanceUrl) },
+    { kind: "instructions", path: "AGENTS.md", content: renderAgentsMd(input.applicationId, input.plan) },
+    { kind: "skills", path: `.cursor/skills/${GUIDANCE_SKILL_NAME}/SKILL.md`, content: renderCursorSkill() },
   ],
 };
 

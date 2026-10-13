@@ -10,6 +10,8 @@
 import { isRecord, isUtcIso } from "./guards.ts";
 import { isUuidV7 } from "./ids.ts";
 import type { UuidV7 } from "./ids.ts";
+import { isBoilerplateTarget } from "./boilerplate.ts";
+import type { BoilerplateTarget } from "./boilerplate.ts";
 import type { ProjectRef } from "./standards.ts";
 
 /** An Application description is trimmed and 1 to this many characters long. */
@@ -24,6 +26,11 @@ export interface ApplicationInfo {
   readonly project: ProjectRef;
   /** True when the New-application flow created it. */
   readonly fromFlow: boolean;
+  /**
+   * The agent tool of the Application's latest successful Boilerplate
+   * generation, or `null` when none was generated yet.
+   */
+  readonly agentTool: BoilerplateTarget | null;
   /** UTC ISO-8601. */
   readonly createdAt: string;
 }
@@ -53,14 +60,16 @@ function isProjectRef(value: unknown): value is ProjectRef {
   return isRecord(value) && isUuidV7(value["id"]) && typeof value["name"] === "string";
 }
 
-/** True when `value` is an {@link ApplicationInfo}. Never throws. */
+/** True when `value` is an {@link ApplicationInfo} (its `agentTool` `null` or a known target). Never throws. */
 export function isApplicationInfo(value: unknown): value is ApplicationInfo {
+  const agentTool = isRecord(value) ? value["agentTool"] : undefined;
   return (
     isRecord(value) &&
     isUuidV7(value["id"]) &&
     typeof value["description"] === "string" &&
     isProjectRef(value["project"]) &&
     typeof value["fromFlow"] === "boolean" &&
+    (agentTool === null || isBoilerplateTarget(agentTool)) &&
     isUtcIso(value["createdAt"])
   );
 }

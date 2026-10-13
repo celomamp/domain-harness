@@ -9,6 +9,7 @@ import {
 import type {
   ApplicationInfo,
   ApplicationList,
+  BoilerplateTarget,
   IdentificationFileRendering,
   SessionInfo,
   UuidV7,
@@ -20,6 +21,7 @@ import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb, RegistryTx } from "../db/client.ts";
 import { applications } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
+import { currentAgentTools } from "./agent-tool.ts";
 import { hasBuildGrant } from "../build-grants/current.ts";
 import { currentLockedIds } from "../locked-rules/current.ts";
 import { toId } from "../modules/service.ts";
@@ -40,7 +42,11 @@ async function applicationRows(tx: RegistryTx, tenantId: UuidV7): Promise<Applic
     .orderBy(asc(applications.createdAt), asc(applications.id));
 }
 
-function toInfo(row: ApplicationRow, current: ReadonlyMap<string, CurrentProject>): ApplicationInfo {
+function toInfo(
+  row: ApplicationRow,
+  current: ReadonlyMap<string, CurrentProject>,
+  agentTools: ReadonlyMap<string, BoilerplateTarget>,
+): ApplicationInfo {
   const project = current.get(row.projectId);
   if (project === undefined) throw new Error("an Application's Project is missing");
   return {
@@ -48,6 +54,7 @@ function toInfo(row: ApplicationRow, current: ReadonlyMap<string, CurrentProject
     description: row.description,
     project: { id: toId(project.row.id), name: project.row.name },
     fromFlow: row.fromFlow,
+    agentTool: agentTools.get(row.id) ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -68,15 +75,18 @@ async function nextSequence(tx: RegistryTx, tenantId: UuidV7): Promise<number> {
 /**
  * Every Application of the tenant, ordered by `createdAt`, then id. Open to
  * every role; read under the bundle lock so every Application's Project is
- * in the tree read alongside it. Never names who created an Application.
+ * in the tree read alongside it, and its agent tool (its latest successful
+ * generation's target, `null` when none) comes from the same lock. Never
+ * names who created an Application.
  */
 export async function listApplications(db: RegistryDb, session: SessionInfo): Promise<ApplicationList> {
   const { tenantId } = session;
   return withTenant(db, tenantId, async (tx) => {
     await lockBundle(tx, tenantId);
     const current = await currentProjects(tx, tenantId);
+    const agentTools = await currentAgentTools(tx, tenantId);
     const rows = await applicationRows(tx, tenantId);
-    return { applications: rows.map((row) => toInfo(row, current)) };
+    return { applications: rows.map((row) => toInfo(row, current, agentTools)) };
   });
 }
 
@@ -132,7 +142,8 @@ export async function createApplication(db: RegistryDb, session: SessionInfo, bo
       })
       .returning();
     if (row === undefined) throw new Error("insert returned no row");
-    return toInfo(row, current);
+    // No Boilerplate was generated for a just-placed Application yet.
+    return toInfo(row, current, new Map());
   });
 }
 
