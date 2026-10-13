@@ -46,6 +46,18 @@ export interface BundleInput {
   readonly lockedStandardIds?: readonly string[];
   /** The id of the Standard being marked as a Locked rule, when the change is a mark; it is reported first. */
   readonly lockProposal?: string;
+  /**
+   * Every Application of the Company (Story 3.1), each bound to exactly one
+   * Project. When given, each id must be unique and each Project must be in
+   * the proposed tree.
+   */
+  readonly applications?: readonly ApplicationNode[];
+}
+
+/** One Application as the bundle input sees it: its id and the one Project it is bound to. */
+export interface ApplicationNode {
+  readonly id: string;
+  readonly projectId: string;
 }
 
 const fail = (code: string, message: string, subject: string): TreeResult => ({
@@ -150,7 +162,38 @@ function cycle(parentId: string, projectId: string): TreeResult {
 }
 
 /**
+ * Validate the Applications against the proposed tree. Checked in id order,
+ * so the answer does not depend on the input order:
+ * - every Application id is unique (`invalid_input`, subject `applicationId`);
+ * - every Application's Project is in the proposed tree (`project_not_found`, subject `projectId`).
+ */
+function validateApplications(input: BundleInput): TreeResult {
+  const applications = [...(input.applications ?? [])].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : a.projectId < b.projectId ? -1 : a.projectId > b.projectId ? 1 : 0,
+  );
+  const ids = new Set<string>();
+  for (const application of applications) {
+    if (ids.has(application.id)) {
+      return fail("invalid_input", `Application ${application.id} appears twice in the bundle; nothing was changed`, "applicationId");
+    }
+    ids.add(application.id);
+  }
+  const projects = new Set(input.projects.map((node) => node.id));
+  for (const application of applications) {
+    if (!projects.has(application.projectId)) {
+      return fail(
+        PROJECT_NOT_FOUND,
+        `the Project ${application.projectId} of Application ${application.id} is not in the tree; nothing was changed`,
+        "projectId",
+      );
+    }
+  }
+  return { ok: true };
+}
+
+/**
  * Validate the whole proposed bundle input: the tree rule first, then the
+ * Applications rule (unique ids, each on a Project of the proposed tree), then the
  * Conflict slot rule ({@link validatePublication} semantics) over every pair
  * of live Standards at the same Project scope, then the Locked rule check
  * ({@link validateLockedRules}). Returns `{ ok: true }` or the first error;
@@ -159,6 +202,8 @@ function cycle(parentId: string, projectId: string): TreeResult {
 export function validateBundleInput(input: BundleInput): TreeResult {
   const tree = validateProjectTree(input.projects, input.change);
   if (!tree.ok) return tree;
+  const applications = validateApplications(input);
+  if (!applications.ok) return applications;
   const standards = [...input.standards].sort((a, b) =>
     a.standardId < b.standardId ? -1 : a.standardId > b.standardId ? 1 : 0,
   );

@@ -24,6 +24,8 @@ import { provisionCompany } from "../tenancy/provision.ts";
 import { assignModuleOwner, createModule, createModuleService, listModules } from "./service.ts";
 import { createProjectService } from "../projects/service.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
+import { createApplicationService } from "../applications/service.ts";
+import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
@@ -482,6 +484,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Modules against Post
           projects: createProjectService(db),
           lockedRules: createLockedRuleService(db),
           childPermissions: createChildPermissionService(db),
+          buildGrants: createBuildGrantService(db),
+          applications: createApplicationService(db),
         },
         () => undefined,
       );

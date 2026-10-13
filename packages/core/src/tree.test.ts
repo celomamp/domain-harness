@@ -139,4 +139,59 @@ describe("validateBundleInput", () => {
       }
     }
   });
+  describe("the Applications rule", () => {
+    const app = (id: string, projectId: string) => ({ id, projectId });
+
+    it("passes Applications on Projects of the tree, and no Applications at all", () => {
+      expect(validateBundleInput({ projects: deep, standards, applications: [app("x", "a"), app("y", "root")] })).toEqual({
+        ok: true,
+      });
+      expect(validateBundleInput({ projects: deep, standards, applications: [] })).toEqual({ ok: true });
+    });
+
+    it("refuses a duplicated Application id", () => {
+      expect(
+        validateBundleInput({ projects: deep, standards, applications: [app("x", "a"), app("x", "b")] }),
+      ).toMatchObject({ ok: false, error: { code: "invalid_input", subject: "applicationId" } });
+    });
+
+    it("refuses an Application on a Project that is not in the tree", () => {
+      const result = validateBundleInput({ projects: deep, standards, applications: [app("x", "a"), app("y", "zz")] });
+      expect(result).toMatchObject({ ok: false, error: { code: "project_not_found", subject: "projectId" } });
+      expect(result.ok ? "" : result.error.message).toContain("zz");
+    });
+
+    it("checks the tree first, and the Applications before the Standards", () => {
+      expect(
+        validateBundleInput({
+          projects: deep,
+          standards,
+          change: { projectId: "a", parentId: "c" },
+          applications: [app("x", "zz")],
+        }),
+      ).toMatchObject({ ok: false, error: { code: "project_cycle" } });
+      expect(
+        validateBundleInput({
+          projects: deep,
+          standards: [...standards, holder("s4", library("react"))],
+          applications: [app("x", "zz")],
+        }),
+      ).toMatchObject({ ok: false, error: { code: "project_not_found", subject: "projectId" } });
+    });
+
+    it("is order-independent", () => {
+      const applications = [app("x", "zz"), app("y", "a"), app("z", "yy"), app("y", "b")];
+      const expected = JSON.stringify(validateBundleInput({ projects: deep, standards, applications }));
+      for (let seed = 1; seed <= 25; seed += 1) {
+        const again = validateBundleInput({ projects: shuffled(deep, seed), standards, applications: shuffled(applications, seed * 3) });
+        expect(JSON.stringify(again)).toBe(expected);
+      }
+      const missing = [app("x", "zz"), app("y", "a"), app("z", "yy")];
+      const first = JSON.stringify(validateBundleInput({ projects: deep, standards, applications: missing }));
+      expect(first).toContain("zz");
+      for (let seed = 1; seed <= 25; seed += 1) {
+        expect(JSON.stringify(validateBundleInput({ projects: deep, standards, applications: shuffled(missing, seed) }))).toBe(first);
+      }
+    });
+  });
 });

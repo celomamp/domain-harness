@@ -3,6 +3,10 @@ import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   entrySlotName,
+  isApplicationInfo,
+  isApplicationList,
+  isBuildGrantList,
+  isBuildGrantState,
   isChildPermissionList,
   isChildPermissionState,
   isEffectiveStandardSet,
@@ -19,6 +23,10 @@ import {
   isStandardVersionList,
 } from "@domain-harness/contract";
 import type {
+  ApplicationInfo,
+  ApplicationList,
+  BuildGrantList,
+  BuildGrantState,
   ChildPermissionList,
   ChildPermissionState,
   EffectiveStandardSet,
@@ -33,6 +41,10 @@ import type {
   StandardList,
   StandardVersionList,
 } from "@domain-harness/contract";
+import type { ApplicationService } from "../applications/service.ts";
+import { validateApplicationBody } from "../applications/validate.ts";
+import { validateBuildGrantBody } from "../build-grants/service.ts";
+import type { BuildGrantService } from "../build-grants/service.ts";
 import { validateChildPermissionBody } from "../child-permissions/service.ts";
 import type { ChildPermissionService } from "../child-permissions/service.ts";
 import { EnvelopeError } from "../errors.ts";
@@ -333,6 +345,84 @@ class FakeChildPermissions implements ChildPermissionService {
   }
 }
 
+/**
+ * A fake build grant service that records what reached it and checks in the
+ * real order with the real validator: the Project, the role, the body, then
+ * the account (only OWNER_ID is eligible).
+ */
+class FakeBuildGrants implements BuildGrantService {
+  calls: unknown[] = [];
+  listBuildGrants(caller: SessionInfo, projectId: string): Promise<BuildGrantList> {
+    this.calls.push(["list", caller.role, projectId]);
+    const found = tree.projects.find((p) => p.id === projectId);
+    if (found === undefined) return Promise.reject(notFound("project_not_found", "projectId"));
+    const account = { accountId: OWNER_ID, name: "Sam", role: "Standard owner" as const };
+    return Promise.resolve({
+      project: { id: found.id, name: found.name },
+      grants: [{ account, grantedAt: "2026-10-13T09:00:00.000Z", grantedBy: { accountId: session.accountId, name: "Bea" } }],
+      eligibleAccounts: [account],
+    });
+  }
+  setBuildGrant(caller: SessionInfo, projectId: string, body: unknown): Promise<BuildGrantState> {
+    this.calls.push(["set", caller.role, projectId, body]);
+    return Promise.resolve().then(() => {
+      const found = tree.projects.find((p) => p.id === projectId);
+      if (found === undefined) throw notFound("project_not_found", "projectId");
+      if (caller.role !== "Buyer") throw new EnvelopeError({ code: "role_denied", message: "m", subject: "role" });
+      const { accountId, granted } = validateBuildGrantBody(body);
+      if (accountId !== OWNER_ID) throw new EnvelopeError({ code: "invalid_input", message: "m", subject: "accountId" });
+      return {
+        project: { id: found.id, name: found.name },
+        account: { accountId: OWNER_ID, name: "Sam", role: "Standard owner" },
+        granted,
+        changedAt: "2026-10-13T09:00:00.000Z",
+        changedBy: { accountId: caller.accountId, name: "Bea" },
+      };
+    });
+  }
+}
+
+/**
+ * A fake Application service that records what reached it and checks in the
+ * real order with the real validator: the body, the Project, then the build
+ * grant (a non-Buyer holds one on CHILD_ID only).
+ */
+class FakeApplications implements ApplicationService {
+  calls: unknown[] = [];
+  listApplications(caller: SessionInfo): Promise<ApplicationList> {
+    this.calls.push(["list", caller.role]);
+    return Promise.resolve({
+      applications: [
+        {
+          id: mintUuidV7(),
+          description: "Checkout",
+          project: { id: CHILD_ID, name: "Web" },
+          fromFlow: true,
+          createdAt: "2026-10-13T09:00:00.000Z",
+        },
+      ],
+    });
+  }
+  createApplication(caller: SessionInfo, body: unknown): Promise<ApplicationInfo> {
+    this.calls.push(["create", caller.role, body]);
+    return Promise.resolve().then(() => {
+      const input = validateApplicationBody(body);
+      const found = tree.projects.find((p) => p.id === input.projectId);
+      if (found === undefined) throw notFound("project_not_found", "projectId");
+      if (caller.role !== "Buyer" && found.id !== CHILD_ID) {
+        throw new EnvelopeError({ code: "build_grant_denied", message: "m", subject: "projectId" });
+      }
+      return {
+        id: mintUuidV7(),
+        description: input.description,
+        project: { id: found.id, name: found.name },
+        fromFlow: true,
+        createdAt: "2026-10-13T09:00:00.000Z",
+      };
+    });
+  }
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const notFound = (code: string, subject: string) => new EnvelopeError({ code, message: "m", subject });
@@ -344,13 +434,15 @@ describe("registry HTTP API", () => {
   const projects = new FakeProjects();
   const lockedRules = new FakeLockedRules();
   const childPermissions = new FakeChildPermissions();
+  const buildGrants = new FakeBuildGrants();
+  const applications = new FakeApplications();
   const events: LogEvent[] = [];
   let server: Server;
   let base: string;
 
   beforeAll(async () => {
     server = createRegistryServer(
-      { signIn: service, modules, standards, projects, lockedRules, childPermissions },
+      { signIn: service, modules, standards, projects, lockedRules, childPermissions, buildGrants, applications },
       (event) => events.push(event),
     );
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -371,6 +463,8 @@ describe("registry HTTP API", () => {
     lockedRules.planRefused = false;
     projects.planRefused = false;
     childPermissions.calls = [];
+    buildGrants.calls = [];
+    applications.calls = [];
     events.length = 0;
   });
 
@@ -989,6 +1083,135 @@ describe("registry HTTP API", () => {
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
         .toEqual(["/v1/projects/{id}/child-permissions"]);
       expect(JSON.stringify(events)).not.toContain(CHILD_ID);
+    });
+  });
+
+  describe("build grant", () => {
+    const json = { "content-type": "application/json" };
+    const buyerAuth = { ...json, authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { ...json, authorization: `Bearer ${BUILDER_SESSION}` };
+    const path = (id: string) => `/v1/projects/${id}/build-grants`;
+
+    it("serves a Project's build grants to every role", async () => {
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await fetch(`${base}${path(CHILD_ID)}`, { headers });
+        expect(response.status).toBe(200);
+        expect(isBuildGrantList(await response.json())).toBe(true);
+      }
+      expect(buildGrants.calls).toEqual([
+        ["list", "Buyer", CHILD_ID],
+        ["list", "Builder", CHILD_ID],
+      ]);
+      expect(childPermissions.calls).toEqual([]);
+    });
+
+    it("answers 200 with the pair's state on a grant and a revoke", async () => {
+      for (const granted of [true, false]) {
+        const response = await post(path(CHILD_ID), { accountId: OWNER_ID, granted }, { headers: buyerAuth });
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        expect(isBuildGrantState(body)).toBe(true);
+        expect(body).toMatchObject({ granted });
+      }
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(await fetch(`${base}${path(CHILD_ID)}`), 401, "session_invalid");
+      await expectEnvelope(await post(path(CHILD_ID), { accountId: OWNER_ID, granted: true }), 401, "session_invalid");
+      expect(buildGrants.calls).toEqual([]);
+    });
+
+    it("maps the refusals in the check order to 404, 403 and 400", async () => {
+      await expectEnvelope(await fetch(`${base}${path("nope")}`, { headers: builderAuth }), 404, "project_not_found");
+      const grant = { accountId: OWNER_ID, granted: true };
+      const cases: [string, unknown, Record<string, string>, number, Record<string, string>][] = [
+        [path(mintUuidV7()), grant, builderAuth, 404, { code: "project_not_found", subject: "projectId" }],
+        [path("nope"), grant, buyerAuth, 404, { code: "project_not_found", subject: "projectId" }],
+        [path(CHILD_ID), grant, builderAuth, 403, { code: "role_denied", subject: "role" }],
+        [path(CHILD_ID), { granted: true }, buyerAuth, 400, { code: "invalid_input", subject: "accountId" }],
+        [path(CHILD_ID), { accountId: OWNER_ID, granted: "yes" }, buyerAuth, 400, { code: "invalid_input", subject: "granted" }],
+        [path(CHILD_ID), { ...grant, note: 1 }, buyerAuth, 400, { code: "invalid_input", subject: "note" }],
+        [path(CHILD_ID), { ...grant, accountId: mintUuidV7() }, buyerAuth, 400, { code: "invalid_input", subject: "accountId" }],
+      ];
+      for (const [target, body, headers, status, expected] of cases) {
+        const response = await post(target, body, { headers });
+        expect([target, response.status, await response.json()]).toMatchObject([target, status, expected]);
+      }
+    });
+
+    it("answers 405 with Allow for a wrong method and logs the route by its pattern", async () => {
+      const response = await fetch(`${base}${path(CHILD_ID)}`, { method: "PUT", headers: buyerAuth });
+      expect(response.headers.get("allow")).toBe("GET, POST");
+      await expectEnvelope(response, 405, "method_not_allowed");
+      await expect
+        .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
+        .toEqual(["/v1/projects/{id}/build-grants"]);
+      expect(JSON.stringify(events)).not.toContain(CHILD_ID);
+    });
+  });
+
+  describe("Applications", () => {
+    const json = { "content-type": "application/json" };
+    const buyerAuth = { ...json, authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { ...json, authorization: `Bearer ${BUILDER_SESSION}` };
+    const path = "/v1/applications";
+
+    it("serves the Applications to every role, with no creator on the wire", async () => {
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await fetch(`${base}${path}`, { headers });
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        expect(isApplicationList(body)).toBe(true);
+        expect(JSON.stringify(body)).not.toContain("createdBy");
+      }
+      expect(applications.calls).toEqual([["list", "Buyer"], ["list", "Builder"]]);
+    });
+
+    it("answers 201 ApplicationInfo for the Buyer anywhere and a Builder on a granted Project", async () => {
+      for (const [headers, projectId] of [
+        [buyerAuth, ROOT_ID],
+        [builderAuth, CHILD_ID],
+      ] as const) {
+        const response = await post(path, { description: " Checkout ", projectId }, { headers });
+        expect(response.status).toBe(201);
+        const body: unknown = await response.json();
+        expect(isApplicationInfo(body)).toBe(true);
+        expect(body).toMatchObject({ description: "Checkout", project: { id: projectId }, fromFlow: true });
+      }
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(await fetch(`${base}${path}`), 401, "session_invalid");
+      await expectEnvelope(await post(path, { description: "x", projectId: CHILD_ID }), 401, "session_invalid");
+      expect(applications.calls).toEqual([]);
+    });
+
+    it("maps the refusals in the check order to 400, 404 and 403", async () => {
+      const cases: [unknown, Record<string, string>, number, Record<string, string>][] = [
+        [[], builderAuth, 400, { code: "invalid_input", subject: "body" }],
+        [{ description: "x", projectId: ROOT_ID, note: 1 }, builderAuth, 400, { code: "invalid_input", subject: "note" }],
+        [{ projectId: "nope" }, builderAuth, 400, { code: "invalid_input", subject: "description" }],
+        [{ description: "  ", projectId: ROOT_ID }, buyerAuth, 400, { code: "invalid_input", subject: "description" }],
+        [{ description: "x".repeat(501), projectId: ROOT_ID }, buyerAuth, 400, { code: "invalid_input", subject: "description" }],
+        [{ description: "x" }, builderAuth, 400, { code: "invalid_input", subject: "projectId" }],
+        [{ description: "x", projectId: "" }, buyerAuth, 400, { code: "invalid_input", subject: "projectId" }],
+        [{ description: "x", projectId: "nope" }, builderAuth, 404, { code: "project_not_found", subject: "projectId" }],
+        [{ description: "x", projectId: mintUuidV7() }, buyerAuth, 404, { code: "project_not_found", subject: "projectId" }],
+        [{ description: "x", projectId: ROOT_ID }, builderAuth, 403, { code: "build_grant_denied", subject: "projectId" }],
+      ];
+      for (const [body, headers, status, expected] of cases) {
+        const response = await post(path, body, { headers });
+        expect([body, response.status, await response.json()]).toMatchObject([body, status, expected]);
+      }
+    });
+
+    it("answers 405 with Allow for a wrong method and logs the route", async () => {
+      const response = await fetch(`${base}${path}`, { method: "PUT", headers: buyerAuth });
+      expect(response.headers.get("allow")).toBe("GET, POST");
+      await expectEnvelope(response, 405, "method_not_allowed");
+      await expect
+        .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
+        .toEqual(["/v1/applications"]);
     });
   });
 

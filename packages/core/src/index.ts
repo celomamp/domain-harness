@@ -17,7 +17,7 @@ export {
 } from "./slots.ts";
 export type { ConflictSlot, PublicationResult, SlotHolder } from "./slots.ts";
 export { validateBundleInput, validateProjectTree } from "./tree.ts";
-export type { BundleInput, ParentChange, TreeNode, TreeResult } from "./tree.ts";
+export type { ApplicationNode, BundleInput, ParentChange, TreeNode, TreeResult } from "./tree.ts";
 export { validateLockedRules } from "./locked.ts";
 export type { LockedRulesInput, LockedRulesResult } from "./locked.ts";
 export { resolveEffectiveSet } from "./resolve.ts";

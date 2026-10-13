@@ -74,5 +74,17 @@ export {
   validateChildPermissionBody,
 } from "./child-permissions/service.ts";
 export type { ChildPermissionBody, ChildPermissionService } from "./child-permissions/service.ts";
+export {
+  createBuildGrantService,
+  hasBuildGrant,
+  listBuildGrants,
+  setBuildGrant,
+  validateBuildGrantBody,
+} from "./build-grants/service.ts";
+export type { BuildGrantBody, BuildGrantService } from "./build-grants/service.ts";
+export { createApplication, createApplicationService, listApplications } from "./applications/service.ts";
+export type { ApplicationService } from "./applications/service.ts";
+export { validateApplicationBody } from "./applications/validate.ts";
+export type { ApplicationCreateBody } from "./applications/validate.ts";
 export { createRegistryServer, MAX_BODY_BYTES, stdoutLogger } from "./http/server.ts";
 export type { LogEvent, Logger, RegistryServices } from "./http/server.ts";

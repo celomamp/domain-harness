@@ -352,7 +352,79 @@ export const childPermissionChanges = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0008. */
+/** Migration 0009: the build grant changes (Story 3.1), append-only, a copy of the child-Project permission changes. */
+export const buildGrantChanges = pgTable(
+  "build_grant_changes",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    projectId: uuid("project_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    granted: boolean("granted").notNull(),
+    changedBy: uuid("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("build_grant_changes_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    index("build_grant_changes_pair_idx").on(
+      table.tenantId,
+      table.projectId,
+      table.accountId,
+      table.sequence.desc(),
+    ),
+    foreignKey({
+      name: "build_grant_changes_project_fkey",
+      columns: [table.tenantId, table.projectId],
+      foreignColumns: [projects.tenantId, projects.id],
+    }),
+    foreignKey({
+      name: "build_grant_changes_account_fkey",
+      columns: [table.tenantId, table.accountId],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+    foreignKey({
+      name: "build_grant_changes_changed_by_fkey",
+      columns: [table.tenantId, table.changedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** Migration 0009: the Applications (Story 3.1), append-only, each bound to exactly one Project. */
+export const applications = pgTable(
+  "applications",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    projectId: uuid("project_id").notNull(),
+    description: text("description").notNull(),
+    fromFlow: boolean("from_flow").notNull(),
+    sequence: integer("sequence").notNull(),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("applications_tenant_id_id_key").on(table.tenantId, table.id),
+    unique("applications_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    foreignKey({
+      name: "applications_project_fkey",
+      columns: [table.tenantId, table.projectId],
+      foreignColumns: [projects.tenantId, projects.id],
+    }),
+    foreignKey({
+      name: "applications_created_by_fkey",
+      columns: [table.tenantId, table.createdBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0009. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -366,6 +438,8 @@ export const TENANT_TABLES = [
   "project_parent_changes",
   "locked_rule_changes",
   "child_permission_changes",
+  "build_grant_changes",
+  "applications",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */

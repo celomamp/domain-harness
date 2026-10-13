@@ -15,6 +15,8 @@ import { reportFailure } from "../operator/output.ts";
 import { createModuleService } from "../modules/service.ts";
 import { createProjectService } from "../projects/service.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
+import { createApplicationService } from "../applications/service.ts";
+import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createSignInService } from "../sign-in/service.ts";
 import { createStandardService } from "../standards/service.ts";
@@ -91,6 +93,8 @@ async function main(): Promise<void> {
       projects: createProjectService(db),
       lockedRules: createLockedRuleService(db),
       childPermissions: createChildPermissionService(db),
+      buildGrants: createBuildGrantService(db),
+      applications: createApplicationService(db),
     },
     stdoutLogger,
   );

@@ -131,3 +131,18 @@ export type {
   ChildPermissionState,
   RoledAccountRef,
 } from "./child-permissions.ts";
+export {
+  BUILD_GRANT_DENIED,
+  buildGrantsPath,
+  isBuildGrant,
+  isBuildGrantList,
+  isBuildGrantState,
+} from "./build-grants.ts";
+export type { BuildGrant, BuildGrantList, BuildGrantRequest, BuildGrantState } from "./build-grants.ts";
+export {
+  APPLICATION_API_PATHS,
+  APPLICATION_DESCRIPTION_MAX,
+  isApplicationInfo,
+  isApplicationList,
+} from "./applications.ts";
+export type { ApplicationCreateRequest, ApplicationInfo, ApplicationList } from "./applications.ts";

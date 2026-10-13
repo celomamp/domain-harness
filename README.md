@@ -247,6 +247,21 @@ Grants are append-only: migration `0008_child_permissions.sql` adds the `child_p
 
 In the panel, under the Effective Standard set, the section "Child-Project permission for <Project>" lists each current grant ("<account> (<role>), granted by <Buyer> on <YYYY-MM-DD>") with a "Revoke" button, and a "Grant permission" form whose Account select lists the eligible accounts not yet granted. It loads in its own busy section, and a failure leaves the tree, the table and the forms in place. The controls are shown to every role; the registry's refusals appear as a status. A create refused for a missing permission names the parent and says to ask the Buyer.
 
+### Build grant
+
+The Buyer grants or revokes, per account and per Project, the build grant: the right to place a new Application on that Project (see Applications below). It is a separate grant from the child-Project permission, stored in its own table, so holding one never implies the other. A build grant on P covers P only: it is never inherited by P's descendants, and it stays with P when P is re-parented. The Buyer never needs one.
+
+| Endpoint | Body | Success | Who |
+|---|---|---|---|
+| `GET /v1/projects/{id}/build-grants` | none | `200 { project, grants, eligibleAccounts }`, the same shapes and order as the child-Project permission | every role |
+| `POST /v1/projects/{id}/build-grants` | exactly `{ "accountId", "granted" }` | `200 { project, account, granted, changedAt, changedBy }` (`changedAt`/`changedBy` are `null` when the pair never had a row) | Buyer |
+
+The checks, their order, the messages and the same-state no-op are those of the child-Project permission, with "build" wording: `401 session_invalid` → the transport refusals (`415`, `413`, `400 invalid_input` subject `body`) → under the bundle lock, `404 project_not_found` (subject `projectId`) → `403 role_denied` ("only the Buyer can grant or revoke the build grant; nothing was changed") → `400 invalid_input` with subject `body`, `accountId`, `granted` or the unexpected key → `400 invalid_input` with subject `accountId` for an account that is not this Company's (including a malformed id) or is the Buyer → the same state as now answers `200` and writes nothing → the row is inserted.
+
+Grants are append-only: migration `0009_build_grants.sql` adds the `build_grant_changes` table (forced RLS, `SELECT` and `INSERT` only), one row per grant or revoke with who made it and when; a pair's current state is its latest row, and no row means not granted. `apps/registry/src/build-grants/build-grants.db.test.ts` covers it end to end over HTTP.
+
+In the panel, under the child-Project permission, the section "Build grant for <Project>" lists each current grant ("<account> (<role>), granted by <Buyer> on <YYYY-MM-DD>") with a "Revoke" button, and a "Grant build" form whose Account select starts on "Choose an account". It loads in its own busy section, and a failure leaves the rest of the page in place. The controls are shown to every role; the registry's refusals appear as a status.
+
 ### Plans
 
 Each Company has a plan (`tenants.plan`, set at provisioning). On the Community plan the Company keeps its one root Project, and the registry refuses three Project-tree writes with `403 plan_refused`, subject `plan`, writing nothing:
@@ -260,6 +275,21 @@ Each Company has a plan (`tenants.plan`, set at provisioning). On the Community 
 The messages name the capability, never a plan or a price, and no plan name appears in the error code or the registry's messages. Every other plan (Team, Business, Enterprise) is unaffected. Every read, removing a Locked rule (`locked: false`), and granting or revoking the child-Project permission stay allowed on Community, so a downgraded Company can still read its tree and reduce its Locked rules. The plan is read inside the request's tenant transaction, under the bundle lock, by `assertTreePlan` (`apps/registry/src/tenancy/plan.ts`). Where the check sits in each route's order is stated in that route's check order above: create and parent change under Project tree, a mark under Locked rules.
 
 In the panel, a plan refusal leaves the top status empty and is shown in place, in a live status region that is always present (empty until a refusal) inside the form or section that was submitted: under the button of the Create a Project form, inside the Change parent form, or above the table of the Effective Standard set. It names "Team (first sale)" and never shows a price; no control is hidden. `apps/registry/src/tenancy/plan.db.test.ts` covers the refusals end to end over HTTP, including a Company downgraded from Team.
+
+## Applications
+
+An Application is bound to exactly one Project. The registry mints its id (a UUIDv7) and records whether the New-application flow created it (`fromFlow`) and who created it; the wire never carries who created it. Every Application change passes whole-bundle validation in `packages/core`: the bundle input carries every Application (id → Project), and a duplicated id (`invalid_input`, subject `applicationId`) or an Application on a Project outside the tree (`project_not_found`, subject `projectId`) is refused.
+
+| Endpoint | Body | Success | Who |
+|---|---|---|---|
+| `GET /v1/applications` | none | `200 { applications }`: every Application of the Company `{ id, description, project: { id, name }, fromFlow, createdAt }`, ordered by `createdAt`, then id | every role |
+| `POST /v1/applications` | exactly `{ "description", "projectId" }` | `201` the Application, `fromFlow: true`, the description stored trimmed | the Buyer on any Project; any other account on a Project it holds a build grant on |
+
+The GET answers `401 session_invalid` without a session. A placement is checked in this order; the first failure wins and nothing is written: `401 session_invalid` → the transport refusals (`415`, `413`, `400 invalid_input` subject `body` for malformed JSON) → under the bundle lock, `400 invalid_input` with subject `body` (not an object) or the unexpected key → `400 invalid_input` subject `description` (not a string, or empty or longer than 500 characters once trimmed) → `400 invalid_input` subject `projectId` ("choose a Project for the Application; nothing was created") when it is absent, not a string or empty → `404 project_not_found` subject `projectId` (malformed, unknown or another Company's) → `403 build_grant_denied` subject `projectId` ("you have no build grant on this Project; nothing was created") when the caller is not the Buyer and holds no current build grant on that Project (the child-Project permission does not count) → core validation of the whole bundle → the row is inserted. No plan or band check applies.
+
+Applications are append-only: migration `0009_build_grants.sql` also adds the `applications` table (forced RLS, `SELECT` and `INSERT` only, a per-Company `sequence` as the Application-list version of the bundle input). `apps/registry/src/applications/applications.db.test.ts` covers it end to end over HTTP.
+
+In the panel, the "New-application flow" surface (`/new-application`, last in the nav) has a Description textarea, a Project select starting on "Choose a Project", and the gold "Place the Application" button. A success says "The Application is placed on <Project>. The Buyer sees it on Inventory now."; a missing Project or a bad description puts ink text under that field and keeps what was typed; a missing build grant names the Project and says to ask the Buyer. Inventory lists every Application of the Company at once (Application, Project, Placement "New-application flow" or "Registered", Listed date), before any Gate run, and never shows a Builder name.
 
 ## Telemetry
 

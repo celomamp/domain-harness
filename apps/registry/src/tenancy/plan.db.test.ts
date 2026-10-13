@@ -15,6 +15,8 @@ import type { ProjectInfo, SessionInfo, StandardInfo, UuidV7 } from "@domain-har
 import { createRegistryDb } from "../db/client.ts";
 import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
+import { createApplicationService } from "../applications/service.ts";
+import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createRegistryServer } from "../http/server.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
@@ -190,6 +192,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("plan refusals agains
         projects: createProjectService(db),
         lockedRules: createLockedRuleService(db),
         childPermissions: createChildPermissionService(db),
+        buildGrants: createBuildGrantService(db),
+        applications: createApplicationService(db),
       },
       () => undefined,
     );
