@@ -15,6 +15,7 @@ import {
   STANDARD_NOT_FOUND,
 } from "@domain-harness/contract";
 import type {
+  BuildGrantList,
   ChildPermissionList,
   EffectiveStandardSet,
   ErrorEnvelope,
@@ -23,6 +24,8 @@ import type {
   StandardInfo,
 } from "@domain-harness/contract";
 import {
+  BuildGrantPanel,
+  BuildGrantSection,
   ChangeParentForm,
   ChildPermissionPanel,
   ChildPermissionSection,
@@ -38,10 +41,12 @@ import { Status } from "../components/status.tsx";
 import {
   changeProjectParent,
   createProject,
+  getBuildGrants,
   getChildPermissions,
   getEffectiveStandards,
   getProjectTree,
   getStandardVersions,
+  setBuildGrant,
   setChildPermission,
   setLockedRule,
 } from "../registry.server.ts";
@@ -66,6 +71,8 @@ export interface ProjectTreeLoaderData {
    * chained off the tree in the same way as `effective`.
    */
   readonly permissions: Promise<RegistryResult<ChildPermissionList>>;
+  /** The selected Project's build grants, not awaited: chained off the tree in the same way as `effective`. */
+  readonly builds: Promise<RegistryResult<BuildGrantList>>;
 }
 
 /** The selected Project: `?project=` when it is in the tree, otherwise the root. */
@@ -97,11 +104,16 @@ export function loader({ request }: LoaderFunctionArgs): Response | ProjectTreeL
     const selected = result.kind === "ok" ? selectedProject(result.value, projectParam) : null;
     return selected === null ? PERMISSIONS_UNAVAILABLE : getChildPermissions(token, selected.id);
   });
-  return { projectParam, tree, effective, permissions };
+  const builds = tree.then((result): Promise<RegistryResult<BuildGrantList>> | RegistryResult<BuildGrantList> => {
+    const selected = result.kind === "ok" ? selectedProject(result.value, projectParam) : null;
+    return selected === null ? BUILDS_UNAVAILABLE : getBuildGrants(token, selected.id);
+  });
+  return { projectParam, tree, effective, permissions, builds };
 }
 
 const SET_UNAVAILABLE: RegistryResult<EffectiveStandardSet> = { kind: "unavailable" };
 const PERMISSIONS_UNAVAILABLE: RegistryResult<ChildPermissionList> = { kind: "unavailable" };
+const BUILDS_UNAVAILABLE: RegistryResult<BuildGrantList> = { kind: "unavailable" };
 
 const field = (form: FormData, name: string): string => {
   const value = form.get(name);
@@ -115,7 +127,8 @@ const FORM_FIELDS: readonly ProjectFormField[] = ["name", "levelName", "parentId
  * the Project and its new Parent, `intent=lock` with a Standard and its
  * new Locked-rule state (`locked` = "true" or "false"), or
  * `intent=permission` with a Project, an account and its new child-Project
- * permission state (`granted` = "true" or "false"). Values go to the
+ * permission state (`granted` = "true" or "false"), or `intent=build` with a
+ * Project, an account and its new build grant state. Values go to the
  * registry as submitted; it checks the session, the Project or Standard, the
  * role, the body and the whole bundle in that order, so a non-Buyer's submit
  * is a denial whatever it holds.
@@ -168,6 +181,21 @@ export async function action({ request }: ActionFunctionArgs) {
     }
     return refusal(token, { intent, values }, undefined);
   }
+  if (intent === "build") {
+    const values = { projectId: field(form, "projectId"), accountId: field(form, "accountId"), granted: field(form, "granted") };
+    if (values.granted === "true" || values.granted === "false") {
+      const result = await setBuildGrant(token, values.projectId, values.accountId, values.granted === "true");
+      if (result.kind === "ok") {
+        const { account, project, granted } = result.value;
+        const message = granted
+          ? PROJECT_TREE_COPY.build.granted(account.name, project.name)
+          : PROJECT_TREE_COPY.build.revoked(account.name, project.name);
+        return data<ProjectTreeActionData>({ intent, status: { tone: "notice", message }, fieldErrors: {}, values: {} });
+      }
+      return refusal(token, { intent, values }, result.kind === "refused" ? result.error : undefined);
+    }
+    return refusal(token, { intent, values }, undefined);
+  }
   return data<ProjectTreeActionData>(
     { intent: "", status: { tone: "denial", message: PROJECT_TREE_COPY.actionUnavailable }, fieldErrors: {}, values: {} },
     { status: 400 },
@@ -210,7 +238,7 @@ async function describeRule(token: string, standardId: string): Promise<string> 
 }
 
 interface Submitted {
-  readonly intent: "create" | "parent" | "lock" | "permission";
+  readonly intent: "create" | "parent" | "lock" | "permission" | "build";
   readonly values: ProjectTreeActionData["values"];
 }
 
@@ -222,7 +250,7 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
   const denial = (status: number, message: string) => reply(status, { status: { tone: "denial", message }, fieldErrors: {} });
   // A plan refusal leaves the top status empty and shows in place inside the
   // submitted form or section; the submitted values are kept.
-  if (error?.code === PLAN_REFUSED && intent !== "permission") {
+  if (error?.code === PLAN_REFUSED && intent !== "permission" && intent !== "build") {
     return data<ProjectTreeActionData>(
       { intent, values, status: null, fieldErrors: {}, planRefusal: PROJECT_TREE_COPY.planRefusal[intent] },
       { status: 403 },
@@ -250,16 +278,17 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
     }
   }
 
-  if (intent === "permission") {
+  if (intent === "permission" || intent === "build") {
+    const copy = intent === "permission" ? PROJECT_TREE_COPY.permission : PROJECT_TREE_COPY.build;
     switch (error?.code) {
       case SESSION_INVALID:
         return redirect("/sign-in");
       case ROLE_DENIED:
-        return denial(403, PROJECT_TREE_COPY.permission.roleDenial);
+        return denial(403, copy.roleDenial);
       case PROJECT_NOT_FOUND:
         return denial(404, PROJECT_TREE_COPY.projectNotFound);
       case "invalid_input":
-        if (error.subject === "accountId") return denial(400, PROJECT_TREE_COPY.permission.invalidAccount);
+        if (error.subject === "accountId") return denial(400, copy.invalidAccount);
         return denial(503, PROJECT_TREE_COPY.actionUnavailable);
       default:
         // Any other refusal, or an outage.
@@ -307,17 +336,29 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
 
 /** The Project tree surface: the tree, then the forms to create a Project and change a parent. */
 export default function ProjectTreePage() {
-  const { projectParam, tree, effective, permissions } = useLoaderData<ProjectTreeLoaderData>();
+  const { projectParam, tree, effective, permissions, builds } = useLoaderData<ProjectTreeLoaderData>();
   return (
     <Suspense fallback={<ColdLoad />}>
       <Await
         resolve={tree}
         errorElement={
-          <Loaded projectParam={projectParam} result={UNAVAILABLE} effective={effective} permissions={permissions} />
+          <Loaded
+            projectParam={projectParam}
+            result={UNAVAILABLE}
+            effective={effective}
+            permissions={permissions}
+            builds={builds}
+          />
         }
       >
         {(result: RegistryResult<ProjectTree>) => (
-          <Loaded projectParam={projectParam} result={result} effective={effective} permissions={permissions} />
+          <Loaded
+            projectParam={projectParam}
+            result={result}
+            effective={effective}
+            permissions={permissions}
+            builds={builds}
+          />
         )}
       </Await>
     </Suspense>
@@ -344,9 +385,10 @@ interface LoadedProps {
   readonly result: RegistryResult<ProjectTree>;
   readonly effective: Promise<RegistryResult<EffectiveStandardSet>>;
   readonly permissions: Promise<RegistryResult<ChildPermissionList>>;
+  readonly builds: Promise<RegistryResult<BuildGrantList>>;
 }
 
-function Loaded({ projectParam, result, effective, permissions }: LoadedProps) {
+function Loaded({ projectParam, result, effective, permissions, builds }: LoadedProps) {
   const actionData = useActionData<ProjectTreeActionData>();
   const navigate = useNavigate();
   const tree = result.kind === "ok" ? result.value : null;
@@ -388,6 +430,7 @@ function Loaded({ projectParam, result, effective, permissions }: LoadedProps) {
                 planRefusal={actionData?.intent === "lock" ? actionData.planRefusal : undefined}
               />
               <ChildPermissions projectName={selected.name} permissions={permissions} />
+              <BuildGrants projectName={selected.name} builds={builds} />
             </div>
           </div>
           <CreateProjectForm
@@ -482,6 +525,46 @@ function ChildPermissions({ projectName, permissions }: ChildPermissionsProps) {
             <ChildPermissionSection projectName={projectName}>
               <ChildPermissionPanel list={result.value} />
             </ChildPermissionSection>
+          ) : (
+            unavailable
+          )
+        }
+      </Await>
+    </Suspense>
+  );
+}
+
+interface BuildGrantsProps {
+  readonly projectName: string;
+  readonly builds: Promise<RegistryResult<BuildGrantList>>;
+}
+
+/**
+ * The selected Project's build grants under their own Suspense: busy while
+ * the grants load, and a failure shows the unavailable text without touching
+ * the tree, the table, the child-Project permission or the forms.
+ */
+function BuildGrants({ projectName, builds }: BuildGrantsProps) {
+  const copy = PROJECT_TREE_COPY.build;
+  const unavailable = (
+    <BuildGrantSection projectName={projectName}>
+      <p>{copy.unavailable}</p>
+    </BuildGrantSection>
+  );
+  return (
+    <Suspense
+      fallback={
+        <BuildGrantSection projectName={projectName} busy>
+          <p>{copy.loading}</p>
+        </BuildGrantSection>
+      }
+    >
+      <Await resolve={builds} errorElement={unavailable}>
+        {(result: RegistryResult<BuildGrantList>) =>
+          result.kind === "ok" ? (
+            <BuildGrantSection projectName={projectName}>
+              <BuildGrantPanel list={result.value} />
+            </BuildGrantSection>
           ) : (
             unavailable
           )

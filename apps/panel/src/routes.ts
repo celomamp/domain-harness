@@ -13,6 +13,7 @@ export default [
       { path: "standards", file: "routes/standards.tsx" },
       { path: "standards/:moduleId", file: "routes/module-standards.tsx" },
       { path: "projects", file: "routes/project-tree.tsx" },
+      { path: "new-application", file: "routes/new-application.tsx" },
     ],
   },
 ];

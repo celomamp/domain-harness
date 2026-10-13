@@ -18,6 +18,10 @@ import {
   getChildPermissions,
   setChildPermission,
   setLockedRule,
+  createApplication,
+  getApplications,
+  getBuildGrants,
+  setBuildGrant,
 } from "./registry.server.ts";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
@@ -389,6 +393,72 @@ describe("registry client", () => {
       expect(await setChildPermission("abc", WEB, builder.accountId, false)).toEqual({ kind: "refused", error: denied });
       vi.stubGlobal("fetch", respond(200, { ...state, changedAt: null }));
       expect(await setChildPermission("abc", WEB, builder.accountId, true)).toEqual({ kind: "unavailable" });
+    });
+
+    it("reads a Project's build grants on the escaped path and grants with exactly { accountId, granted }", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const builder = { accountId: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f2", name: "Bo", role: "Builder" };
+      const list = {
+        project: { id: WEB, name: "Web" },
+        grants: [{ account: builder, grantedAt: AT, grantedBy: { accountId: ACCOUNT, name: "Bea" } }],
+        eligibleAccounts: [builder],
+      };
+      const fetch = respond(200, list);
+      vi.stubGlobal("fetch", fetch);
+      expect(await getBuildGrants("abc", WEB)).toEqual({ kind: "ok", value: list });
+      await getBuildGrants("abc", "a/b");
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`http://registry.test/v1/projects/${WEB}/build-grants`);
+      expect(init.method).toBe("GET");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+      expect((fetch.mock.calls[1] as unknown as [string])[0]).toMatch(/\/v1\/projects\/a%2Fb\/build-grants$/);
+      vi.stubGlobal("fetch", respond(200, { ...list, grants: [{}] }));
+      expect(await getBuildGrants("abc", WEB)).toEqual({ kind: "unavailable" });
+
+      const state = { project: list.project, account: builder, granted: true, changedAt: AT, changedBy: { accountId: ACCOUNT, name: "Bea" } };
+      const post = respond(200, state);
+      vi.stubGlobal("fetch", post);
+      expect(await setBuildGrant("abc", WEB, builder.accountId, true)).toEqual({ kind: "ok", value: state });
+      const [postUrl, postInit] = post.mock.calls[0] as unknown as [string, RequestInit];
+      expect(postUrl).toBe(`http://registry.test/v1/projects/${WEB}/build-grants`);
+      expect(postInit.method).toBe("POST");
+      expect(postInit.body).toBe(JSON.stringify({ accountId: builder.accountId, granted: true }));
+      const denied = { code: "role_denied", message: "m", subject: "role" };
+      vi.stubGlobal("fetch", respond(403, denied));
+      expect(await setBuildGrant("abc", WEB, builder.accountId, false)).toEqual({ kind: "refused", error: denied });
+    });
+
+    it("lists the Applications and places one with exactly { description, projectId }, expecting 201", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const app = {
+        id: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f3",
+        description: "Checkout",
+        project: { id: WEB, name: "Web" },
+        fromFlow: true,
+        createdAt: AT,
+      };
+      const fetch = respond(200, { applications: [app] });
+      vi.stubGlobal("fetch", fetch);
+      expect(await getApplications("abc")).toEqual({ kind: "ok", value: { applications: [app] } });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("http://registry.test/v1/applications");
+      expect(init.method).toBe("GET");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+      vi.stubGlobal("fetch", respond(200, { applications: [{ ...app, fromFlow: "yes" }] }));
+      expect(await getApplications("abc")).toEqual({ kind: "unavailable" });
+
+      const post = respond(201, app);
+      vi.stubGlobal("fetch", post);
+      expect(await createApplication("abc", { description: " Checkout ", projectId: WEB })).toEqual({ kind: "ok", value: app });
+      const [postUrl, postInit] = post.mock.calls[0] as unknown as [string, RequestInit];
+      expect(postUrl).toBe("http://registry.test/v1/applications");
+      expect(postInit.method).toBe("POST");
+      expect(postInit.body).toBe(JSON.stringify({ description: " Checkout ", projectId: WEB }));
+      vi.stubGlobal("fetch", respond(200, app));
+      expect(await createApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "unavailable" });
+      const denied = { code: "build_grant_denied", message: "m", subject: "projectId" };
+      vi.stubGlobal("fetch", respond(403, denied));
+      expect(await createApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "refused", error: denied });
     });
   });
 });

@@ -6,6 +6,7 @@ export const PANEL_NAV = [
   { to: "/inventory", label: "Inventory" },
   { to: "/standards", label: "Standards" },
   { to: "/projects", label: "Project tree" },
+  { to: "/new-application", label: "New-application flow" },
 ] as const;
 
 /**

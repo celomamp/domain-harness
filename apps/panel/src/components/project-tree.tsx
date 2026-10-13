@@ -3,6 +3,7 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Form } from "react-router";
 import { MODULE_KIND_LABELS } from "@domain-harness/contract";
 import type {
+  BuildGrantList,
   ChildPermissionList,
   EffectiveSlot,
   EffectiveStandardSet,
@@ -111,6 +112,26 @@ export const PROJECT_TREE_COPY = {
     createDenied: (parentName: string) =>
       `You do not have permission to create a child Project under ${parentName}. Ask the Buyer for it. Nothing was created.`,
   },
+  /** The build grant section, its notices and refusals. */
+  build: {
+    heading: (name: string) => `Build grant for ${name}`,
+    loading: "Loading the build grant…",
+    unavailable: "The build grant is unavailable right now. Try again in a few minutes.",
+    empty: "No account has a build grant here yet. The Buyer can always place Applications.",
+    allGranted: "Every account already has a build grant here.",
+    account: (account: RoledAccountRef) => `${account.name} (${account.role})`,
+    /** "<account> (<role>), granted by <Buyer> on <YYYY-MM-DD>" with the UTC date of the ISO timestamp. */
+    grant: (account: RoledAccountRef, grantedBy: string, grantedAt: string) =>
+      `${account.name} (${account.role}), granted by ${grantedBy} on ${grantedAt.slice(0, 10)}`,
+    accountLabel: "Account",
+    chooseAccount: "Choose an account",
+    grantButton: "Grant build",
+    revoke: "Revoke",
+    granted: (account: string, projectName: string) => `${account} can now place Applications on ${projectName}.`,
+    revoked: (account: string, projectName: string) => `${account} can no longer place Applications on ${projectName}.`,
+    roleDenial: "Only the Buyer can grant or revoke the build grant. Nothing was changed.",
+    invalidAccount: "Choose an account of this Company other than the Buyer. Nothing was changed.",
+  },
   effective: {
     heading: (name: string) => `Effective Standard set for ${name}`,
     loading: "Loading the Effective Standard set…",
@@ -130,8 +151,8 @@ export const PROJECT_TREE_COPY = {
 
 /** What the Project tree action reports back to the page. */
 export interface ProjectTreeActionData {
-  /** The submitted form: `create`, `parent`, `lock`, `permission`, or "" for an unknown intent. */
-  readonly intent: "create" | "parent" | "lock" | "permission" | "";
+  /** The submitted form: `create`, `parent`, `lock`, `permission`, `build`, or "" for an unknown intent. */
+  readonly intent: "create" | "parent" | "lock" | "permission" | "build" | "";
   /** A status line (notice) or a refusal (denial), announced in the status region. */
   readonly status: { readonly tone: "denial" | "notice"; readonly message: string } | null;
   /** Ink text under the named field of the submitted form. */
@@ -502,32 +523,49 @@ export function EffectiveSetTable({ set }: EffectiveSetTableProps) {
   );
 }
 
-export interface ChildPermissionSectionProps {
-  /** The selected Project's name, for the heading. */
+/** The copy a grant section needs: the child-Project permission's or the build grant's. */
+interface GrantCopy {
+  readonly heading: (name: string) => string;
+  readonly empty: string;
+  readonly allGranted: string;
+  readonly account: (account: RoledAccountRef) => string;
+  readonly grant: (account: RoledAccountRef, grantedBy: string, grantedAt: string) => string;
+  readonly accountLabel: string;
+  readonly chooseAccount: string;
+  readonly grantButton: string;
+  readonly revoke: string;
+}
+
+/** What tells the two grant sections apart: their copy, their form intent and their class/id prefix. */
+interface GrantKind {
+  readonly copy: GrantCopy;
+  readonly intent: "permission" | "build";
+  readonly prefix: "child-permission" | "build-grant";
+}
+
+const CHILD_PERMISSION: GrantKind = { copy: PROJECT_TREE_COPY.permission, intent: "permission", prefix: "child-permission" };
+const BUILD_GRANT: GrantKind = { copy: PROJECT_TREE_COPY.build, intent: "build", prefix: "build-grant" };
+
+interface GrantSectionProps {
+  readonly kind: GrantKind;
   readonly projectName: string;
-  /** True while the grants are pending. */
-  readonly busy?: boolean;
+  readonly busy: boolean;
   readonly children: ReactNode;
 }
 
-/** The section under the Effective Standard set holding the selected Project's child-Project permission. */
-export function ChildPermissionSection({ projectName, busy = false, children }: ChildPermissionSectionProps) {
+function GrantSection({ kind, projectName, busy, children }: GrantSectionProps) {
   return (
     <section
-      className="child-permission"
-      aria-labelledby="child-permission-heading"
+      className={`grant-section ${kind.prefix}`}
+      aria-labelledby={`${kind.prefix}-heading`}
       {...(busy ? { "aria-busy": true as const } : {})}
     >
-      <h2 id="child-permission-heading" className="type-title-sm">
-        {PROJECT_TREE_COPY.permission.heading(projectName)}
+      <h2 id={`${kind.prefix}-heading`} className="type-title-sm">
+        {kind.copy.heading(projectName)}
       </h2>
       {children}
     </section>
   );
-}
-
-export interface ChildPermissionPanelProps {
-  readonly list: ChildPermissionList;
 }
 
 /**
@@ -535,8 +573,8 @@ export interface ChildPermissionPanelProps {
  * to grant an eligible account that has none yet. Shown to every role: the
  * registry refuses a non-Buyer.
  */
-export function ChildPermissionPanel({ list }: ChildPermissionPanelProps) {
-  const copy = PROJECT_TREE_COPY.permission;
+function GrantPanel({ kind, list }: { readonly kind: GrantKind; readonly list: ChildPermissionList | BuildGrantList }) {
+  const { copy, intent, prefix } = kind;
   const granted = new Set(list.grants.map((grant) => grant.account.accountId));
   const grantable = list.eligibleAccounts.filter((account) => !granted.has(account.accountId));
   return (
@@ -544,12 +582,12 @@ export function ChildPermissionPanel({ list }: ChildPermissionPanelProps) {
       {list.grants.length === 0 ? (
         <p>{copy.empty}</p>
       ) : (
-        <ul className="child-permission__grants">
+        <ul className="grant-section__grants">
           {list.grants.map((grant) => (
-            <li key={grant.account.accountId} className="child-permission__grant">
+            <li key={grant.account.accountId} className="grant-section__grant">
               <span>{copy.grant(grant.account, grant.grantedBy.name, grant.grantedAt)}</span>
               <Form method="post">
-                <input type="hidden" name="intent" value="permission" />
+                <input type="hidden" name="intent" value={intent} />
                 <input type="hidden" name="projectId" value={list.project.id} />
                 <input type="hidden" name="accountId" value={grant.account.accountId} />
                 <input type="hidden" name="granted" value="false" />
@@ -565,13 +603,13 @@ export function ChildPermissionPanel({ list }: ChildPermissionPanelProps) {
         <p>{copy.allGranted}</p>
       ) : (
         <Form method="post" className="standard-form">
-          <input type="hidden" name="intent" value="permission" />
+          <input type="hidden" name="intent" value={intent} />
           <input type="hidden" name="projectId" value={list.project.id} />
           <input type="hidden" name="granted" value="true" />
-          <label htmlFor="child-permission-account" className="type-label">
+          <label htmlFor={`${prefix}-account`} className="type-label">
             {copy.accountLabel}
           </label>
-          <select id="child-permission-account" name="accountId" defaultValue="">
+          <select id={`${prefix}-account`} name="accountId" defaultValue="">
             <option value="">{copy.chooseAccount}</option>
             {grantable.map((account) => (
               <option key={account.accountId} value={account.accountId}>
@@ -586,4 +624,44 @@ export function ChildPermissionPanel({ list }: ChildPermissionPanelProps) {
       )}
     </>
   );
+}
+
+export interface ChildPermissionSectionProps {
+  /** The selected Project's name, for the heading. */
+  readonly projectName: string;
+  /** True while the grants are pending. */
+  readonly busy?: boolean;
+  readonly children: ReactNode;
+}
+
+/** The section under the Effective Standard set holding the selected Project's child-Project permission. */
+export function ChildPermissionSection({ projectName, busy = false, children }: ChildPermissionSectionProps) {
+  return (
+    <GrantSection kind={CHILD_PERMISSION} projectName={projectName} busy={busy}>
+      {children}
+    </GrantSection>
+  );
+}
+
+export interface ChildPermissionPanelProps {
+  readonly list: ChildPermissionList;
+}
+
+/** The child-Project permission grants on a Project, with Revoke buttons and the grant form. */
+export function ChildPermissionPanel({ list }: ChildPermissionPanelProps) {
+  return <GrantPanel kind={CHILD_PERMISSION} list={list} />;
+}
+
+/** The section under the child-Project permission holding the selected Project's build grants. */
+export function BuildGrantSection({ projectName, busy = false, children }: ChildPermissionSectionProps) {
+  return (
+    <GrantSection kind={BUILD_GRANT} projectName={projectName} busy={busy}>
+      {children}
+    </GrantSection>
+  );
+}
+
+/** The build grants on a Project, with Revoke buttons and the grant form (intent `build`). */
+export function BuildGrantPanel({ list }: { readonly list: BuildGrantList }) {
+  return <GrantPanel kind={BUILD_GRANT} list={list} />;
 }

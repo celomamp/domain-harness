@@ -53,8 +53,8 @@ development_status:
   2-6-community-plan-refuses-tree-capabilities-in-place: done
   epic-2-retrospective: optional
 
-  epic-3: backlog
-  3-1-builder-places-a-new-application-on-a-project: backlog
+  epic-3: in-progress
+  3-1-builder-places-a-new-application-on-a-project: done
   3-2-define-the-project-identification-file: backlog
   3-3-generate-a-boilerplate-for-claude-code: backlog
   3-4-generate-a-boilerplate-for-cursor: backlog

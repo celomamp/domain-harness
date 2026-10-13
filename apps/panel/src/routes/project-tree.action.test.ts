@@ -100,12 +100,40 @@ describe("/projects loader", () => {
     expect((again.mock.calls[2] as unknown as [string])[0]).toMatch(new RegExp(`/v1/projects/${ROOT}/child-permissions$`));
   });
 
+  it("chains the selected Project's build grants off the tree in the same way", async () => {
+    const list = { project: { id: B, name: "Web" }, grants: [], eligibleAccounts: [] };
+    const fetch = registryAnswers(
+      [200, tree],
+      [200, { project: { id: B, name: "Web" }, standards: [] }],
+      [200, list],
+      [200, list],
+    );
+    const result = loader(loaderArgs(`http://x/projects?project=${B}`));
+    if (result instanceof Response) throw new Error("expected data");
+    expect(result.builds).toBeInstanceOf(Promise);
+    expect(await result.builds).toEqual({ kind: "ok", value: list });
+    expect((fetch.mock.calls[3] as unknown as [string])[0]).toMatch(new RegExp(`/v1/projects/${B}/build-grants$`));
+
+    const rootList = { project: { id: ROOT, name: "Acme" }, grants: [], eligibleAccounts: [] };
+    const again = registryAnswers(
+      [200, tree],
+      [200, { project: { id: ROOT, name: "Acme" }, standards: [] }],
+      [200, rootList],
+      [200, rootList],
+    );
+    const unknown = loader(loaderArgs("http://x/projects?project=nope"));
+    if (unknown instanceof Response) throw new Error("expected data");
+    expect(await unknown.builds).toEqual({ kind: "ok", value: rootList });
+    expect((again.mock.calls[3] as unknown as [string])[0]).toMatch(new RegExp(`/v1/projects/${ROOT}/build-grants$`));
+  });
+
   it("answers the set and the permission as unavailable, without calling them, when the tree is unavailable", async () => {
     const fetch = registryAnswers([503, {}]);
     const result = loader(loaderArgs());
     if (result instanceof Response) throw new Error("expected data");
     expect(await result.effective).toEqual({ kind: "unavailable" });
     expect(await result.permissions).toEqual({ kind: "unavailable" });
+    expect(await result.builds).toEqual({ kind: "unavailable" });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -300,6 +328,69 @@ describe("/projects action: child-Project permission", () => {
     registryAnswers([403, refused("child_permission_denied", "parentId")], [500, {}]);
     const result = (await action(actionArgs(create))) as unknown as DataResult;
     expect(result.data.status?.message).toContain(`under ${A}.`);
+  });
+});
+
+describe("/projects action: build grant", () => {
+  const BO = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e610";
+  const BEA = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e613";
+  const state = (granted: boolean) => ({
+    project: { id: A, name: "Platform" },
+    account: { accountId: BO, name: "Bo Builder", role: "Builder" },
+    granted,
+    changedAt: AT,
+    changedBy: { accountId: BEA, name: "Bea Buyer" },
+  });
+  const build = (granted: string) => ({ intent: "build", projectId: A, accountId: BO, granted });
+
+  it("grants with { accountId, granted: true } on the build-grants path and names the account and Project", async () => {
+    const fetch = registryAnswers([200, state(true)]);
+    const result = (await action(actionArgs(build("true")))) as unknown as DataResult;
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(new RegExp(`/v1/projects/${A}/build-grants$`));
+    expect(init.body).toBe(JSON.stringify({ accountId: BO, granted: true }));
+    expect(result.data).toMatchObject({
+      intent: "build",
+      status: { tone: "notice", message: "Bo Builder can now place Applications on Platform." },
+    });
+  });
+
+  it("revokes with { granted: false } and says so", async () => {
+    const fetch = registryAnswers([200, state(false)]);
+    const result = (await action(actionArgs(build("false")))) as unknown as DataResult;
+    expect((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body).toBe(
+      JSON.stringify({ accountId: BO, granted: false }),
+    );
+    expect(result.data.status).toEqual({ tone: "notice", message: "Bo Builder can no longer place Applications on Platform." });
+  });
+
+  it.each([
+    ["role_denied", "role", 403, 403, "Only the Buyer can grant or revoke the build grant. Nothing was changed."],
+    ["invalid_input", "accountId", 400, 400, "Choose an account of this Company other than the Buyer. Nothing was changed."],
+    ["invalid_input", "granted", 400, 503, PROJECT_TREE_COPY.actionUnavailable],
+    ["project_not_found", "projectId", 404, 404, PROJECT_TREE_COPY.projectNotFound],
+    ["plan_refused", "plan", 403, 503, PROJECT_TREE_COPY.actionUnavailable],
+  ])("maps %s (subject %s) to a denial", async (code, subject, registryStatus, status, message) => {
+    registryAnswers([registryStatus, refused(code, subject)]);
+    const result = (await action(actionArgs(build("true")))) as unknown as DataResult;
+    expect(result.init?.status).toBe(status);
+    expect(result.data).toMatchObject({ intent: "build", status: { tone: "denial", message } });
+  });
+
+  it("redirects to sign-in on a lapsed session", async () => {
+    registryAnswers([401, refused("session_invalid", "session")]);
+    const lapsed = await action(actionArgs(build("true")));
+    expect((lapsed as Response).headers.get("location")).toBe("/sign-in");
+  });
+
+  it("reports an outage, and a malformed granted value without calling the registry", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("down"))));
+    const down = (await action(actionArgs(build("true")))) as unknown as DataResult;
+    expect(down.data.status).toEqual({ tone: "denial", message: PROJECT_TREE_COPY.actionUnavailable });
+    const fetch = registryAnswers();
+    const malformed = (await action(actionArgs(build("yes")))) as unknown as DataResult;
+    expect(malformed.data.status).toEqual({ tone: "denial", message: PROJECT_TREE_COPY.actionUnavailable });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

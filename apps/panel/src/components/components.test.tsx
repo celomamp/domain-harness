@@ -25,7 +25,11 @@ function renderPanel(url: string) {
     {
       Component: Layout,
       children: [
-        { path: "/inventory", Component: Inventory },
+        {
+          path: "/inventory",
+          Component: Inventory,
+          loader: () => ({ applications: Promise.resolve({ kind: "ok", value: { applications: [] } }) }),
+        },
         { path: "/standards", Component: Standards, loader: () => ({ list: { modules: [], standardOwners: [] } }) },
       ],
     },
@@ -34,14 +38,14 @@ function renderPanel(url: string) {
 }
 
 describe("panel-chrome", () => {
-  it("shows the wordmark, the role as text and a nav listing only Inventory, Standards and Project tree", async () => {
+  it("shows the wordmark, the role as text and a nav listing only Inventory, Standards, Project tree and New-application flow", async () => {
     renderPanel("/inventory");
     expect(await screen.findByText("Domain Harness")).toBeTruthy();
     expect(screen.getByText("Buyer")).toBeTruthy();
     const nav = screen.getByRole("navigation", { name: "Management panel" });
     const links = [...nav.querySelectorAll("a")];
-    expect(links.map((a) => a.textContent)).toEqual(["Inventory", "Standards", "Project tree"]);
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/inventory", "/standards", "/projects"]);
+    expect(links.map((a) => a.textContent)).toEqual(["Inventory", "Standards", "Project tree", "New-application flow"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/inventory", "/standards", "/projects", "/new-application"]);
   });
 
   it("marks Inventory as the current destination on /inventory, with the empty state", async () => {
@@ -50,7 +54,7 @@ describe("panel-chrome", () => {
     expect(current.textContent).toBe("Inventory");
     expect(screen.getByRole("link", { name: "Standards" }).getAttribute("aria-current")).toBeNull();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Inventory");
-    expect(screen.getByText("No Application yet.").className).toBe("type-display");
+    expect((await screen.findByText("No Application yet.")).className).toBe("type-display");
   });
 
   it("marks Standards as current on /standards", async () => {
@@ -63,7 +67,7 @@ describe("panel-chrome", () => {
     renderPanel("/inventory");
     await screen.findByRole("navigation");
     const focusables = [...document.querySelectorAll<HTMLElement>("a[href], button, input")];
-    expect(focusables.map((el) => el.textContent)).toEqual(["Inventory", "Standards", "Project tree"]);
+    expect(focusables.map((el) => el.textContent)).toEqual(["Inventory", "Standards", "Project tree", "New-application flow"]);
     expect(document.querySelectorAll("[tabindex]").length).toBe(0);
   });
 });

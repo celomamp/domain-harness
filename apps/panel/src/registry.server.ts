@@ -5,8 +5,14 @@
  * thrown, so a registry outage cannot break a page.
  */
 import {
+  APPLICATION_API_PATHS,
+  buildGrantsPath,
   childPermissionsPath,
   effectiveStandardsPath,
+  isApplicationInfo,
+  isApplicationList,
+  isBuildGrantList,
+  isBuildGrantState,
   isChildPermissionList,
   isChildPermissionState,
   isEffectiveStandardSet,
@@ -31,6 +37,12 @@ import {
   standardVersionsPath,
 } from "@domain-harness/contract";
 import type {
+  ApplicationCreateRequest,
+  ApplicationInfo,
+  ApplicationList,
+  BuildGrantList,
+  BuildGrantRequest,
+  BuildGrantState,
   ChildPermissionList,
   ChildPermissionRequest,
   ChildPermissionState,
@@ -260,4 +272,42 @@ export function setChildPermission(
 ): Promise<RegistryResult<ChildPermissionState>> {
   const body: ChildPermissionRequest = { accountId, granted };
   return call(childPermissionsPath(projectId), json(body, bearer(sessionToken)), 200, isChildPermissionState);
+}
+
+/** A Project's current build grants and the accounts that can hold one (every role may read). */
+export function getBuildGrants(sessionToken: string, projectId: string): Promise<RegistryResult<BuildGrantList>> {
+  return call(buildGrantsPath(projectId), getJson(sessionToken), 200, isBuildGrantList);
+}
+
+/**
+ * Grant (`granted: true`) or revoke (`granted: false`) one account's build
+ * grant on a Project (the registry allows only the Buyer).
+ */
+export function setBuildGrant(
+  sessionToken: string,
+  projectId: string,
+  accountId: string,
+  granted: boolean,
+): Promise<RegistryResult<BuildGrantState>> {
+  const body: BuildGrantRequest = { accountId, granted };
+  return call(buildGrantsPath(projectId), json(body, bearer(sessionToken)), 200, isBuildGrantState);
+}
+
+/** Every Application of the Company, ordered by creation time (every role may read). */
+export function getApplications(sessionToken: string): Promise<RegistryResult<ApplicationList>> {
+  return call(APPLICATION_API_PATHS.applications, getJson(sessionToken), 200, isApplicationList);
+}
+
+/**
+ * Place a new Application on a Project through the New-application flow (the
+ * registry allows the Buyer anywhere, and any other account on a Project on
+ * which it holds a build grant). The values are passed as submitted; the
+ * registry trims the description, validates and answers field errors.
+ */
+export function createApplication(
+  sessionToken: string,
+  input: { readonly description: string; readonly projectId: string },
+): Promise<RegistryResult<ApplicationInfo>> {
+  const body: ApplicationCreateRequest = { description: input.description, projectId: input.projectId };
+  return call(APPLICATION_API_PATHS.applications, json(body, bearer(sessionToken)), 201, isApplicationInfo);
 }

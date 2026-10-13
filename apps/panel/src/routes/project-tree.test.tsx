@@ -62,6 +62,7 @@ function renderPage(
   pending?: Promise<unknown>,
   effectiveFor: EffectiveFor = emptySetFor,
   permissionsFor: PermissionsFor = noGrantsFor,
+  buildsFor: PermissionsFor = noGrantsFor,
 ) {
   const Layout = () => (
     <>
@@ -78,6 +79,7 @@ function renderPage(
       tree: pending ?? Promise.resolve(result),
       effective: effectiveFor(projectParam ?? ROOT),
       permissions: permissionsFor(projectParam ?? ROOT),
+      builds: buildsFor(projectParam ?? ROOT),
     };
   };
   const Stub = createRoutesStub([
@@ -634,7 +636,7 @@ describe("child-Project permission", () => {
     ]);
     renderPage("Buyer", ok(fullTree));
     const grant = await screen.findByRole("button", { name: "Grant permission" });
-    fireEvent.change(screen.getByLabelText("Account"), { target: { value: AL } });
+    fireEvent.change(within(section()).getByLabelText("Account"), { target: { value: AL } });
     fireEvent.click(grant);
     await waitFor(() => {
       expect(status().textContent).toBe("Al Builder can now create child Projects under Acme.");
@@ -669,6 +671,132 @@ describe("child-Project permission", () => {
     });
     expect(status().querySelector(".denial")).not.toBeNull();
     expect(items()).toHaveLength(4);
+  });
+});
+
+describe("build grant", () => {
+  const section = () => screen.getByRole("region", { name: /^Build grant for / });
+  const grantsFor =
+    (grants: unknown[], accounts: unknown[] = eligible): PermissionsFor =>
+    (projectId) => {
+      const project = fullTree.projects.find((p) => p.id === projectId) ?? root;
+      return Promise.resolve(ok({ project: { id: project.id, name: project.name }, grants, eligibleAccounts: accounts }));
+    };
+  const boGrant = {
+    account: { accountId: BO, name: "Bo Builder", role: "Builder" },
+    grantedAt: "2026-10-13T23:30:00.000Z",
+    grantedBy: { accountId: BEA, name: "Bea Buyer" },
+  };
+  const renderBuilds = (role: Role, url: string, buildsFor: PermissionsFor) => {
+    renderPage(role, ok(fullTree), url, undefined, emptySetFor, noGrantsFor, buildsFor);
+  };
+
+  it("sits under the child-Project permission and lists each grant with its granter, UTC date and a Revoke button", async () => {
+    renderBuilds("Buyer", `/projects?project=${A}`, grantsFor([boGrant]));
+    const item = await screen.findByText("Bo Builder (Builder), granted by Bea Buyer on 2026-10-13");
+    expect(section().contains(item)).toBe(true);
+    expect(screen.getByRole("heading", { level: 2, name: "Build grant for Platform" })).toBeTruthy();
+    const child = screen.getByRole("region", { name: "Child-Project permission for Platform" });
+    expect(child.compareDocumentPosition(section()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const revoke = within(item.closest("li") as HTMLElement).getByRole("button", { name: "Revoke Bo Builder" });
+    expect(Object.fromEntries(new FormData(revoke.closest("form") as HTMLFormElement))).toEqual({
+      intent: "build",
+      projectId: A,
+      accountId: BO,
+      granted: "false",
+    });
+    const select = within(section()).getByLabelText<HTMLSelectElement>("Account");
+    expect([...select.options].map((o) => [o.value, o.textContent])).toEqual([
+      ["", "Choose an account"],
+      [AL, "Al Builder (Builder)"],
+      [SAM, "Sam Owner (Standard owner)"],
+    ]);
+    const grant = within(section()).getByRole("button", { name: "Grant build" });
+    expect(Object.fromEntries(new FormData(grant.closest("form") as HTMLFormElement))).toEqual({
+      intent: "build",
+      projectId: A,
+      granted: "true",
+      accountId: "",
+    });
+  });
+
+  it("shows the empty state to every role, with the grant form", async () => {
+    renderBuilds("Builder", "/projects", noGrantsFor);
+    expect(
+      await screen.findByText("No account has a build grant here yet. The Buyer can always place Applications."),
+    ).toBeTruthy();
+    expect(section().getAttribute("aria-busy")).toBeNull();
+    expect(within(section()).getByRole("button", { name: "Grant build" })).toBeTruthy();
+  });
+
+  it("says every account already has a build grant instead of the form when none is left", async () => {
+    renderBuilds("Buyer", "/projects", grantsFor([boGrant], [boGrant.account]));
+    expect(await screen.findByText("Every account already has a build grant here.")).toBeTruthy();
+    expect(within(section()).queryByLabelText("Account")).toBeNull();
+  });
+
+  it("shows a busy section while the grants load, with the tree and forms already there", async () => {
+    renderBuilds("Buyer", "/projects", () => new Promise(() => undefined));
+    await screen.findByRole("tree");
+    expect(await screen.findByText("Loading the build grant…")).toBeTruthy();
+    expect(section().getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
+  });
+
+  it.each([
+    ["an unavailable answer", () => Promise.resolve({ kind: "unavailable" })],
+    [
+      "a failed promise",
+      () => {
+        const failed = Promise.reject(new Error("down"));
+        failed.catch(() => undefined);
+        return failed;
+      },
+    ],
+  ])("says the build grant is unavailable on %s, keeping the tree, the permission and the forms", async (_label, buildsFor: PermissionsFor) => {
+    renderBuilds("Buyer", `/projects?project=${B}`, buildsFor);
+    expect(await screen.findByText("The build grant is unavailable right now. Try again in a few minutes.")).toBeTruthy();
+    expect(screen.getByRole("tree")).toBeTruthy();
+    expect(await screen.findByText("No account has this permission yet. The Buyer can always create child Projects.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create Project" })).toBeTruthy();
+  });
+
+  it.each([
+    [true, "Al Builder can now place Applications on Acme."],
+    [false, "Al Builder can no longer place Applications on Acme."],
+  ])("announces the change (granted %s) naming the account and the Project", async (granted, message) => {
+    const fetch = registry([
+      200,
+      {
+        project: { id: ROOT, name: "Acme" },
+        account: { accountId: AL, name: "Al Builder", role: "Builder" },
+        granted,
+        changedAt: AT,
+        changedBy: { accountId: BEA, name: "Bea Buyer" },
+      },
+    ]);
+    renderBuilds("Buyer", "/projects", noGrantsFor);
+    const grant = await screen.findByRole("button", { name: "Grant build" });
+    fireEvent.change(within(section()).getByLabelText("Account"), { target: { value: AL } });
+    fireEvent.click(grant);
+    await waitFor(() => {
+      expect(status().textContent).toBe(message);
+    });
+    const [url] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(new RegExp(`/v1/projects/${ROOT}/build-grants$`));
+  });
+
+  it.each([
+    [403, { code: "role_denied", message: "m", subject: "role" }, "Only the Buyer can grant or revoke the build grant. Nothing was changed."],
+    [400, { code: "invalid_input", message: "m", subject: "accountId" }, "Choose an account of this Company other than the Buyer. Nothing was changed."],
+  ])("maps a %s refusal to its denial", async (code, envelope, message) => {
+    registry([code, envelope]);
+    renderBuilds("Builder", "/projects", noGrantsFor);
+    fireEvent.click(await screen.findByRole("button", { name: "Grant build" }));
+    await waitFor(() => {
+      expect(status().textContent).toBe(message);
+    });
+    expect(status().querySelector(".denial")).not.toBeNull();
   });
 });
 
