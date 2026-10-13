@@ -2,7 +2,11 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  APPLICATION_NOT_FOUND,
+  applicationIdentificationFilePath,
   entrySlotName,
+  formatIdentificationFile,
+  IDENTIFICATION_FILE_NAME,
   isApplicationInfo,
   isApplicationList,
   isBuildGrantList,
@@ -11,6 +15,7 @@ import {
   isChildPermissionState,
   isEffectiveStandardSet,
   isErrorEnvelope,
+  isIdentificationFileRendering,
   isLockedRuleState,
   isModuleInfo,
   isModuleList,
@@ -30,6 +35,7 @@ import type {
   ChildPermissionList,
   ChildPermissionState,
   EffectiveStandardSet,
+  IdentificationFileRendering,
   LockedRuleState,
   ModuleInfo,
   ModuleList,
@@ -388,7 +394,16 @@ class FakeBuildGrants implements BuildGrantService {
  * grant (a non-Buyer holds one on CHILD_ID only).
  */
 class FakeApplications implements ApplicationService {
+  /** The one Application the fake knows, placed on CHILD_ID. */
+  readonly knownId = mintUuidV7();
   calls: unknown[] = [];
+  getIdentificationFile(caller: SessionInfo, applicationId: string): Promise<IdentificationFileRendering> {
+    this.calls.push(["file", caller.role, applicationId]);
+    return Promise.resolve().then(() => {
+      if (applicationId !== this.knownId) throw notFound(APPLICATION_NOT_FOUND, "applicationId");
+      return { fileName: IDENTIFICATION_FILE_NAME, content: formatIdentificationFile(this.knownId, CHILD_ID) };
+    });
+  }
   listApplications(caller: SessionInfo): Promise<ApplicationList> {
     this.calls.push(["list", caller.role]);
     return Promise.resolve({
@@ -1212,6 +1227,55 @@ describe("registry HTTP API", () => {
       await expect
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
         .toEqual(["/v1/applications"]);
+    });
+  });
+
+  describe("Application identification file", () => {
+    const buyerAuth = { authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { authorization: `Bearer ${BUILDER_SESSION}` };
+    const path = applicationIdentificationFilePath;
+
+    it("serves the rendering to every role, with the decoded id reaching the service", async () => {
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await fetch(`${base}${path(applications.knownId)}`, { headers });
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        expect(isIdentificationFileRendering(body)).toBe(true);
+        expect(body).toEqual({
+          fileName: ".domain-harness.json",
+          content: formatIdentificationFile(applications.knownId, CHILD_ID),
+        });
+      }
+      expect(applications.calls).toEqual([
+        ["file", "Buyer", applications.knownId],
+        ["file", "Builder", applications.knownId],
+      ]);
+    });
+
+    it("maps an unknown or malformed id to 404 application_not_found, subject applicationId", async () => {
+      for (const id of [mintUuidV7(), "nope", "a b"]) {
+        const response = await fetch(`${base}${path(id)}`, { headers: buyerAuth });
+        expect(response.status).toBe(404);
+        expect(await response.json()).toMatchObject({ code: "application_not_found", subject: "applicationId" });
+      }
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(await fetch(`${base}${path(applications.knownId)}`), 401, "session_invalid");
+      expect(applications.calls).toEqual([]);
+    });
+
+    it("answers 405 with Allow for any method but GET and logs the route by its pattern", async () => {
+      for (const method of ["POST", "PUT", "DELETE"]) {
+        const response = await fetch(`${base}${path(applications.knownId)}`, { method, headers: buyerAuth });
+        expect(response.headers.get("allow")).toBe("GET");
+        await expectEnvelope(response, 405, "method_not_allowed");
+      }
+      expect(applications.calls).toEqual([]);
+      await expect
+        .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
+        .toEqual(Array(3).fill("/v1/applications/{id}/identification-file"));
+      expect(JSON.stringify(events)).not.toContain(applications.knownId);
     });
   });
 

@@ -2,7 +2,7 @@
 title: 'Story 3.2: Define the Project identification file'
 type: 'feature'
 created: '2026-10-13'
-status: 'in-progress'
+status: 'done'
 baseline_commit: 'fc163635d6af7d2d9d1b991226fa0c48d93fdd24'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -79,17 +79,38 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `packages/contract/src/identification-file.ts` (+ `index.ts`, `identification-file.test.ts`) -- name, versions, type, serializer, parser, codes, path, rendering guard; tests for every contract row of the matrix.
-- [ ] `apps/registry/src/applications/service.ts` -- `getIdentificationFile`.
-- [ ] `apps/registry/src/http/server.ts`, `src/index.ts` -- the route, 404 mapping, exports.
-- [ ] registry tests -- `server.test.ts` route/method/status with the fake; `applications.db.test.ts` render, every role, 404 cases, tenant isolation.
-- [ ] `README.md` -- the Project identification file section.
+- [x] `packages/contract/src/identification-file.ts` (+ `index.ts`, `identification-file.test.ts`) -- name, versions, type, serializer, parser, codes, path, rendering guard; tests for every contract row of the matrix.
+- [x] `apps/registry/src/applications/service.ts` -- `getIdentificationFile`.
+- [x] `apps/registry/src/http/server.ts`, `src/index.ts` -- the route, 404 mapping, exports.
+- [x] registry tests -- `server.test.ts` route/method/status with the fake; `applications.db.test.ts` render, every role, 404 cases, tenant isolation.
+- [x] `README.md` -- the Project identification file section.
 
 **Acceptance Criteria:**
 - Given an Application placed through `POST /v1/applications`, when any role of that Company GETs its identification file, then the response content parses with `parseIdentificationFile` to `parsed` with that Application's id and its Project id, and equals `formatIdentificationFile` of the same pair byte for byte.
 - Given a fresh clone without `REGISTRY_TEST_DATABASE_URL`, when build, typecheck, lint, boundaries and test run, then all pass with the DB suites skipped.
 
 ## Spec Change Log
+
+## Review Triage Log
+
+### 2026-10-13 — Review pass
+- verdicts: 15 findings — high 0, medium 0, low 10, false 5, maybe-false 0
+- findings:
+  - `[false]` `[reject]` BH1: the spec's checkboxes and logs are empty while in review. The workflow fills them at finalisation.
+  - `[low]` `[reject]` BH2: the unknown-major message names the major read from the file, and a huge digit string would be echoed whole. The spec requires naming the major found; a multi-kilobyte major in a registry-written file is far-fetched, and capping it adds a branch. The "ids" vs "versions" wording is a spec phrasing nit (fix would edit the spec).
+  - `[low]` `[patch]` BH3: a UTF-8 BOM made a valid file unreadable. Fixed: the parser strips one leading U+FEFF, with a test. The size-cap half is rejected: the file is read by the Epic 4/5/8 consumers, which own their read limits.
+  - `[low]` `[reject]` BH4: duplicate keys resolve last-wins. Only the registry writes the file through the one serializer; detecting duplicates needs a custom JSON tokenizer.
+  - `[low]` `[patch]` BH5: tests built the route path by hand, so the contract helper could drift from the real route. Fixed: the registry tests use `applicationIdentificationFilePath`.
+  - `[false]` `[reject]` BH6: the real 404 logic is only tested by the DB suite. CI sets `REGISTRY_TEST_DATABASE_URL` with a Postgres service (`.github/workflows/ci.yml:48`), so it runs on the normal path, as every registry DB rule does.
+  - `[low]` `[reject]` BH7: `APPLICATION_NOT_FOUND` lives in `identification-file.ts`. The spec allowed either module and it is re-exported from the package index, so importers never see the module.
+  - `[low]` `[patch]` BH8: the rendering guard accepted any `fileName`. Fixed: it requires `IDENTIFICATION_FILE_NAME`, with a refusing test.
+  - `[low]` `[reject]` BH9: no rule against re-serialising a newer-minor file. No code rewrites the file; only the registry writes it.
+  - `[low]` `[reject]` BH10: the serializer trusts its branded `UuidV7` inputs. Its only caller passes ids from `toId` on stored rows; a runtime check adds a throwing path for an unreachable case.
+  - `[false]` `[reject]` VG: no verification gaps. Nothing to act on.
+  - `[low]` `[patch]` EC1: BOM. The same root cause as BH3; fixed by the same change.
+  - `[false]` `[reject]` EC2: unbounded major echoed. The same claim as BH2, rejected there.
+  - `[low]` `[reject]` EC3: duplicate keys. The same as BH4.
+  - `[false]` `[reject]` IA1: the endpoint goes beyond the story (R1 vs R2), the "only mints" invariant has no new test, and the file reaches no repository yet. AC2 needs an observable rendering surface, and 3.3/3.5 reuse it; minting stays in `createApplication` only (unchanged 3.1 code, whose tests cover it); delivering the file into a repository is 3.3/3.5.
 
 ## Design Notes
 
@@ -103,3 +124,37 @@ deferred: []
 - `REGISTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres pnpm -r run test` (local PostgreSQL; `docker compose up -d --wait postgres` where Docker exists) -- expected: all suites pass with the DB suites run.
 - `pnpm -r run build && pnpm -r run typecheck && pnpm -r run lint && pnpm run boundaries` -- expected: exit 0 (root `turbo` fails in this container with "Exec format error", so run per package).
 - `pnpm -r run test` -- expected: passes, DB suites skipped.
+
+## Auto Run Result
+
+Status: done
+
+**Summary:** The Project identification file is defined in `packages/contract`, and the registry serves each Application's file.
+- **Contract.** The file is `.domain-harness.json`, a hidden dotfile at the repository root. It is JSON holding `version` ("1.0.0"), `applicationId` and an advisory `projectId`.
+  - `formatIdentificationFile` is the only serializer: fixed key order, two-space indent, trailing newline, so the same Application gives the same bytes.
+  - `parseIdentificationFile(content | null)` returns parsed, `missing` or `unreadable` with an `identification_file_unreadable` envelope, never a default. An unknown major is unreadable; a newer minor of major 1 parses with extra keys dropped; one leading UTF-8 BOM is accepted.
+- **Registry.** `GET /v1/applications/{id}/identification-file` (every role) returns `{ fileName, content }` rendered from the stored Application id and its Project. A malformed, unknown or other Company's id gets `404 application_not_found`. Ids are still minted only in `createApplication`.
+
+**Files changed:**
+- `packages/contract/src/identification-file.ts` (+ test, `index.ts`): name, versions, serializer, parser, codes, path helper, rendering guard.
+- `apps/registry/src/applications/service.ts`: `getIdentificationFile`.
+- `apps/registry/src/http/server.ts`, `index.ts` (+ `server.test.ts`, `applications.db.test.ts`): the route, the 404 mapping, exports and tests.
+- `README.md`: the Project identification file section.
+
+**Review findings:** 15 findings: high 0, medium 0, low 10, false 5.
+- **Patched (3 entries, all low):** BH3/EC1, a leading BOM is accepted; BH8, the rendering guard requires the real file name; BH5, the registry tests build paths with the contract helper.
+- **Deferred:** none.
+- **Rejected:** 6 low and 5 false, each with its reason in the triage log.
+
+**Follow-up review recommended: false.** Patched counts: high 0, medium 0, low 3.
+
+**Verification:**
+- `pnpm -r run build`, `typecheck`, `lint` exit 0; `pnpm run boundaries` reports no violations (root `turbo` fails in this container with "Exec format error", so steps ran per package).
+- With `REGISTRY_TEST_DATABASE_URL` (local PostgreSQL 16): contract 247, registry 612, panel 344 + 1 skipped (pre-existing), core 61 passed. Without it, all pass with the DB suites skipped.
+- One unrelated run saw `project-tree.test.tsx` "moves focus with Up, Down, Home and End…" fail on timing; it passed on re-run and this story does not touch the panel.
+- Matrix audit: every row is covered by `identification-file.test.ts`, `server.test.ts` or `applications.db.test.ts`, and each ran.
+
+**Residual risks:**
+- Choices made on the human's behalf: the name `.domain-harness.json` and JSON as the format; an HTTP endpoint as the rendering surface, open to every role; duplicate JSON keys resolve last-wins; no size cap in the parser (the Epic 4/5/8 readers own their limits).
+- Tested against PostgreSQL 16 and Node 22, not the 18 and 24 the repo targets.
+- The panel's Project tree focus test looks timing-sensitive under load.

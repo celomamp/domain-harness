@@ -10,7 +10,17 @@ import { randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isApplicationInfo, isApplicationList, isBuildGrantState, isProjectInfo, isUuidV7 } from "@domain-harness/contract";
+import {
+  applicationIdentificationFilePath,
+  formatIdentificationFile,
+  isApplicationInfo,
+  isApplicationList,
+  isBuildGrantState,
+  isIdentificationFileRendering,
+  isProjectInfo,
+  isUuidV7,
+  parseIdentificationFile,
+} from "@domain-harness/contract";
 import type {
   ApplicationInfo,
   ApplicationList,
@@ -74,6 +84,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Applications against
   let rootA: UuidV7;
   let rootB: UuidV7;
   let bo: SessionInfo;
+  let boltApp: ApplicationInfo;
 
   /** Bearer headers per account, from real sign-ins. */
   const auth: Record<string, Record<string, string>> = {};
@@ -206,7 +217,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Applications against
     }
 
     // Tenant B holds an Application of its own, so the table holds rows of both tenants.
-    await placed("Bolt app", rootB, "bob");
+    boltApp = await placed("Bolt app", rootB, "bob");
   }, 60_000);
 
   afterAll(async () => {
@@ -366,6 +377,54 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Applications against
     it("accepts a description of exactly 500 characters", async () => {
       const app = await placed("y".repeat(500), p.id, "buyer");
       expect(app.description).toHaveLength(500);
+    });
+  });
+
+  describe("Project identification file", () => {
+    const filePath = applicationIdentificationFilePath;
+    let q: ProjectInfo;
+    let app: ApplicationInfo;
+
+    beforeAll(async () => {
+      q = await created("App Q", rootA);
+      await setGrant(q.id, bo.accountId, true);
+      app = await placed("Identified app", q.id, "builder");
+    }, 60_000);
+
+    it("renders the placed Application's file for every role: its id and Project, byte for byte", async () => {
+      for (const who of ["buyer", "sam", "builder", "al"]) {
+        const response = await get(filePath(app.id), who);
+        const body: unknown = await response.json();
+        expect(response.status, JSON.stringify(body)).toBe(200);
+        if (!isIdentificationFileRendering(body)) throw new Error("not an IdentificationFileRendering");
+        expect(body.fileName).toBe(".domain-harness.json");
+        expect(body.content).toBe(formatIdentificationFile(app.id, q.id));
+        expect(parseIdentificationFile(body.content)).toEqual({
+          kind: "parsed",
+          file: { version: "1.0.0", applicationId: app.id, projectId: q.id },
+        });
+      }
+    });
+
+    it("answers 404 application_not_found for a malformed, unknown or other Company's Application", async () => {
+      for (const id of ["nope", "01928c7e-5b2a-7c3d-8e4f-000000000009", boltApp.id, q.id]) {
+        const response = await get(filePath(id), "buyer");
+        const body = (await response.json()) as { message: string };
+        expect([response.status, body]).toMatchObject([404, { code: "application_not_found", subject: "applicationId" }]);
+        expect(body.message).toBe("no such Application in this Company");
+      }
+      // Company B reads its own, not Company A's.
+      expect((await get(filePath(boltApp.id), "ola")).status).toBe(200);
+      await expectRefused(await get(filePath(app.id), "bob"), 404, "application_not_found", "applicationId");
+    });
+
+    it("answers 401 without a session and 405 for any method but GET, writing nothing", async () => {
+      const before = await appRows();
+      await expectRefused(await fetch(`${base}${filePath(app.id)}`), 401, "session_invalid");
+      const response = await post(filePath(app.id), "buyer", {});
+      expect(response.headers.get("allow")).toBe("GET");
+      await expectRefused(response, 405, "method_not_allowed");
+      expect(await appRows()).toBe(before);
     });
   });
 

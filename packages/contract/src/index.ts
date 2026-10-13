@@ -146,3 +146,19 @@ export {
   isApplicationList,
 } from "./applications.ts";
 export type { ApplicationCreateRequest, ApplicationInfo, ApplicationList } from "./applications.ts";
+export {
+  APPLICATION_NOT_FOUND,
+  applicationIdentificationFilePath,
+  formatIdentificationFile,
+  IDENTIFICATION_FILE_MAJOR,
+  IDENTIFICATION_FILE_NAME,
+  IDENTIFICATION_FILE_UNREADABLE,
+  IDENTIFICATION_FILE_VERSION,
+  isIdentificationFileRendering,
+  parseIdentificationFile,
+} from "./identification-file.ts";
+export type {
+  IdentificationFile,
+  IdentificationFileRendering,
+  IdentificationFileResult,
+} from "./identification-file.ts";
