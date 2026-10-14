@@ -427,6 +427,9 @@ importers:
       '@domain-harness/extractor':
         specifier: workspace:*
         version: link:../../packages/extractor
+      '@domain-harness/gate':
+        specifier: workspace:*
+        version: link:../../packages/gate
       pg:
         specifier: 'catalog:'
         version: 8.23.1
@@ -529,6 +532,37 @@ importers:
       '@domain-harness/contract':
         specifier: workspace:*
         version: link:../contract
+    devDependencies:
+      '@domain-harness/eslint-config':
+        specifier: workspace:*
+        version: link:../../tooling/eslint-config
+      '@domain-harness/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.2
+      eslint:
+        specifier: 'catalog:'
+        version: 10.12.0(supports-color@7.2.0)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@24.19.2)(jsdom@30.1.2)(vite@8.3.4(@types/node@24.19.2)(yaml@2.9.1))
+
+  packages/gate:
+    dependencies:
+      '@domain-harness/contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@domain-harness/core':
+        specifier: workspace:*
+        version: link:../core
+      '@domain-harness/extractor':
+        specifier: workspace:*
+        version: link:../extractor
     devDependencies:
       '@domain-harness/eslint-config':
         specifier: workspace:*

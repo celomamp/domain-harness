@@ -4,6 +4,7 @@
     { "path": "./packages/contract/tsconfig.build.json" },
     { "path": "./packages/core/tsconfig.build.json" },
     { "path": "./packages/extractor/tsconfig.build.json" },
+    { "path": "./packages/gate/tsconfig.build.json" },
     { "path": "./packages/collector/tsconfig.build.json" },
     { "path": "./apps/registry/tsconfig.build.json" },
     { "path": "./apps/service/tsconfig.build.json" },

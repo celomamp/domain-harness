@@ -1,0 +1,36 @@
+{
+  "name": "@domain-harness/gate",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The shared Gate surface: fixed sentences, the canonical Gate result, the direct in-process adapter and the deterministic fixture suite every adapter shares.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@domain-harness/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@domain-harness/contract": "workspace:*",
+    "@domain-harness/core": "workspace:*",
+    "@domain-harness/extractor": "workspace:*"
+  },
+  "devDependencies": {
+    "@domain-harness/eslint-config": "workspace:*",
+    "@domain-harness/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

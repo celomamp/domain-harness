@@ -20,6 +20,9 @@
     },
     {
       "path": "../../packages/extractor/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/gate/tsconfig.build.json"
     }
   ]
 }
