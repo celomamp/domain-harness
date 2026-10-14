@@ -5,7 +5,7 @@ export { DEFAULT_PLAN, isPlan, isRole, PLANS, ROLES } from "./accounts.ts";
 export type { Plan, Role } from "./accounts.ts";
 export { isErrorEnvelope, PLAN_REFUSED } from "./errors.ts";
 export type { ErrorEnvelope } from "./errors.ts";
-export { isUtcIso } from "./guards.ts";
+export { isRecord, isUtcIso } from "./guards.ts";
 export { isUuidV7 } from "./ids.ts";
 export type { UuidV7 } from "./ids.ts";
 export {
@@ -116,7 +116,7 @@ export {
 export type { ProjectCreateRequest, ProjectInfo, ProjectParentRequest, ProjectTree } from "./projects.ts";
 export { isLockedRuleMark, isLockedRuleState, LOCKED_RULE_CONFLICT, lockedRulePath } from "./locked-rules.ts";
 export type { LockedRuleMark, LockedRuleRequest, LockedRuleState } from "./locked-rules.ts";
-export { effectiveStandardsPath, isEffectiveStandard, isEffectiveStandardSet } from "./effective.ts";
+export { effectiveStandardsPath, isEffectiveSlot, isEffectiveStandard, isEffectiveStandardSet } from "./effective.ts";
 export type { EffectiveSlot, EffectiveStandard, EffectiveStandardSet } from "./effective.ts";
 export {
   CHILD_PERMISSION_DENIED,
@@ -188,12 +188,23 @@ export type {
   GuidanceEndpointState,
 } from "./boilerplate.ts";
 export {
+  ACCEPTED_DEVIATION_API_PATHS,
   DEVIATION_KINDS,
   DEVIATION_STATUSES,
   isAcceptedDeviation,
+  isAcceptedDeviationRecord,
+  isAcceptedDeviationRecordList,
   isDeviation,
+  parseDeviationLine,
 } from "./deviations.ts";
-export type { AcceptedDeviation, Deviation, DeviationKind, DeviationStatus } from "./deviations.ts";
+export type {
+  AcceptedDeviation,
+  AcceptedDeviationRecord,
+  Deviation,
+  DeviationKind,
+  DeviationMatchKey,
+  DeviationStatus,
+} from "./deviations.ts";
 export {
   EXTRACTOR_VERSION,
   FACT_SCHEMA_MAJOR,

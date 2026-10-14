@@ -17,6 +17,7 @@ export { provisionCompany } from "./tenancy/provision.ts";
 export type { ProvisionResult } from "./tenancy/provision.ts";
 export { getRootProject, getTenant, listAccounts } from "./tenancy/queries.ts";
 export type { Account, Project, Tenant } from "./tenancy/queries.ts";
+export { assertAcceptedDeviationPlan, assertTreePlan } from "./tenancy/plan.ts";
 export { normalizeEmail, validateProvisionInput } from "./tenancy/validate.ts";
 export type { AccountRequest, ProvisionRequest, ValidationResult } from "./tenancy/validate.ts";
 export { consumeSignInLink, createSignInService, getSession, requestSignInLinks } from "./sign-in/service.ts";
@@ -102,6 +103,15 @@ export {
 } from "./guidance-endpoint/service.ts";
 export type { GuidanceEndpointService } from "./guidance-endpoint/service.ts";
 export { validateGuidanceEndpointBody } from "./guidance-endpoint/validate.ts";
+export {
+  assertAcceptedDeviationBuyer,
+  createAcceptedDeviationsService,
+  listAcceptances,
+  recordAcceptance,
+} from "./accepted-deviations/service.ts";
+export type { AcceptedDeviationsService } from "./accepted-deviations/service.ts";
+export { validateAcceptedDeviationBody } from "./accepted-deviations/validate.ts";
+export type { AcceptedDeviationBody } from "./accepted-deviations/validate.ts";
 export { createBoilerplateService, generateBoilerplate, validateBoilerplateBody } from "./boilerplate/service.ts";
 export type { BoilerplateService } from "./boilerplate/service.ts";
 export { isNpmPackageName, planBoilerplate, SUPPORTED_LANGUAGES } from "./boilerplate/plan.ts";
@@ -133,7 +143,7 @@ export { tar, tarGz } from "./boilerplate/archive.ts";
 export type { ArchiveEntry } from "./boilerplate/archive.ts";
 export { bundleHash, ed25519SignerFromEnv, sha256Hex } from "./bundles/sign.ts";
 export type { Signer } from "./bundles/sign.ts";
-export { compileBundle, currentFrozen, currentStalenessHours } from "./bundles/compile.ts";
+export { compileBundle, currentAcceptedDeviations, currentFrozen, currentStalenessHours } from "./bundles/compile.ts";
 export type { CompiledBundle } from "./bundles/compile.ts";
 export {
   assertBundleSettingsBuyer,

@@ -40,6 +40,7 @@ import { provisionCompany } from "../tenancy/provision.ts";
 import { createLockedRuleService } from "./service.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
+import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
@@ -235,6 +236,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Locked rules against
         buildGrants: createBuildGrantService(db),
         applications: createApplicationService(db),
         guidanceEndpoint: createGuidanceEndpointService(db),
+        acceptedDeviations: createAcceptedDeviationsService(db),
         boilerplate: createBoilerplateService(db),
       },
       () => undefined,

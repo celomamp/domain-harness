@@ -5,12 +5,15 @@
  * thrown, so a registry outage cannot break a page.
  */
 import {
+  ACCEPTED_DEVIATION_API_PATHS,
   APPLICATION_API_PATHS,
   applicationBoilerplatePath,
   buildGrantsPath,
   childPermissionsPath,
   effectiveStandardsPath,
   GUIDANCE_ENDPOINT_PATH,
+  isAcceptedDeviationRecord,
+  isAcceptedDeviationRecordList,
   isApplicationInfo,
   isApplicationList,
   isBoilerplateResult,
@@ -27,6 +30,7 @@ import {
   isModuleList,
   isProjectInfo,
   isProjectTree,
+  isRecord,
   isSessionCreated,
   isSessionInfo,
   isStandardInfo,
@@ -42,6 +46,7 @@ import {
   standardVersionsPath,
 } from "@domain-harness/contract";
 import type {
+  AcceptedDeviationRecord,
   ApplicationCreateRequest,
   ApplicationInfo,
   ApplicationList,
@@ -361,4 +366,60 @@ export function generateBoilerplate(
 ): Promise<RegistryResult<BoilerplateResult>> {
   const body = { target } as BoilerplateRequest;
   return call(applicationBoilerplatePath(applicationId), json(body, bearer(sessionToken)), 200, isBoilerplateResult);
+}
+
+/** The Company's stored Accepted-deviation records, newest first (every role may read). */
+export async function getAcceptedDeviations(sessionToken: string): Promise<RegistryResult<AcceptedDeviationRecord[]>> {
+  // The registry answers `{ records: [...] }`; the guard checks that envelope
+  // and the `.records` array is mapped out, keeping the result's value the
+  // records themselves.
+  const result = await call(
+    ACCEPTED_DEVIATION_API_PATHS.acceptedDeviations,
+    getJson(sessionToken),
+    200,
+    (value): value is { readonly records: AcceptedDeviationRecord[] } =>
+      isRecord(value) && isAcceptedDeviationRecordList(value["records"]),
+  );
+  return result.kind === "ok" ? { kind: "ok", value: result.value.records } : result;
+}
+
+/**
+ * Record an Accepted deviation (the registry allows only the Buyer). Every
+ * field is passed as submitted; the registry resolves the Standard version
+ * authoritatively and answers field errors.
+ */
+export function recordAcceptance(
+  sessionToken: string,
+  input: AcceptedDeviationRecordRequest,
+): Promise<RegistryResult<AcceptedDeviationRecord>> {
+  return call(
+    ACCEPTED_DEVIATION_API_PATHS.acceptedDeviations,
+    json(
+      {
+        applicationId: input.applicationId,
+        standardId: input.standardId,
+        slot: input.slot,
+        subject: input.subject,
+        start: input.start,
+        end: input.end,
+        justification: input.justification,
+        alertIntervalHours: input.alertIntervalHours,
+      },
+      bearer(sessionToken),
+    ),
+    201,
+    isAcceptedDeviationRecord,
+  );
+}
+
+/** The body `recordAcceptance` submits, exactly the fields the registry validates. */
+export interface AcceptedDeviationRecordRequest {
+  readonly applicationId: string;
+  readonly standardId: string;
+  readonly slot: { readonly moduleKind: string; readonly slotKind: string; readonly name: string };
+  readonly subject: string;
+  readonly start: string;
+  readonly end: string;
+  readonly justification: string;
+  readonly alertIntervalHours: number;
 }

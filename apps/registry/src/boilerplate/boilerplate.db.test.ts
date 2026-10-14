@@ -30,6 +30,7 @@ import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { mintUuidV7 } from "../ids.ts";
+import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createRegistryServer } from "../http/server.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
@@ -225,6 +226,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
         buildGrants: createBuildGrantService(db),
         applications: createApplicationService(db),
         guidanceEndpoint: createGuidanceEndpointService(db),
+        acceptedDeviations: createAcceptedDeviationsService(db),
         boilerplate: createBoilerplateService(db),
       },
       () => undefined,

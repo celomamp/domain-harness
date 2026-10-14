@@ -2,11 +2,13 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  ACCEPTED_DEVIATION_API_PATHS,
   APPLICATION_NOT_FOUND,
   applicationBoilerplatePath,
   applicationIdentificationFilePath,
   GUIDANCE_ENDPOINT_PATH,
   GUIDANCE_ENDPOINT_UNSET,
+  isAcceptedDeviationRecord,
   isBoilerplateResult,
   isGuidanceEndpointState,
   entrySlotName,
@@ -33,6 +35,7 @@ import {
   isStandardVersionList,
 } from "@domain-harness/contract";
 import type {
+  AcceptedDeviationRecord,
   ApplicationInfo,
   ApplicationList,
   BoilerplateResult,
@@ -64,6 +67,9 @@ import type { BuildGrantService } from "../build-grants/service.ts";
 import { validateChildPermissionBody } from "../child-permissions/service.ts";
 import type { ChildPermissionService } from "../child-permissions/service.ts";
 import { EnvelopeError } from "../errors.ts";
+import { assertAcceptedDeviationBuyer } from "../accepted-deviations/service.ts";
+import type { AcceptedDeviationsService } from "../accepted-deviations/service.ts";
+import { validateAcceptedDeviationBody } from "../accepted-deviations/validate.ts";
 import { assertGuidanceEndpointBuyer } from "../guidance-endpoint/service.ts";
 import type { GuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { validateGuidanceEndpointBody } from "../guidance-endpoint/validate.ts";
@@ -482,6 +488,47 @@ class FakeGuidanceEndpoint implements GuidanceEndpointService {
   }
 }
 
+/** A fake Accepted-deviation service that records calls and uses the real role check, validator and plan flag. */
+class FakeAcceptedDeviations implements AcceptedDeviationsService {
+  calls: unknown[] = [];
+  planRefused = false;
+  /** The rows the list serves; the record call appends to them like the real store would. */
+  records: AcceptedDeviationRecord[] = [];
+  listAcceptances(caller: SessionInfo): Promise<{ records: AcceptedDeviationRecord[] }> {
+    this.calls.push(["list", caller.role]);
+    return Promise.resolve().then(() => {
+      if (this.planRefused) {
+        throw new EnvelopeError({ code: "plan_refused", message: "m", subject: "plan" });
+      }
+      return { records: this.records };
+    });
+  }
+  recordAcceptance(caller: SessionInfo, body: unknown): Promise<AcceptedDeviationRecord> {
+    this.calls.push(["record", caller.role, body]);
+    // A stored record fabricated for the fake (the DB suite pins the real one).
+    return Promise.resolve().then(() => {
+      assertAcceptedDeviationBuyer(caller);
+      const input = validateAcceptedDeviationBody(body);
+      const record: AcceptedDeviationRecord = {
+        id: mintUuidV7(),
+        applicationId: input.applicationId,
+        standardId: input.standardId,
+        standardVersion: 1,
+        slot: input.slot,
+        subject: input.subject,
+        start: input.start,
+        end: input.end,
+        buyer: { accountId: caller.accountId, name: "Bea Buyer" },
+        justification: input.justification,
+        alertIntervalHours: input.alertIntervalHours,
+        createdAt: "2026-10-13T09:00:00.000Z",
+      };
+      this.records = [...this.records, record];
+      return record;
+    });
+  }
+}
+
 /** A fake Boilerplate service: the known Application, the real body validator, then the endpoint check. */
 class FakeBoilerplate implements BoilerplateService {
   private readonly knownId: string;
@@ -527,6 +574,7 @@ describe("registry HTTP API", () => {
   const buildGrants = new FakeBuildGrants();
   const applications = new FakeApplications();
   const guidanceEndpoint = new FakeGuidanceEndpoint();
+  const acceptedDeviations = new FakeAcceptedDeviations();
   const boilerplate = new FakeBoilerplate(applications.knownId, guidanceEndpoint);
   const events: LogEvent[] = [];
   let server: Server;
@@ -544,6 +592,7 @@ describe("registry HTTP API", () => {
         buildGrants,
         applications,
         guidanceEndpoint,
+        acceptedDeviations,
         boilerplate,
       },
       (event) => events.push(event),
@@ -570,6 +619,9 @@ describe("registry HTTP API", () => {
     applications.calls = [];
     guidanceEndpoint.calls = [];
     guidanceEndpoint.state = { url: null, changedAt: null };
+    acceptedDeviations.calls = [];
+    acceptedDeviations.planRefused = false;
+    acceptedDeviations.records = [];
     boilerplate.calls = [];
     events.length = 0;
   });
@@ -1472,6 +1524,86 @@ describe("registry HTTP API", () => {
       expect(response.headers.get("allow")).toBe("GET, POST");
       await expectEnvelope(response, 405, "method_not_allowed");
       expect(guidanceEndpoint.calls).toEqual([]);
+    });
+
+    describe("Accepted deviations", () => {
+      const path = ACCEPTED_DEVIATION_API_PATHS.acceptedDeviations;
+      const buyerAuth = { authorization: `Bearer ${GOOD_SESSION}`, "content-type": "application/json" };
+      const builderAuth = { authorization: `Bearer ${BUILDER_SESSION}`, "content-type": "application/json" };
+      const body = {
+        applicationId: mintUuidV7(),
+        standardId: mintUuidV7(),
+        slot: { moduleKind: "code-stack", slotKind: "library", name: "Lodash" },
+        subject: "lodash",
+        start: "2026-10-01T00:00:00.000Z",
+        end: "2026-11-01T00:00:00.000Z",
+        justification: "known exception",
+        alertIntervalHours: 168,
+      };
+
+      it("serves GET to two roles after the plan check, refusing a Community tenant", async () => {
+        acceptedDeviations.planRefused = true;
+        await expectEnvelope(
+          await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${GOOD_SESSION}` } }),
+          403,
+          "plan_refused",
+        );
+        await expectEnvelope(
+          await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${BUILDER_SESSION}` } }),
+          403,
+          "plan_refused",
+        );
+        acceptedDeviations.planRefused = false;
+        acceptedDeviations.calls = [];
+        const builderResponse = await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${BUILDER_SESSION}` } });
+        expect(builderResponse.status).toBe(200);
+        expect(await builderResponse.json()).toEqual({ records: [] });
+        expect(acceptedDeviations.calls.map((call: unknown) => [(call as unknown[])[0], (call as unknown[])[1]])).toEqual([
+          ["list", "Builder"],
+        ]);
+      });
+
+      it("answers 201 with the stored record for the Buyer", async () => {
+        const response = await post(path, body, { headers: buyerAuth });
+        expect(response.status).toBe(201);
+        const record: unknown = await response.json();
+        expect(isAcceptedDeviationRecord(record)).toBe(true);
+        expect(record).toMatchObject({
+          standardId: body["standardId"],
+          subject: "lodash",
+          buyer: { accountId: session["accountId"] },
+          justification: "known exception",
+          alertIntervalHours: 168,
+        });
+      });
+
+      it("refuses a non-Buyer's POST with 403 role_denied before the body is read", async () => {
+        const response = await post(path, "{not json", { headers: builderAuth });
+        await expectEnvelope(response, 403, "role_denied");
+        // The body was drained, never read, and the service was never called.
+        expect(acceptedDeviations.calls).toEqual([]);
+      });
+
+      it.each([
+        ["a bad interval", { ...body, alertIntervalHours: 0 }, "alertIntervalHours"],
+        ["an extra key", { ...body, extra: 1 }, "extra"],
+        ["a non-ISO start", { ...body, start: "2026-10-01" }, "start"],
+      ])("answers 400 invalid_input for %s", async (_label, invalid, subject) => {
+        const response = await post(path, invalid, { headers: buyerAuth });
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({ code: "invalid_input", subject });
+      });
+
+      it("answers 401 without a session and 405 for other methods", async () => {
+        await expectEnvelope(await fetch(`${base}${path}`), 401, "session_invalid");
+        const response = await fetch(`${base}${path}`, {
+          method: "PUT",
+          headers: { authorization: `Bearer ${GOOD_SESSION}` },
+        });
+        expect(response.headers.get("allow")).toBe("GET, POST");
+        await expectEnvelope(response, 405, "method_not_allowed");
+        expect(acceptedDeviations.calls).toEqual([]);
+      });
     });
   });
 

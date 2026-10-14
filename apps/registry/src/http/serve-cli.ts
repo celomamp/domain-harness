@@ -22,6 +22,7 @@ import { createBoilerplateService } from "../boilerplate/service.ts";
 import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
+import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { ed25519SignerFromEnv } from "../bundles/sign.ts";
 import { createBundleService } from "../bundles/service.ts";
 import { createSignInService } from "../sign-in/service.ts";
@@ -114,6 +115,7 @@ async function main(): Promise<void> {
       buildGrants: createBuildGrantService(db),
       applications: createApplicationService(db),
       guidanceEndpoint: createGuidanceEndpointService(db),
+      acceptedDeviations: createAcceptedDeviationsService(db),
       boilerplate: createBoilerplateService(db),
       bundles: createBundleService(db, signer),
     },

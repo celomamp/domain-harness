@@ -145,8 +145,10 @@
   line-height: var(--type-title-sm-line-height);
 }
 
-/* standard-form: raised, 8px radius, white inputs with a 1px border, 12px inline padding, Sora 16. */
-.standard-form {
+/* standard-form (and the accepted-deviation surface's acceptance-form, the same pattern):
+   raised, 8px radius, white inputs with a 1px border, 12px inline padding, Sora 16. */
+.standard-form,
+.acceptance-form {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-5);
@@ -157,13 +159,17 @@
   box-shadow: var(--shadow-form);
 }
 
-.standard-form label {
+.standard-form label,
+.acceptance-form label {
   color: var(--color-ink-secondary);
 }
 
 .standard-form input,
 .standard-form select,
 .standard-form textarea,
+.acceptance-form input,
+.acceptance-form select,
+.acceptance-form textarea,
 .module-owner-form select {
   width: 100%;
   min-height: var(--size-field-min);
@@ -178,12 +184,15 @@
   line-height: var(--type-body-line-height);
 }
 
-.standard-form .field-error {
+.standard-form .field-error,
+.acceptance-form .field-error {
   color: var(--color-ink);
 }
 
 .standard-form .button-primary,
-.standard-form .button-inverse {
+.standard-form .button-inverse,
+.acceptance-form .button-primary,
+.acceptance-form .button-inverse {
   justify-self: start;
 }
 
@@ -205,6 +214,26 @@
   align-items: center;
   min-height: var(--size-target-min);
   color: var(--color-ink);
+}
+
+/* The stored Accepted-deviation records: one text row each, no badges. */
+.stored-records {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-form);
+}
+
+.stored-records__list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* Modules: a table with header cells on raised rows, hairline borders; scrolls sideways when narrow. */
