@@ -27,6 +27,7 @@
       ],
       "env": [
         "REGISTRY_TEST_DATABASE_URL",
+        "SERVICE_TEST_DATABASE_URL",
         "CI"
       ]
     }

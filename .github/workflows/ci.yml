@@ -46,6 +46,7 @@ jobs:
           --health-retries 30
     env:
       REGISTRY_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      SERVICE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v7.0.1
         with:

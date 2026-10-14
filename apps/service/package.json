@@ -11,12 +11,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@domain-harness/contract": "workspace:*"
+    "@domain-harness/contract": "workspace:*",
+    "@domain-harness/core": "workspace:*",
+    "@domain-harness/extractor": "workspace:*",
+    "pg": "catalog:"
   },
   "devDependencies": {
     "@domain-harness/eslint-config": "workspace:*",
     "@domain-harness/tsconfig": "workspace:*",
     "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "eslint": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

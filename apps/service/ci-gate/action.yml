@@ -1,0 +1,38 @@
+name: "Domain Harness CI Gate"
+description: "Run the Company CI Gate against a revision."
+inputs:
+  SERVICE_RECORD_DATABASE_URL:
+    description: "Connection string for the service record store."
+    required: false
+  SERVICE_ACTIVE_BUNDLE_FILE:
+    description: "Path to the pinned active bundle snapshot file."
+    required: false
+  service-record-database-url:
+    description: "Connection string for the service record store."
+    required: false
+  service-active-bundle-file:
+    description: "Path to the pinned active bundle snapshot file."
+    required: false
+runs:
+  using: "composite"
+  steps:
+    - name: "Set up Node.js"
+      uses: actions/setup-node@v7.1.0
+      with:
+        node-version: "24"
+        package-manager-cache: false
+
+    - name: "Enable pnpm and install workspace dependencies"
+      shell: bash
+      working-directory: ${{ github.action_path }}/../../..
+      run: |
+        corepack enable pnpm
+        pnpm install --frozen-lockfile --silent
+
+    - name: "Resolve and run the Gate"
+      shell: bash
+      env:
+        SERVICE_RECORD_DATABASE_URL: ${{ inputs.SERVICE_RECORD_DATABASE_URL || inputs.service-record-database-url || env.SERVICE_RECORD_DATABASE_URL }}
+        SERVICE_ACTIVE_BUNDLE_FILE: ${{ inputs.SERVICE_ACTIVE_BUNDLE_FILE || inputs.service-active-bundle-file || env.SERVICE_ACTIVE_BUNDLE_FILE }}
+      run: |
+        node --conditions=@domain-harness/source "${{ github.action_path }}/../src/ci-gate/gate-cli.ts"
