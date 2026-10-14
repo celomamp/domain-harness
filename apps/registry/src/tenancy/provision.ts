@@ -2,8 +2,9 @@ import type { Plan, Role, UuidV7 } from "@domain-harness/contract";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb } from "../db/client.ts";
-import { accounts, projects, tenants } from "../db/schema.ts";
+import { accounts, projects, tenants, tenantServiceCredentials } from "../db/schema.ts";
 import { isUniqueViolation } from "../db/pg-errors.ts";
+import { hashToken, mintToken } from "../sign-in/tokens.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { validateProvisionInput } from "./validate.ts";
 import type { ProvisionRequest } from "./validate.ts";
@@ -14,6 +15,7 @@ export interface ProvisionResult {
   readonly rootProjectId: UuidV7;
   readonly plan: Plan;
   readonly accounts: readonly { readonly id: UuidV7; readonly role: Role }[];
+  readonly serviceCredential: string;
 }
 
 const ACCOUNT_EMAIL_UNIQUE = "accounts_tenant_id_email_key";
@@ -42,6 +44,7 @@ export async function writeCompany(db: RegistryDb, request: ProvisionRequest): P
   const tenantId = mintUuidV7();
   const rootProjectId = mintUuidV7();
   const minted = request.accounts.map((account) => ({ ...account, id: mintUuidV7() }));
+  const serviceCredential = mintToken(tenantId);
 
   await withTenant(db, tenantId, async (tx) => {
     await tx.insert(tenants).values({ id: tenantId, name: request.company, plan: request.plan });
@@ -70,12 +73,19 @@ export async function writeCompany(db: RegistryDb, request: ProvisionRequest): P
         throw error;
       }
     }
+    await tx.insert(tenantServiceCredentials).values({
+      id: mintUuidV7(),
+      tenantId,
+      tokenHash: hashToken(serviceCredential),
+    });
   });
 
-  return {
+  const result = {
     tenantId,
     rootProjectId,
     plan: request.plan,
     accounts: minted.map(({ id, role }) => ({ id, role })),
+    serviceCredential,
   };
+  return result;
 }

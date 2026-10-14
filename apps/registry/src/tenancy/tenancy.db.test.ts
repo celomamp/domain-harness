@@ -108,7 +108,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
   }, 60_000);
 
   describe("migration", () => {
-    it("creates only the tenancy, sign-in, Module, Standard, Project tree, Locked rule, child-Project permission, build grant, Application, Guidance endpoint and Application agent-tool tables and registry_migrations", async () => {
+    it("creates only the tenancy, sign-in, Module, Standard, Project tree, Locked rule, child-Project permission, build grant, Application, Guidance endpoint, Application agent-tool and Standard bundle tables and registry_migrations", async () => {
       const { rows } = await owner.query<{ relname: string }>(
         `select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
          where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm') order by 1`,
@@ -118,6 +118,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         "application_agent_tool_changes",
         "applications",
         "build_grant_changes",
+        "bundle_records",
+        "bundle_setting_changes",
         "child_permission_changes",
         "guidance_endpoint_changes",
         "locked_rule_changes",
@@ -130,6 +132,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         "sign_in_links",
         "standard_versions",
         "standards",
+        "tenant_service_credentials",
         "tenants",
       ]);
     });
@@ -142,10 +145,11 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
            and c.relname in ('tenants', 'accounts', 'projects', 'sign_in_links', 'sessions', 'modules', 'module_owner_assignments',
                              'standards', 'standard_versions', 'project_parent_changes', 'locked_rule_changes',
                              'child_permission_changes', 'build_grant_changes', 'applications',
-                             'guidance_endpoint_changes', 'application_agent_tool_changes')
+                             'guidance_endpoint_changes', 'application_agent_tool_changes',
+                             'bundle_records', 'bundle_setting_changes', 'tenant_service_credentials')
          order by 1`,
       );
-      expect(rows).toHaveLength(16);
+      expect(rows).toHaveLength(19);
       for (const row of rows) {
         expect(row).toMatchObject({ rls: true, forced: true });
         expect(row.owner).not.toBe(APP_ROLE);
@@ -176,6 +180,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
           "application_agent_tool_changes",
           "applications",
           "build_grant_changes",
+          "bundle_records",
+          "bundle_setting_changes",
           "child_permission_changes",
           "guidance_endpoint_changes",
           "locked_rule_changes",
@@ -187,6 +193,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
           "sign_in_links",
           "standard_versions",
           "standards",
+          "tenant_service_credentials",
           "tenants",
         ].flatMap((t) => [
           { table_name: t, privilege_type: "INSERT" },
@@ -197,7 +204,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
 
     it("is idempotent: a second run applies nothing", async () => {
       const report = await migrate(owner);
-      expect(report).toEqual({ applied: [], alreadyApplied: 11 });
+      expect(report).toEqual({ applied: [], alreadyApplied: 12 });
     });
 
     it("rejects a misnamed .sql file before applying anything", async () => {
@@ -243,7 +250,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         cwd: REGISTRY_ROOT,
         env: { ...process.env, REGISTRY_MIGRATION_DATABASE_URL: ownerUrl },
       });
-      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 11 });
+      expect(JSON.parse(stdout)).toEqual({ applied: [], alreadyApplied: 12 });
     });
   });
 
@@ -488,8 +495,9 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("tenancy against Post
         rootProjectId: string;
         plan: string;
         accounts: { id: string; role: string }[];
+        serviceCredential: string;
       };
-      expect(Object.keys(printed)).toEqual(["tenantId", "rootProjectId", "plan", "accounts"]);
+      expect(Object.keys(printed)).toEqual(["tenantId", "rootProjectId", "plan", "accounts", "serviceCredential"]);
       expect(isUuidV7(printed.tenantId) && isUuidV7(printed.rootProjectId)).toBe(true);
       expect(printed.plan).toBe("Enterprise");
       expect(printed.accounts.map((a) => Object.keys(a))).toEqual([

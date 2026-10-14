@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import {
   APPLICATION_API_PATHS,
+  BUNDLE_API_PATHS,
   APPLICATION_NOT_FOUND,
   BOILERPLATE_CONFLICT,
   BUILD_GRANT_DENIED,
@@ -33,6 +34,8 @@ import type { ErrorEnvelope, SessionInfo } from "@domain-harness/contract";
 import { isEnvelopeError } from "../errors.ts";
 import { assertBuyer } from "../modules/service.ts";
 import type { ApplicationService } from "../applications/service.ts";
+import type { BundleService } from "../bundles/service.ts";
+import { assertBundleSettingsBuyer } from "../bundles/service.ts";
 import { assertApplicationBuyer } from "../applications/service.ts";
 import type { BoilerplateService } from "../boilerplate/service.ts";
 import type { BuildGrantService } from "../build-grants/service.ts";
@@ -87,6 +90,7 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
   [BOILERPLATE_CONFLICT]: 409,
   payload_too_large: 413,
   unsupported_media_type: 415,
+  bundle_build_failed: 500,
 };
 
 /** The logged names of the parameterised routes. */
@@ -101,6 +105,7 @@ const PROJECT_CHILD_PERMISSIONS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/chil
 const PROJECT_BUILD_GRANTS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/build-grants`;
 const APPLICATION_IDENTIFICATION_FILE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/identification-file`;
 const APPLICATION_BOILERPLATE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/boilerplate`;
+const BUNDLE_LATEST_ROUTE = "/v1/standard-bundles/{id}";
 
 /** Each parameterised route and the pattern capturing its raw `{id}` segment. */
 const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
@@ -115,6 +120,7 @@ const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
   [PROJECT_BUILD_GRANTS_ROUTE, /^\/v1\/projects\/([^/]+)\/build-grants$/],
   [APPLICATION_IDENTIFICATION_FILE_ROUTE, /^\/v1\/applications\/([^/]+)\/identification-file$/],
   [APPLICATION_BOILERPLATE_ROUTE, /^\/v1\/applications\/([^/]+)\/boilerplate$/],
+  [BUNDLE_LATEST_ROUTE, /^\/v1\/standard-bundles\/([^/]+)$/],
 ];
 
 /** Allowed methods per route. */
@@ -138,6 +144,9 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [APPLICATION_IDENTIFICATION_FILE_ROUTE]: ["GET"],
   [APPLICATION_BOILERPLATE_ROUTE]: ["POST"],
   [GUIDANCE_ENDPOINT_PATH]: ["GET", "POST"],
+  [BUNDLE_API_PATHS.staleness]: ["POST"],
+  [BUNDLE_API_PATHS.freeze]: ["POST"],
+  [BUNDLE_LATEST_ROUTE]: ["GET"],
 };
 
 interface RouteMatch {
@@ -175,6 +184,7 @@ export interface RegistryServices {
   readonly applications: ApplicationService;
   readonly guidanceEndpoint: GuidanceEndpointService;
   readonly boilerplate: BoilerplateService;
+  readonly bundles?: BundleService;
 }
 
 class HttpFailure extends Error {
@@ -213,6 +223,24 @@ class HttpFailure extends Error {
  * finished, so neither the status, the body nor the timing reveals whether an
  * account exists.
  */
+async function buildBundleAfterMutation(services: RegistryServices, log: Logger, session: SessionInfo): Promise<void> {
+  if (services.bundles === undefined) return;
+  try {
+    await services.bundles.buildAndSign(session.tenantId);
+  } catch (error) {
+    if (isEnvelopeError(error)) throw error;
+    log({ event: "bundle_build_failed", tenantId: session.tenantId, code: "unexpected" });
+    throw new HttpFailure({ code: "bundle_build_failed", message: "the registry could not build the Standard bundle", subject: "bundle" });
+  }
+}
+
+function requireBundles(services: RegistryServices): BundleService {
+  if (services.bundles === undefined) {
+    throw new HttpFailure({ code: "service_unavailable", message: "bundles unavailable", subject: "bundles" });
+  }
+  return services.bundles;
+}
+
 export function createRegistryServer(services: RegistryServices, log: Logger = stdoutLogger): Server {
   return createServer((req, res) => {
     const started = performance.now();
@@ -305,7 +333,9 @@ async function handle(
       }
       requireBuyer(req, session);
       const body = fields(await readJson(req), ["kind", "name"]);
-      sendJson(res, 201, await services.modules.createModule(session, { kind: body["kind"], name: body["name"] }));
+      const created = await services.modules.createModule(session, { kind: body["kind"], name: body["name"] });
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 201, created);
       return;
     }
     case MODULE_OWNER_ROUTE: {
@@ -315,6 +345,7 @@ async function handle(
       const module = await services.modules.assignModuleOwner(session, match.id, {
         accountId: body["accountId"],
       });
+      await buildBundleAfterMutation(services, log, session);
       sendJson(res, 200, module);
       return;
     }
@@ -326,7 +357,9 @@ async function handle(
       }
       // The body (exactly { entry }) is checked by the service, after the
       // Module, owner and role checks, so the first failure in that order wins.
-      sendJson(res, 201, await services.standards.publishStandard(session, match.id, await readJson(req)));
+      const standard = await services.standards.publishStandard(session, match.id, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 201, standard);
       return;
     }
     case PROJECT_API_PATHS.projects: {
@@ -337,7 +370,9 @@ async function handle(
       }
       // Whether the caller may create depends on the parent named in the body,
       // so the service checks the body, then the parent, then the permission.
-      sendJson(res, 201, await services.projects.createProject(session, await readJson(req)));
+      const createdProject = await services.projects.createProject(session, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 201, createdProject);
       return;
     }
     case PROJECT_ROUTE: {
@@ -354,7 +389,9 @@ async function handle(
       const session = await service.getSession(bearerToken(req));
       // The service checks the Project, then the role, then the body and the
       // parent, so the first failure in that order wins.
-      sendJson(res, 200, await services.projects.changeParent(session, match.id, await readJson(req)));
+      const changedProject = await services.projects.changeParent(session, match.id, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 200, changedProject);
       return;
     }
     case PROJECT_CHILD_PERMISSIONS_ROUTE: {
@@ -365,7 +402,9 @@ async function handle(
       }
       // The service checks the Project, then the role, then the body and the
       // account, so the first failure in that order wins.
-      sendJson(res, 200, await services.childPermissions.setChildPermission(session, match.id, await readJson(req)));
+      const childPermission = await services.childPermissions.setChildPermission(session, match.id, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 200, childPermission);
       return;
     }
     case PROJECT_BUILD_GRANTS_ROUTE: {
@@ -376,7 +415,9 @@ async function handle(
       }
       // The service checks the Project, then the role, then the body and the
       // account, so the first failure in that order wins.
-      sendJson(res, 200, await services.buildGrants.setBuildGrant(session, match.id, await readJson(req)));
+      const buildGrant = await services.buildGrants.setBuildGrant(session, match.id, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 200, buildGrant);
       return;
     }
     case APPLICATION_API_PATHS.applications: {
@@ -387,7 +428,9 @@ async function handle(
       }
       // Whether the caller may place it depends on the Project named in the
       // body, so the service checks the body, then the Project, then the grant.
-      sendJson(res, 201, await services.applications.createApplication(session, await readJson(req)));
+      const createdApplication = await services.applications.createApplication(session, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 201, createdApplication);
       return;
     }
     case APPLICATION_IDENTIFICATION_FILE_ROUTE: {
@@ -401,7 +444,9 @@ async function handle(
       // never parsed for any other role); then the service checks the body,
       // the Project and the core bundle, so the first failure wins.
       requireBuyer(req, session, assertApplicationBuyer);
-      sendJson(res, 201, await services.applications.registerApplication(session, await readJson(req)));
+      const registeredApplication = await services.applications.registerApplication(session, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 201, registeredApplication);
       return;
     }
     case APPLICATION_BOILERPLATE_ROUTE: {
@@ -425,14 +470,54 @@ async function handle(
         return;
       }
       requireBuyer(req, session, assertGuidanceEndpointBuyer);
-      sendJson(res, 200, await services.guidanceEndpoint.setGuidanceEndpoint(session, await readJson(req)));
+      const guidanceEndpoint = await services.guidanceEndpoint.setGuidanceEndpoint(session, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 200, guidanceEndpoint);
+      return;
+    }
+    case BUNDLE_API_PATHS.staleness: {
+      const session = await service.getSession(bearerToken(req));
+      requireBuyer(req, session, assertBundleSettingsBuyer);
+      const bundles = requireBundles(services);
+      sendJson(res, 200, await bundles.setStaleness(session, await readJson(req)));
+      return;
+    }
+    case BUNDLE_API_PATHS.freeze: {
+      const session = await service.getSession(bearerToken(req));
+      requireBuyer(req, session, assertBundleSettingsBuyer);
+      const bundles = requireBundles(services);
+      sendJson(res, 200, await bundles.setFreeze(session, await readJson(req)));
+      return;
+    }
+    case BUNDLE_LATEST_ROUTE: {
+      const tenantId = match.id;
+      const bundles = requireBundles(services);
+      const credentialTenant = await bundles.authenticateCredential(bearerToken(req));
+      if (credentialTenant !== tenantId) {
+        throw new HttpFailure({
+          code: ROLE_DENIED,
+          message: "this credential may not pull this tenant's bundle",
+          subject: "role",
+        });
+      }
+      const bundle = await bundles.latestFor(credentialTenant);
+      if (bundle === undefined) {
+        throw new HttpFailure({
+          code: "not_found",
+          message: "no bundle exists for this tenant yet",
+          subject: "bundle",
+        });
+      }
+      sendJson(res, 200, bundle);
       return;
     }
     case STANDARD_LOCKED_RULE_ROUTE: {
       const session = await service.getSession(bearerToken(req));
       // The service checks the Standard, then the role, then the body, so the
       // first failure in that order wins.
-      sendJson(res, 200, await services.lockedRules.setLockedRule(session, match.id, await readJson(req)));
+      const lockedRule = await services.lockedRules.setLockedRule(session, match.id, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 200, lockedRule);
       return;
     }
     default: {
@@ -442,7 +527,9 @@ async function handle(
         sendJson(res, 200, await services.standards.listStandardVersions(session, match.id));
         return;
       }
-      sendJson(res, 201, await services.standards.publishStandardVersion(session, match.id, await readJson(req)));
+      const publishedVersion = await services.standards.publishStandardVersion(session, match.id, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 201, publishedVersion);
     }
   }
 }

@@ -211,3 +211,21 @@ export type {
   TokenFact,
   UnreadableFile,
 } from "./facts.ts";
+export {
+  BUNDLE_API_PATHS,
+  BUNDLE_FORMAT_VERSION,
+  BUNDLE_TYPE,
+  canonicalJson,
+  DEFAULT_STALENESS_HOURS,
+  isBundleApplication,
+  isBundleFormat,
+  isSignedStandardBundle,
+  isStandardBundlePayload,
+  standardBundleLatestPath,
+} from "./bundles.ts";
+export type {
+  BundleApplication,
+  BundleFormat,
+  SignedStandardBundle,
+  StandardBundlePayload,
+} from "./bundles.ts";

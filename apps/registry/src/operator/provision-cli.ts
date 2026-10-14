@@ -58,7 +58,7 @@ async function main(): Promise<void> {
       );
     }
     const result = await writeCompany(db, validation.value);
-    // { tenantId, rootProjectId, plan, accounts: [{ id, role }] }: no names, no emails.
+    // { tenantId, rootProjectId, plan, accounts: [{ id, role }], serviceCredential }: no names, no emails.
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } finally {
     await pool.end();

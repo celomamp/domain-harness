@@ -131,5 +131,16 @@ export {
 export type { BoilerplateFile, RenderInput } from "./boilerplate/render.ts";
 export { tar, tarGz } from "./boilerplate/archive.ts";
 export type { ArchiveEntry } from "./boilerplate/archive.ts";
+export { bundleHash, ed25519SignerFromEnv, sha256Hex } from "./bundles/sign.ts";
+export type { Signer } from "./bundles/sign.ts";
+export { compileBundle, currentFrozen, currentStalenessHours } from "./bundles/compile.ts";
+export type { CompiledBundle } from "./bundles/compile.ts";
+export {
+  assertBundleSettingsBuyer,
+  createBundleService,
+  validateFreezeBody,
+  validateStalenessBody,
+} from "./bundles/service.ts";
+export type { BundleService } from "./bundles/service.ts";
 export { createRegistryServer, MAX_BODY_BYTES, stdoutLogger } from "./http/server.ts";
 export type { LogEvent, Logger, RegistryServices } from "./http/server.ts";

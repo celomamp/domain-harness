@@ -1,10 +1,12 @@
 // `pnpm --filter @domain-harness/registry serve`: run the registry's internal
 // JSON API. Configuration comes only from the environment:
-//   REGISTRY_DATABASE_URL     runtime role (member of dh_registry_app), checked at start
-//   REGISTRY_HTTP_HOST        default 127.0.0.1
-//   REGISTRY_HTTP_PORT        default 4100
-//   REGISTRY_PANEL_URL        public base URL of the management panel (links point there)
+//   REGISTRY_DATABASE_URL           runtime role (member of dh_registry_app), checked at start
+//   REGISTRY_HTTP_HOST              default 127.0.0.1
+//   REGISTRY_HTTP_PORT              default 4100
+//   REGISTRY_PANEL_URL              public base URL of the management panel (links point there)
 //   REGISTRY_SMTP_URL + REGISTRY_MAIL_FROM, or REGISTRY_MAIL_OUTBOX_DIR (exactly one)
+//   REGISTRY_BUNDLE_SIGNING_KEY     Ed25519 private key in PKCS#8 PEM format
+//   REGISTRY_BUNDLE_SIGNING_KEY_ID  non-empty key identifier carried in signed bundles
 // Logs carry ids, codes and counts only. Any start-up error prints one envelope
 // to stderr and exits 1.
 import { EnvelopeError } from "../errors.ts";
@@ -20,6 +22,8 @@ import { createBoilerplateService } from "../boilerplate/service.ts";
 import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
+import { ed25519SignerFromEnv } from "../bundles/sign.ts";
+import { createBundleService } from "../bundles/service.ts";
 import { createSignInService } from "../sign-in/service.ts";
 import { createStandardService } from "../standards/service.ts";
 import { createRegistryServer, stdoutLogger } from "./server.ts";
@@ -76,15 +80,27 @@ async function main(): Promise<void> {
 
   const pool = createPool(connectionString);
   const db = createRegistryDb(pool);
+  let signer;
   try {
-    await assertRuntimeRoleSafe(db);
+    try {
+      await assertRuntimeRoleSafe(db);
+    } catch (error) {
+      if (error instanceof EnvelopeError) throw error;
+      throw new EnvelopeError(
+        { code: "database_unavailable", message: "could not connect to the registry database", subject: DB_ENV },
+        { cause: error },
+      );
+    }
+
+    const signingKey = required("REGISTRY_BUNDLE_SIGNING_KEY");
+    const signingKeyId = required("REGISTRY_BUNDLE_SIGNING_KEY_ID");
+    signer = ed25519SignerFromEnv({
+      REGISTRY_BUNDLE_SIGNING_KEY: signingKey,
+      REGISTRY_BUNDLE_SIGNING_KEY_ID: signingKeyId,
+    });
   } catch (error) {
     await pool.end();
-    if (error instanceof EnvelopeError) throw error;
-    throw new EnvelopeError(
-      { code: "database_unavailable", message: "could not connect to the registry database", subject: DB_ENV },
-      { cause: error },
-    );
+    throw error;
   }
 
   const server = createRegistryServer(
@@ -99,6 +115,7 @@ async function main(): Promise<void> {
       applications: createApplicationService(db),
       guidanceEndpoint: createGuidanceEndpointService(db),
       boilerplate: createBoilerplateService(db),
+      bundles: createBundleService(db, signer),
     },
     stdoutLogger,
   );

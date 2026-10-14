@@ -484,7 +484,62 @@ export const applicationAgentToolChanges = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0011. */
+export const bundleRecords = pgTable(
+  "bundle_records",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    hash: text("hash").notNull(),
+    keyId: text("key_id").notNull(),
+    payload: jsonb("payload").notNull(),
+    signature: text("signature").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true, mode: "date" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("bundle_records_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    unique("bundle_records_hash_key").on(table.hash),
+    foreignKey({ name: "bundle_records_tenant_fkey", columns: [table.tenantId], foreignColumns: [tenants.id] }),
+  ],
+);
+
+export const tenantServiceCredentials = pgTable(
+  "tenant_service_credentials",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("tenant_service_credentials_token_hash_key").on(table.tokenHash),
+    foreignKey({ name: "tenant_service_credentials_tenant_fkey", columns: [table.tenantId], foreignColumns: [tenants.id] }),
+  ],
+);
+
+export const bundleSettingChanges = pgTable(
+  "bundle_setting_changes",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    stalenessHours: integer("staleness_hours"),
+    frozen: boolean("frozen"),
+    changedBy: uuid("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("bundle_setting_changes_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    foreignKey({
+      name: "bundle_setting_changes_changed_by_fkey",
+      columns: [table.tenantId, table.changedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0012. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -502,6 +557,9 @@ export const TENANT_TABLES = [
   "applications",
   "guidance_endpoint_changes",
   "application_agent_tool_changes",
+  "bundle_records",
+  "tenant_service_credentials",
+  "bundle_setting_changes",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */
