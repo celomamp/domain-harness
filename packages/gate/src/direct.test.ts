@@ -10,7 +10,7 @@ import {
   FAIL,
   PASS,
 } from "./sentences.ts";
-import { formatDeviationLine, REFUSAL_SENTENCE_BY_REASON } from "./result.ts";
+import { CANONICAL_GATE_KEYS, canonicalGateBytes, formatDeviationLine, REFUSAL_SENTENCE_BY_REASON } from "./result.ts";
 
 function fixtureByName(name: string): GateFixture {
   const fixture = gateFixtures.find((candidate) => candidate.name === name);
@@ -70,6 +70,32 @@ describe("runGateDirect (adapter semantics)", () => {
       now: GATE_NOW,
     });
     expect(snapshotless.kind).toBe("refusal");
+    // A snapshot record without a string hash is malformed exactly as
+    // `loadBundleSnapshot` sees it: the adapter refuses bundle verification
+    // failed instead of dereferencing and throwing.
+    const hashless = await runGateDirect({
+      applicationId: GATE_APP_ID,
+      repoFingerprint: "f".repeat(64),
+      files: {},
+      bundle: { variant: "snapshot", snapshot: { issuedAt: GATE_NOW } as unknown as GateBundleSnapshot },
+      ledger: junkLedger,
+      now: GATE_NOW,
+    });
+    expect(hashless.kind).toBe("refusal");
+    expect(hashless.sentence).toBe("bundle verification failed");
+    // A non-string repoFingerprint never reaches `.trim()` as a crash: the
+    // adapter refuses unbound.
+    const okFixture = fixtureByName("first-use-binds");
+    const junkFingerprint = await runGateDirect({
+      applicationId: okFixture.applicationId,
+      repoFingerprint: undefined as unknown as string,
+      files: {},
+      bundle: okFixture.bundle,
+      ledger: junkLedger,
+      now: okFixture.now,
+    });
+    expect(junkFingerprint.kind).toBe("refusal");
+    expect(junkFingerprint.refusalReason).toBe("unbound");
     const nullBundle = await runGateDirect({
       applicationId: GATE_APP_ID,
       repoFingerprint: "f".repeat(64),
@@ -104,9 +130,13 @@ describe("runGateDirect (adapter semantics)", () => {
     // recordBindingRefusal rejects on a fingerprint mismatch (the mirror of
     // runner.test.ts's store-failure coverage):
     const duplicate = fixtureByName("duplicate-bound-to-other-fingerprint");
+    if (duplicate.boundFingerprint === null) {
+      throw new Error("the duplicate fixture must seed a bound fingerprint");
+    }
+    const seededFingerprint = duplicate.boundFingerprint;
     const writeBrokenLedger: BindingLedger = {
       getBinding: (applicationId) =>
-        Promise.resolve({ applicationId, fingerprint: duplicate.boundFingerprint ?? "" }),
+        Promise.resolve({ applicationId, fingerprint: seededFingerprint }),
       bindApplication: (applicationId, fingerprint) => Promise.resolve({ applicationId, fingerprint }),
       recordBindingRefusal: () => Promise.reject(new Error("ledger write failed")),
     };
@@ -195,9 +225,13 @@ describe("runGateDirect (adapter semantics)", () => {
   it("records a binding refusal and refuses the duplicate id without depending on ledger mutation order", async () => {
     const refusals: unknown[] = [];
     const fixture = fixtureByName("duplicate-bound-to-other-fingerprint");
+    if (fixture.boundFingerprint === null) {
+      throw new Error("the duplicate fixture must seed a bound fingerprint");
+    }
+    const duplicateFingerprint = fixture.boundFingerprint;
     const ledger = {
       getBinding(applicationId: UuidV7) {
-        return Promise.resolve({ applicationId, fingerprint: fixture.boundFingerprint ?? "" });
+        return Promise.resolve({ applicationId, fingerprint: duplicateFingerprint });
       },
       bindApplication(applicationId: UuidV7, fingerprint: string) {
         return Promise.resolve({ applicationId, fingerprint });
@@ -217,5 +251,11 @@ describe("runGateDirect (adapter semantics)", () => {
     });
     expect(outcome.sentence).toBe("duplicate Application id");
     expect(refusals).toHaveLength(1);
+  });
+
+  it("the canonical serializer's key order is exactly the CANONICAL_GATE_KEYS constant", async () => {
+    const passOutcome = await runFixtureDirect(fixtureByName("pass"));
+    const keys = Object.keys(JSON.parse(canonicalGateBytes(passOutcome)) as Record<string, unknown>);
+    expect(keys).toEqual([...CANONICAL_GATE_KEYS]);
   });
 });

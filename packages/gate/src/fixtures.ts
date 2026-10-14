@@ -4,7 +4,11 @@
  * and a clock input — covering every Deviation kind, acceptance before,
  * within and after the acceptance window, and every refusal both compared
  * adapters share. Each fixture isolates exactly one cause, so parity is
- * decided by the one cause it carries.
+ * decided by the one cause it carries: for each fixture the refusal/pass
+ * sentence and exit are pinned byte-identically on both paths, and
+ * value-level drift (staleness bounds, window edges, pinned hash) trips the
+ * comparison. The precedence of two simultaneously-true refusal causes is
+ * out of scope by the single-cause rule and is not proven here.
  *
  * Everything is data: no database, no environment variables, no I/O. The
  * whole suite runs in-process anywhere, including a fresh clone before
@@ -58,6 +62,11 @@ export const GATE_STALENESS_BOUND_HOURS = 24;
 /** A snapshot's released time as a UTC ISO string a number of hours before `now`. */
 function issuedAtHoursBefore(now: string, hours: number): string {
   return new Date(Date.parse(now) - hours * 60 * 60 * 1000).toISOString();
+}
+
+/** A snapshot's released time as a UTC ISO string a number of hours after `now`. */
+function issuedAtHoursAfter(now: string, hours: number): string {
+  return new Date(Date.parse(now) + hours * 60 * 60 * 1000).toISOString();
 }
 
 export const gateProjectRef: ProjectRef = { id: GATE_PROJECT_ID, name: "Platform" };
@@ -462,15 +471,15 @@ export const gateFixtures: readonly GateFixture[] = [
     expectation: { kind: "refusal", refusalReason: "stale" },
   },
   {
-    // A snapshot dated in the future is unparseable as a fresh bundle: the
-    // staleness comparison fails closed on both paths.
+    // A future-dated snapshot looks fresh but is not trusted: `now` before
+    // `issuedAt` fails the age guard, so both adapters refuse bundle stale.
     name: "bundle-stale-future-issued-at",
     applicationId: GATE_APP_ID,
     repoFingerprint: GATE_FINGERPRINT_A,
     files: {},
     bundle: {
       variant: "snapshot",
-      snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: issuedAtHoursBefore(GATE_NOW, -1), frozenUntil: null }),
+      snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: issuedAtHoursAfter(GATE_NOW, 1), frozenUntil: null }),
     },
     now: GATE_NOW,
     boundFingerprint: null,
@@ -498,6 +507,127 @@ export const gateFixtures: readonly GateFixture[] = [
     bundle: {
       variant: "snapshot",
       snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: issuedAtHoursBefore(GATE_NOW, 48), frozenUntil: "2026-10-15T00:00:00.000Z" }),
+    },
+    now: GATE_NOW,
+    boundFingerprint: null,
+    expectation: { kind: "pass", refusalReason: null },
+  },
+  {
+    // Pins the mirrored `?? 24` staleness-bound default from just inside it:
+    // the snapshot omits the bound and is 23.5 hours old, so both adapters
+    // accept.
+    name: "bundle-within-default-bound",
+    applicationId: GATE_APP_ID,
+    repoFingerprint: GATE_FINGERPRINT_A,
+    files: {},
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: issuedAtHoursBefore(GATE_NOW, 23.5), stalenessBoundHours: undefined, frozenUntil: null }),
+    },
+    now: GATE_NOW,
+    boundFingerprint: null,
+    expectation: { kind: "pass", refusalReason: null },
+  },
+  {
+    // Pins the mirrored `?? 24` staleness-bound default from just outside it:
+    // the snapshot omits the bound and is 24.5 hours old, so both refuse.
+    name: "bundle-stale-past-default-bound",
+    applicationId: GATE_APP_ID,
+    repoFingerprint: GATE_FINGERPRINT_A,
+    files: {},
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: issuedAtHoursBefore(GATE_NOW, 24.5), stalenessBoundHours: undefined, frozenUntil: null }),
+    },
+    now: GATE_NOW,
+    boundFingerprint: null,
+    expectation: { kind: "refusal", refusalReason: "stale" },
+  },
+  {
+    // The bound comparison is inclusive: exactly at the bound the snapshot is
+    // still fresh on both paths.
+    name: "bundle-at-exact-bound",
+    applicationId: GATE_APP_ID,
+    repoFingerprint: GATE_FINGERPRINT_A,
+    files: {},
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: issuedAtHoursBefore(GATE_NOW, 24) }),
+    },
+    now: GATE_NOW,
+    boundFingerprint: null,
+    expectation: { kind: "pass", refusalReason: null },
+  },
+  {
+    // A freeze covering the run at exactly `now` still covers it:
+    // `freezeMs >= nowMs` accepts the boundary instant.
+    name: "bundle-frozen-until-now",
+    applicationId: GATE_APP_ID,
+    repoFingerprint: GATE_FINGERPRINT_A,
+    files: {},
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: issuedAtHoursBefore(GATE_NOW, 48), frozenUntil: GATE_NOW }),
+    },
+    now: GATE_NOW,
+    boundFingerprint: null,
+    expectation: { kind: "pass", refusalReason: null },
+  },
+  {
+    // An unparseable `issuedAt` fails the age guard closed on both paths.
+    name: "bundle-stale-unparseable-issued-at",
+    applicationId: GATE_APP_ID,
+    repoFingerprint: GATE_FINGERPRINT_A,
+    files: {},
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: "not-a-timestamp", frozenUntil: null }),
+    },
+    now: GATE_NOW,
+    boundFingerprint: null,
+    expectation: { kind: "refusal", refusalReason: "stale" },
+  },
+  {
+    // An explicit null bound plays the omitted default (24): 25 hours is over it.
+    name: "bundle-stale-null-bound",
+    applicationId: GATE_APP_ID,
+    repoFingerprint: GATE_FINGERPRINT_A,
+    files: {},
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: issuedAtHoursBefore(GATE_NOW, 25), stalenessBoundHours: null, frozenUntil: null }),
+    },
+    now: GATE_NOW,
+    boundFingerprint: null,
+    expectation: { kind: "refusal", refusalReason: "stale" },
+  },
+  {
+    // An empty freeze string carries no instant: the freeze guard fails and
+    // the 48-hour-old snapshot refuses stale.
+    name: "bundle-stale-empty-freeze",
+    applicationId: GATE_APP_ID,
+    repoFingerprint: GATE_FINGERPRINT_A,
+    files: {},
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, { issuedAt: issuedAtHoursBefore(GATE_NOW, 48), frozenUntil: "" }),
+    },
+    now: GATE_NOW,
+    boundFingerprint: null,
+    expectation: { kind: "refusal", refusalReason: "stale" },
+  },
+  {
+    // Pins the mirrored record-branch of the application-id mapping: the id
+    // may arrive as a singleton object entry with a string `id`.
+    name: "application-id-object-entry",
+    applicationId: GATE_APP_ID,
+    repoFingerprint: GATE_FINGERPRINT_A,
+    files: {},
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, {
+        applications: [{ id: GATE_APP_ID }] as unknown as readonly string[],
+      }),
     },
     now: GATE_NOW,
     boundFingerprint: null,
@@ -570,8 +700,27 @@ export function isFixtureCoverageComplete(): { readonly complete: boolean; reado
     if (!failNames.has(`fail-${kind}`)) missing.push(`deviation-kind:${kind}`);
   }
 
-  for (const name of ["accepted-live", "accepted-before-start", "accepted-at-end"]) {
-    if (!gateFixtures.some((fixture) => fixture.name === name)) missing.push(`acceptance-slice:${name}`);
+  for (const name of [
+    "accepted-live",
+    "accepted-before-start",
+    "accepted-at-end",
+    // Staleness variants and boundaries, including the mirrored default-bound
+    // and freeze-edge cases:
+    "bundle-stale",
+    "bundle-frozen",
+    "bundle-stale-default-bound",
+    "bundle-stale-future-issued-at",
+    "bundle-expired-freeze",
+    "bundle-within-default-bound",
+    "bundle-stale-past-default-bound",
+    "bundle-at-exact-bound",
+    "bundle-frozen-until-now",
+    "bundle-stale-unparseable-issued-at",
+    "bundle-stale-null-bound",
+    "bundle-stale-empty-freeze",
+    "application-id-object-entry",
+  ]) {
+    if (!gateFixtures.some((fixture) => fixture.name === name)) missing.push(`coverage-slice:${name}`);
   }
 
   const reasons = new Set(

@@ -45,10 +45,12 @@ describe("direct adapter over the fixture suite (Story 5.4)", () => {
   });
 
   it("re-ordering the inputs (standards array, accepted array, file key order) leaves the bytes unchanged", async () => {
+    let multiElementSets = 0;
     for (const fixture of gateFixtures) {
       if (fixture.bundle.variant !== "snapshot") continue;
       const standards = fixture.bundle.snapshot.effectiveSet.standards;
       if (!Array.isArray(standards)) continue;
+      if (standards.length > 1) multiElementSets += 1;
 
       const reorderedFiles: Record<string, string> = {};
       for (const path of Object.keys(fixture.files).reverse()) {
@@ -72,6 +74,10 @@ describe("direct adapter over the fixture suite (Story 5.4)", () => {
       const second = canonicalGateBytes(await runFixture(reorderedFixture));
       expect(second, `fixture ${fixture.name}`).toBe(first);
     }
+    // The reversal must actually reorder something somewhere: the loop has
+    // covered at least one snapshot fixture with a multi-element standards
+    // set (the slot-conflict fixture carries two standards in one set).
+    expect(multiElementSets, "no multi-element set was re-ordered").toBeGreaterThan(0);
   });
 
   it("the whole suite runs deterministically across two whole-suite passes", async () => {

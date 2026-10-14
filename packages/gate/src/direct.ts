@@ -7,8 +7,10 @@
  * re-implements or post-processes the evaluator's output. Its own
  * classification logic — source outcome mapping, unbound/set/staleness
  * refusals, binding-ledger checks — mirrors the service runner's order and
- * fail-closed semantics; the deterministic fixture suite fails at the byte
- * comparison if either path's ordering or text drifts. It never throws.
+ * fail-closed semantics; the deterministic fixture suite pins byte-identical
+ * sentence/exit parity per single cause and value-level drift (staleness
+ * bounds, window edges, pinned hash) on both paths — refusal precedence
+ * between simultaneously-true causes is not proven by it. It never throws.
  */
 import type { UuidV7 } from "@domain-harness/contract";
 import { isEffectiveStandardSet, isRevisionFacts } from "@domain-harness/contract";
@@ -114,11 +116,24 @@ export async function runGateDirect(input: RunGateDirectInput): Promise<GateOutc
   if (typeof snapshotRecord !== "object" || snapshotRecord === null || Array.isArray(snapshotRecord)) {
     return refusal(BUNDLE_VERIFICATION_FAILED, "bundle-verification-failed");
   }
+  // A snapshot record without string hash/issuedAt is malformed exactly as
+  // `loadBundleSnapshot`'s record-shape validation sees it: fail closed the
+  // way the service path does.
+  if (
+    typeof (snapshotRecord as { hash?: unknown }).hash !== "string" ||
+    typeof (snapshotRecord as { issuedAt?: unknown }).issuedAt !== "string"
+  ) {
+    return refusal(BUNDLE_VERIFICATION_FAILED, "bundle-verification-failed");
+  }
 
   const snapshot = snapshotRecord as GateBundleSnapshot;
 
   const ids = applicationIdsOf(snapshot);
-  if (!ids.includes(String(applicationId)) || repoFingerprint.trim() === "") {
+  if (
+    typeof repoFingerprint !== "string" ||
+    repoFingerprint.trim() === "" ||
+    !ids.includes(String(applicationId))
+  ) {
     return refusal(UNBOUND, "unbound");
   }
 

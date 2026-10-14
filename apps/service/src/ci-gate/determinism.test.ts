@@ -124,6 +124,18 @@ describe("Gate determinism across adapters (Story 5.4)", () => {
       expect(directOutcome.refusalReason, `refusal reason of ${fixture.name}`).toBe(
         fixture.expectation.refusalReason,
       );
+      // Semantic pins so a wrong-but-equal pair cannot ship green: a pass
+      // carries the fixture snapshot's pinned hash on both paths.
+      if (fixture.expectation.kind === "pass" && fixture.bundle.variant === "snapshot") {
+        expect(directOutcome.pinnedHash, `pinnedHash of ${fixture.name}`).toBe(fixture.bundle.snapshot.hash);
+        expect(serviceOutcome.pinnedHash, `service pinnedHash of ${fixture.name}`).toBe(fixture.bundle.snapshot.hash);
+      }
+      // One representative pass fixture pins the counts too.
+      if (fixture.name === "pass") {
+        expect(directOutcome.checked, `checked of ${fixture.name}`).toBe(1);
+        expect(directOutcome.open, `open of ${fixture.name}`).toBe(0);
+        expect(directOutcome.adherence, `adherence of ${fixture.name}`).toBe(1);
+      }
       compared += 1;
     }
     expect(compared).toBe(gateFixtures.length);
@@ -272,5 +284,79 @@ describe("Gate determinism across adapters (Story 5.4)", () => {
     expect(canonicalGateBytes(firstUseDirect)).toBe(canonicalGateBytes(firstUseService));
     expect(firstUseService.kind).toBe("pass");
     expect(firstUseDirect.kind).toBe("pass");
+  });
+
+  it("a multi-element reordered set produces byte-identical canonical results on both paths", async () => {
+    // Compose a genuinely multi-element snapshot from the existing
+    // single-standards fixtures: prohibited + approved standards and one
+    // live acceptance (the prohibited finding is accepted — one cause).
+    const snapshotBundle = (fixture: (typeof gateFixtures)[number], name: string) => {
+      if (fixture.bundle.variant !== "snapshot") throw new Error(`${name} must carry a snapshot bundle`);
+      return fixture.bundle;
+    };
+    const prohibitedFixture = gateFixtures.find((candidate) => candidate.name === "fail-prohibited");
+    const approvedFixture = gateFixtures.find((candidate) => candidate.name === "pass");
+    const acceptanceFixture = gateFixtures.find((candidate) => candidate.name === "accepted-live");
+    if (prohibitedFixture === undefined || approvedFixture === undefined || acceptanceFixture === undefined) {
+      throw new Error("the composed case needs the prohibited, pass and accepted-live fixtures");
+    }
+    const prohibitedEntry = snapshotBundle(prohibitedFixture, "fail-prohibited").snapshot.effectiveSet.standards[0];
+    const approvedEntry = snapshotBundle(approvedFixture, "pass").snapshot.effectiveSet.standards[0];
+    const accepted = snapshotBundle(acceptanceFixture, "accepted-live").snapshot.accepted[0];
+    if (prohibitedEntry === undefined || approvedEntry === undefined || accepted === undefined) {
+      throw new Error("the composed set needs one standard from each source fixture and one acceptance");
+    }
+    const composedSnapshot = {
+      ...snapshotBundle(prohibitedFixture, "fail-prohibited").snapshot,
+      effectiveSet: {
+        ...snapshotBundle(prohibitedFixture, "fail-prohibited").snapshot.effectiveSet,
+        standards: [prohibitedEntry, approvedEntry],
+      },
+      accepted: [accepted],
+    };
+    const files: Record<string, string> = { "package.json": '{"dependencies":{"lodash":"4.17.21"}}' };
+    const composedFixture: (typeof gateFixtures)[number] = {
+      name: "composed-multi-element",
+      applicationId: prohibitedFixture.applicationId,
+      repoFingerprint: prohibitedFixture.repoFingerprint,
+      files,
+      bundle: { variant: "snapshot", snapshot: composedSnapshot },
+      now: acceptanceFixture.now,
+      boundFingerprint: null,
+      expectation: { kind: "pass", refusalReason: null },
+    };
+    const reorderedFiles: Record<string, string> = {};
+    for (const path of Object.keys(files).reverse()) {
+      reorderedFiles[path] = files[path] ?? "";
+    }
+    const reorderedFixture: (typeof gateFixtures)[number] = {
+      ...composedFixture,
+      files: reorderedFiles,
+      bundle: {
+        variant: "snapshot",
+        snapshot: {
+          ...composedSnapshot,
+          effectiveSet: {
+            ...composedSnapshot.effectiveSet,
+            standards: [...composedSnapshot.effectiveSet.standards].reverse(),
+          },
+          accepted: [...composedSnapshot.accepted].reverse(),
+        },
+      },
+    };
+
+    for (const fixture of [composedFixture, reorderedFixture]) {
+      const serviceOutcome = await runServiceGate(fixture);
+      const directOutcome = await runDirectGate(fixture);
+      expect(canonicalGateBytes(directOutcome)).toBe(canonicalGateBytes(serviceOutcome));
+      expect(serviceOutcome.kind).toBe("pass");
+      expect(directOutcome.kind).toBe("pass");
+    }
+    // The reorder was non-trivial: the standards array genuinely flipped.
+    const reorderedBundle = reorderedFixture.bundle;
+    if (reorderedBundle.variant !== "snapshot") throw new Error("the reordered fixture carries a snapshot bundle");
+    expect(reorderedBundle.snapshot.effectiveSet.standards[0]?.standard.id).toBe(
+      approvedEntry.standard.id,
+    );
   });
 });
