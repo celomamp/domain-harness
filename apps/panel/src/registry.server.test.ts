@@ -26,6 +26,7 @@ import {
   getGuidanceEndpoint,
   registerApplication,
   setGuidanceEndpoint,
+  getAcceptedDeviations,
 } from "./registry.server.ts";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
@@ -547,6 +548,50 @@ describe("registry client", () => {
       const unset = { code: "guidance_endpoint_unset", message: "m", subject: "guidanceEndpoint" };
       vi.stubGlobal("fetch", respond(409, unset));
       expect(await generateBoilerplate("abc", app, "claude-code")).toEqual({ kind: "refused", error: unset });
+    });
+  });
+
+  describe("Accepted deviations", () => {
+    const APP = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
+    const STANDARD = "01928c7e-5b2a-7c3d-be4f-a1b2c3d4e5f9";
+    const AT = "2026-10-13T09:00:00.000Z";
+    const record = {
+      id: APP,
+      applicationId: APP,
+      standardId: STANDARD,
+      standardVersion: 3,
+      slot: { moduleKind: "code-stack", slotKind: "library", name: "react" },
+      subject: "lodash",
+      start: "2026-10-01T00:00:00.000Z",
+      end: "2026-11-01T00:00:00.000Z",
+      buyer: { accountId: ACCOUNT, name: "Bea Buyer" },
+      justification: "known exception",
+      alertIntervalHours: 168,
+      createdAt: AT,
+    };
+
+    it("reads the records by GET, guarding the `{ records }` envelope and mapping the records out", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const fetch = respond(200, { records: [record] });
+      vi.stubGlobal("fetch", fetch);
+      expect(await getAcceptedDeviations("abc")).toEqual({ kind: "ok", value: [record] });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("http://registry.test/v1/accepted-deviations");
+      expect(init.method).toBe("GET");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+    });
+
+    it("reports a refusal envelope, and a malformed or wrong-status answer as unavailable", async () => {
+      const refused = { code: "plan_refused", message: "m", subject: "plan" };
+      vi.stubGlobal("fetch", respond(403, refused));
+      expect(await getAcceptedDeviations("abc")).toEqual({ kind: "refused", error: refused });
+      // The bare records array (the registry actually answers an envelope) is unavailable.
+      vi.stubGlobal("fetch", respond(200, [record]));
+      expect(await getAcceptedDeviations("abc")).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(200, { records: [{ ...record, alertIntervalHours: 8761 }] }));
+      expect(await getAcceptedDeviations("abc")).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(204, null));
+      expect(await getAcceptedDeviations("abc")).toEqual({ kind: "unavailable" });
     });
   });
 });

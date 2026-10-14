@@ -8,15 +8,26 @@ import { tenants } from "../db/schema.ts";
 /** The Project-tree capabilities a plan may lack. */
 export type TreeCapability = "create" | "parent" | "lock";
 
-/** How each capability is named in a refusal: the capability only, never a plan or a price. */
+/** How each tree capability is named in a refusal: the capability only, never a plan or a price. */
 const CAPABILITY_TEXT: Readonly<Record<TreeCapability, string>> = {
   create: "creating another Project",
   parent: "setting a parent",
   lock: "marking a Locked rule",
 };
 
+/** The Accepted-deviation capability a plan may lack (Story 5.5), named the same way. */
+const ACCEPTED_DEVIATION_CAPABILITY = "recording an Accepted deviation";
+
 /** Whether each plan includes the Project-tree capabilities; a new plan is a compile error until decided. */
 const TREE_CAPABILITIES: Readonly<Record<Plan, boolean>> = {
+  Community: false,
+  Team: true,
+  Business: true,
+  Enterprise: true,
+};
+
+/** Whether each plan includes recording an Accepted deviation; a new plan is a compile error until decided. */
+const ACCEPTED_DEVIATION_PLANS: Readonly<Record<Plan, boolean>> = {
   Community: false,
   Team: true,
   Business: true,
@@ -36,6 +47,25 @@ export async function assertTreePlan(tx: RegistryTx, tenantId: UuidV7, capabilit
     throw new EnvelopeError({
       code: PLAN_REFUSED,
       message: `this Company's plan does not include ${CAPABILITY_TEXT[capability]}; nothing was changed`,
+      subject: "plan",
+    });
+  }
+}
+
+/**
+ * Throw `plan_refused` (403, subject `plan`) when the tenant's plan does not
+ * include recording an Accepted deviation (only Community lacks it). Reads
+ * `tenants.plan` inside the caller's tenant transaction, so the check, the
+ * resolution and the insert share one state. Runs on GET too, so a
+ * Community's opening of the surface shows the refusal.
+ */
+export async function assertAcceptedDeviationPlan(tx: RegistryTx, tenantId: UuidV7): Promise<void> {
+  const [row] = await tx.select({ plan: tenants.plan }).from(tenants).where(eq(tenants.id, tenantId));
+  if (row === undefined) throw new Error("the tenant is not visible in its own context");
+  if (!ACCEPTED_DEVIATION_PLANS[row.plan]) {
+    throw new EnvelopeError({
+      code: PLAN_REFUSED,
+      message: `this Company's plan does not include ${ACCEPTED_DEVIATION_CAPABILITY}; nothing was changed`,
       subject: "plan",
     });
   }

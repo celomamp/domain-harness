@@ -21,6 +21,7 @@ import {
   canonicalJson,
   DEFAULT_STALENESS_HOURS,
   GUIDANCE_ENDPOINT_PATH,
+  isAcceptedDeviationRecord,
   isSignedStandardBundle,
   isStandardBundlePayload,
   standardBundleLatestPath,
@@ -52,6 +53,7 @@ import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
+import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { compileBundle } from "./compile.ts";
 import { createBundleService } from "./service.ts";
@@ -312,6 +314,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
         buildGrants: createBuildGrantService(db),
         applications: createApplicationService(db),
         guidanceEndpoint: createGuidanceEndpointService(db),
+        acceptedDeviations: createAcceptedDeviationsService(db),
         boilerplate: createBoilerplateService(db),
         bundles: wrappedBundles,
       },
@@ -467,7 +470,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
       return signed;
     }
 
-    it("builds sequence 1..12 across every pinned domain-mutating POST route and leaves tenant B with no bundle", async () => {
+    it("builds sequence 1..13 across every pinned domain-mutating POST route and leaves tenant B with no bundle", async () => {
       // 1. POST /v1/modules
       const r1 = await post("/v1/modules", "buyer", { kind: "code-stack", name: "Core Stack" });
       expect(r1.status).toBe(201);
@@ -582,6 +585,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
       // Verify full compiled contents of the latest bundle
       expect(latest.payload.stalenessHours).toBe(DEFAULT_STALENESS_HOURS);
       expect(latest.payload.frozen).toBe(false);
+      // acceptedDeviations stays empty until the first acceptance is recorded (4.1's pinned default).
       expect(latest.payload.acceptedDeviations).toEqual([]);
       expect(latest.payload.standards).toEqual([std]);
       expect(latest.payload.tree.rootId).toBe(rootA);
@@ -602,6 +606,37 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
         projectId: subProject.id,
         fromFlow: false,
       });
+
+      // 13. POST /v1/accepted-deviations (Community's pin: this tenant is Enterprise)
+      const acceptance = {
+        applicationId: flowApp.id,
+        standardId: std.id,
+        slot: { moduleKind: "code-stack", slotKind: "library", name: "React" },
+        subject: "React",
+        start: "2026-10-01T00:00:00.000Z",
+        end: "2026-11-01T00:00:00.000Z",
+        justification: "known exception",
+        alertIntervalHours: 168,
+      };
+      const r13 = await post("/v1/accepted-deviations", "buyer", acceptance);
+      expect(r13.status).toBe(201);
+      const record: unknown = await r13.json();
+      expect(isAcceptedDeviationRecord(record)).toBe(true);
+      const withAcceptance = await assertLatestBundle(14);
+      // The bundled list drops the stored extras (the Buyer, the justification,
+      // the alert interval, the creation time) and keeps only the key, with the
+      // registry-resolved Standard version.
+      expect(withAcceptance.payload.acceptedDeviations).toEqual([
+        {
+          applicationId: flowApp.id,
+          standardId: std.id,
+          standardVersion: std.version,
+          slot: { moduleKind: "code-stack", slotKind: "library", name: "React" },
+          subject: "React",
+          start: "2026-10-01T00:00:00.000Z",
+          end: "2026-11-01T00:00:00.000Z",
+        },
+      ]);
 
       // Non-mutating routes (GETs, sign-in links, boilerplate generation) do NOT build a bundle
       expect((await get("/v1/modules", "buyer")).status).toBe(200);
@@ -625,14 +660,14 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
         },
       });
       expect(langRes.status).toBe(201);
-      expect(await bundleCount(tenantA)).toBe(14);
+      expect(await bundleCount(tenantA)).toBe(15);
 
       const bpRes = await post(`/v1/applications/${flowApp.id}/boilerplate`, "buyer", {
         target: "claude-code",
       });
       expect(bpRes.status).toBe(200);
       // Boilerplate generation is not in the pinned mutating hook list
-      expect(await bundleCount(tenantA)).toBe(14);
+      expect(await bundleCount(tenantA)).toBe(15);
 
       // Tenant B still has no bundle and gets 404
       await expectRefused(await pull(tenantB, credentialB), 404, "not_found", "bundle");

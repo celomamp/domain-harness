@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import {
+  ACCEPTED_DEVIATION_API_PATHS,
   APPLICATION_API_PATHS,
   BUNDLE_API_PATHS,
   APPLICATION_NOT_FOUND,
@@ -38,6 +39,8 @@ import type { BundleService } from "../bundles/service.ts";
 import { assertBundleSettingsBuyer } from "../bundles/service.ts";
 import { assertApplicationBuyer } from "../applications/service.ts";
 import type { BoilerplateService } from "../boilerplate/service.ts";
+import { assertAcceptedDeviationBuyer } from "../accepted-deviations/service.ts";
+import type { AcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import type { BuildGrantService } from "../build-grants/service.ts";
 import type { ChildPermissionService } from "../child-permissions/service.ts";
 import { assertGuidanceEndpointBuyer } from "../guidance-endpoint/service.ts";
@@ -144,6 +147,7 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [APPLICATION_IDENTIFICATION_FILE_ROUTE]: ["GET"],
   [APPLICATION_BOILERPLATE_ROUTE]: ["POST"],
   [GUIDANCE_ENDPOINT_PATH]: ["GET", "POST"],
+  [ACCEPTED_DEVIATION_API_PATHS.acceptedDeviations]: ["GET", "POST"],
   [BUNDLE_API_PATHS.staleness]: ["POST"],
   [BUNDLE_API_PATHS.freeze]: ["POST"],
   [BUNDLE_LATEST_ROUTE]: ["GET"],
@@ -183,6 +187,7 @@ export interface RegistryServices {
   readonly buildGrants: BuildGrantService;
   readonly applications: ApplicationService;
   readonly guidanceEndpoint: GuidanceEndpointService;
+  readonly acceptedDeviations: AcceptedDeviationsService;
   readonly boilerplate: BoilerplateService;
   readonly bundles?: BundleService;
 }
@@ -213,7 +218,12 @@ class HttpFailure extends Error {
  * any Project, any other account only on a Project on which it holds a
  * current build grant. An Application's Project identification file is open
  * to every role. The Company Guidance endpoint is open to every role and only
- * the Buyer may set it (`role_denied` before the body is read). Generating an
+ * the Buyer may set it (`role_denied` before the body is read). The Accepted
+ * deviations' records are open to every role, but only the Buyer may record
+ * an acceptance (`role_denied` before the body is read); reading (and,
+ * a fortiori, recording) is refused with `plan_refused` on a plan without the
+ * capability, and the application that records an acceptance joins the
+ * post-mutation list building one Standard bundle. Generating an
  * Application's Boilerplate is open to every role. Only the Buyer may register
  * an existing Application (`role_denied` before the body is read); the answer
  * is only its Project identification file, and no Boilerplate is generated.
@@ -473,6 +483,25 @@ async function handle(
       const guidanceEndpoint = await services.guidanceEndpoint.setGuidanceEndpoint(session, await readJson(req));
       await buildBundleAfterMutation(services, log, session);
       sendJson(res, 200, guidanceEndpoint);
+      return;
+    }
+    case ACCEPTED_DEVIATION_API_PATHS.acceptedDeviations: {
+      const session = await service.getSession(bearerToken(req));
+      if (req.method === "GET") {
+        // Reading is open to every role, but the plan check runs in the
+        // service, so a Community tenant is refused whatever its role.
+        sendJson(res, 200, await services.acceptedDeviations.listAcceptances(session));
+        return;
+      }
+      // The role check happens before the body is read (it is drained, never
+      // parsed for any other role); then the service checks the plan, the
+      // body, the Application, the Effective set and the window, so the first
+      // failure in that order wins. A POST joins the pinned post-mutation
+      // hook list: the next bundle carries the new acceptance.
+      requireBuyer(req, session, assertAcceptedDeviationBuyer);
+      const record = await services.acceptedDeviations.recordAcceptance(session, await readJson(req));
+      await buildBundleAfterMutation(services, log, session);
+      sendJson(res, 201, record);
       return;
     }
     case BUNDLE_API_PATHS.staleness: {

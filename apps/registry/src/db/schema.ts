@@ -539,7 +539,53 @@ export const bundleSettingChanges = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0012. */
+/**
+ * Migration 0013: the Buyer's Accepted deviations (Story 5.5), append-only.
+ * The version and slot are the ones the Effective Standard set carried when
+ * the registry resolved the submitted key under the bundle lock.
+ */
+export const acceptedDeviationRecords = pgTable(
+  "accepted_deviation_records",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    applicationId: uuid("application_id").notNull(),
+    standardId: uuid("standard_id").notNull(),
+    standardVersion: integer("standard_version").notNull(),
+    slotModuleKind: text("slot_module_kind", { enum: MODULE_KINDS }).notNull(),
+    slotKind: text("slot_kind").notNull(),
+    slotName: text("slot_name").notNull(),
+    subject: text("subject").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true, mode: "date" }).notNull(),
+    buyer: uuid("buyer").notNull(),
+    justification: text("justification").notNull(),
+    alertIntervalHours: integer("alert_interval_hours").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("accepted_deviation_records_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    foreignKey({ name: "accepted_deviation_records_tenant_fkey", columns: [table.tenantId], foreignColumns: [tenants.id] }),
+    foreignKey({
+      name: "accepted_deviation_records_application_fkey",
+      columns: [table.tenantId, table.applicationId],
+      foreignColumns: [applications.tenantId, applications.id],
+    }),
+    foreignKey({
+      name: "accepted_deviation_records_standard_fkey",
+      columns: [table.tenantId, table.standardId],
+      foreignColumns: [standards.tenantId, standards.id],
+    }),
+    foreignKey({
+      name: "accepted_deviation_records_buyer_fkey",
+      columns: [table.tenantId, table.buyer],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0013. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -560,6 +606,7 @@ export const TENANT_TABLES = [
   "bundle_records",
   "tenant_service_credentials",
   "bundle_setting_changes",
+  "accepted_deviation_records",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */

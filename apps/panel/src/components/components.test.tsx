@@ -38,14 +38,26 @@ function renderPanel(url: string) {
 }
 
 describe("panel-chrome", () => {
-  it("shows the wordmark, the role as text and a nav listing only Inventory, Standards, Project tree and New-application flow", async () => {
+  it("shows the wordmark, the role as text and a nav listing only Inventory, Standards, Project tree, New-application flow and Accepted deviation", async () => {
     renderPanel("/inventory");
     expect(await screen.findByText("Domain Harness")).toBeTruthy();
     expect(screen.getByText("Buyer")).toBeTruthy();
     const nav = screen.getByRole("navigation", { name: "Management panel" });
     const links = [...nav.querySelectorAll("a")];
-    expect(links.map((a) => a.textContent)).toEqual(["Inventory", "Standards", "Project tree", "New-application flow"]);
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/inventory", "/standards", "/projects", "/new-application"]);
+    expect(links.map((a) => a.textContent)).toEqual([
+      "Inventory",
+      "Standards",
+      "Project tree",
+      "New-application flow",
+      "Accepted deviation",
+    ]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "/inventory",
+      "/standards",
+      "/projects",
+      "/new-application",
+      "/accepted-deviation",
+    ]);
   });
 
   it("marks Inventory as the current destination on /inventory, with the empty state", async () => {
@@ -67,7 +79,13 @@ describe("panel-chrome", () => {
     renderPanel("/inventory");
     await screen.findByRole("navigation");
     const focusables = [...document.querySelectorAll<HTMLElement>("a[href], button, input")];
-    expect(focusables.map((el) => el.textContent)).toEqual(["Inventory", "Standards", "Project tree", "New-application flow"]);
+    expect(focusables.map((el) => el.textContent)).toEqual([
+      "Inventory",
+      "Standards",
+      "Project tree",
+      "New-application flow",
+      "Accepted deviation",
+    ]);
     expect(document.querySelectorAll("[tabindex]").length).toBe(0);
   });
 });

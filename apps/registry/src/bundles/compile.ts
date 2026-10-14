@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
 import type {
+  AcceptedDeviation,
   BundleApplication,
   LockedRuleMark,
   ProjectTree,
@@ -14,7 +15,7 @@ import {
 } from "@domain-harness/contract";
 import type { BundleInput } from "@domain-harness/core";
 import type { RegistryTx } from "../db/client.ts";
-import { applications, bundleSettingChanges } from "../db/schema.ts";
+import { acceptedDeviationRecords, applications, bundleSettingChanges } from "../db/schema.ts";
 import { currentLockedIds, currentLockedMarks } from "../locked-rules/current.ts";
 import type { LockedRuleRow } from "../locked-rules/current.ts";
 import { accountNames, accountRef, toId } from "../modules/service.ts";
@@ -81,6 +82,47 @@ export async function currentFrozen(tx: RegistryTx, tenantId: UuidV7): Promise<b
   return row?.value ?? false;
 }
 
+/** Deterministic comparison of two stored acceptance rows: application, Standard, version, slot, subject. */
+function compareRecords(
+  a: typeof acceptedDeviationRecords.$inferSelect,
+  b: typeof acceptedDeviationRecords.$inferSelect,
+): number {
+  return (
+    compare(a.applicationId, b.applicationId) ||
+    compare(a.standardId, b.standardId) ||
+    a.standardVersion - b.standardVersion ||
+    compare(a.slotModuleKind, b.slotModuleKind) ||
+    compare(a.slotKind, b.slotKind) ||
+    compare(a.slotName, b.slotName) ||
+    compare(a.subject, b.subject)
+  );
+}
+
+/**
+ * The tenant's recorded acceptances as the bundle carries them (Story 5.5):
+ * every stored record mapped to its `AcceptedDeviation` key — expiry is read
+ * time in core, so no record is pruned here — deterministically sorted by
+ * (application id, Standard id, Standard version, Conflict slot, subject),
+ * so canonical bytes stay stable across rebuilds.
+ */
+export async function currentAcceptedDeviations(tx: RegistryTx, tenantId: UuidV7): Promise<AcceptedDeviation[]> {
+  const rows = await tx
+    .select()
+    .from(acceptedDeviationRecords)
+    .where(eq(acceptedDeviationRecords.tenantId, tenantId));
+  return [...rows]
+    .sort(compareRecords)
+    .map((row) => ({
+      applicationId: toId(row.applicationId),
+      standardId: toId(row.standardId),
+      standardVersion: row.standardVersion,
+      slot: { moduleKind: row.slotModuleKind, slotKind: row.slotKind, name: row.slotName },
+      subject: row.subject,
+      start: row.startsAt.toISOString(),
+      end: row.endsAt.toISOString(),
+    }));
+}
+
 export interface CompiledBundle {
   readonly payload: StandardBundlePayload;
   readonly input: BundleInput;
@@ -144,7 +186,7 @@ export async function compileBundle(
     standards: standardsArray,
     tree: projectTree,
     applications: applicationsPayload,
-    acceptedDeviations: [],
+    acceptedDeviations: await currentAcceptedDeviations(tx, tenantId),
   };
 
   const bundleInput: BundleInput = {
