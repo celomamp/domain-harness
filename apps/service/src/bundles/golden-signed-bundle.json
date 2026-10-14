@@ -1,0 +1,63 @@
+{
+  "description": "Golden signed Standard bundle produced by apps/registry/src/bundles/sign.ts (the registry's signing rule) with a generated one-shot Ed25519 key; only the public key, the signed bundle and its recorded hash are committed.",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmpEqx0w5XSfsboOHCmkY3gshuQvKBLotAzPCRO23m6M=\n-----END PUBLIC KEY-----\n",
+  "hash": "956f0d93091f445601ad7bcc70b9d81d63b14d2295988019391e549bc8f8873b",
+  "signed": {
+    "payload": {
+      "format": {
+        "type": "domain-harness/standard-bundle",
+        "version": 1
+      },
+      "tenantId": "018f3d2a-7000-7000-8000-000000000100",
+      "sequence": 1,
+      "keyId": "golden-key-1",
+      "issuedAt": "2026-10-14T18:00:00.000Z",
+      "stalenessHours": 24,
+      "frozen": false,
+      "standards": [
+        {
+          "id": "018f3d2a-7000-7000-8000-000000000130",
+          "version": 1,
+          "module": {
+            "id": "018f3d2a-7000-7000-8000-000000000120",
+            "kind": "code-stack",
+            "name": "Backend"
+          },
+          "project": {
+            "id": "018f3d2a-7000-7000-8000-000000000110",
+            "name": "Root"
+          },
+          "entry": {
+            "category": "library",
+            "name": "lodash",
+            "versionConstraint": null,
+            "status": "prohibited",
+            "correctionInstruction": null
+          },
+          "publishedAt": "2026-10-14T00:00:00.000Z",
+          "publishedBy": {
+            "accountId": "018f3d2a-7000-7000-8000-000000000140",
+            "name": "Bea"
+          }
+        }
+      ],
+      "tree": {
+        "rootId": "018f3d2a-7000-7000-8000-000000000110",
+        "projects": [
+          {
+            "id": "018f3d2a-7000-7000-8000-000000000110",
+            "name": "Root",
+            "levelName": null,
+            "parentId": null,
+            "createdAt": "2026-10-14T00:00:00.000Z"
+          }
+        ],
+        "lockedRules": []
+      },
+      "applications": [],
+      "acceptedDeviations": []
+    },
+    "keyId": "golden-key-1",
+    "signature": "xKQG4rRg/z4oFZBBB1tA/1Va/TOiW+cRO3mPj2mzLXzZgk/ul75ULFEkl5X4BgKVs+//E58QL8UyHSulw8MbCg=="
+  }
+}

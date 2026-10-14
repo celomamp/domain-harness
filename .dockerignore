@@ -1,0 +1,9 @@
+# The service image builds from the repository root context; keep builder
+# payloads out of the context.
+node_modules
+.git
+coverage
+.turbo
+dist
+build
+.react-router

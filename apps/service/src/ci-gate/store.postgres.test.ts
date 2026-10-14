@@ -1,7 +1,7 @@
 // Database suite for the service CI Gate record store: runs against a real
 // PostgreSQL 18 named by SERVICE_TEST_DATABASE_URL (an admin connection).
-// Creates a throwaway database, migrates it with apps/service/migrations/0001_ci_gate.sql,
-// and exercises the Postgres store implementation.
+// Creates a throwaway database, migrates it with apps/service/migrations/0001_ci_gate.sql
+// and 0002_standard_bundles.sql, and exercises the Postgres store implementation.
 import { randomBytes } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -55,7 +55,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
     await owner.connect();
 
     const firstReport = await migrate(owner);
-    expect(firstReport).toEqual({ applied: ["0001_ci_gate.sql"], alreadyApplied: 0 });
+    expect(firstReport).toEqual({ applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql"], alreadyApplied: 0 });
 
     pool = createPool(dbUrl);
     store = createPostgresGateRecordStore(pool);
@@ -68,16 +68,20 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
     await admin.end();
   }, 60_000);
 
-  it("creates application_bindings, binding_refusals, gate_runs and the service_migrations ledger", async () => {
+  it("creates the gate tables, the bundle tables and the service_migrations ledger", async () => {
     const { rows } = await owner.query<{ table_name: string }>(
       `select table_name from information_schema.tables
        where table_schema = 'public' and table_type = 'BASE TABLE'
        order by table_name asc`,
     );
     expect(rows.map((r) => r.table_name)).toEqual([
+      "active_bundle_pointers",
       "application_bindings",
       "binding_refusals",
+      "bundle_refusals",
+      "bundle_staleness_observations",
       "gate_runs",
+      "service_bundles",
       "service_migrations",
     ]);
 
@@ -85,21 +89,27 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
       bindings: string | null;
       refusals: string | null;
       runs: string | null;
+      bundles: string | null;
+      pointers: string | null;
     }>(
       `select to_regclass('public.application_bindings')::text as bindings,
               to_regclass('public.binding_refusals')::text as refusals,
-              to_regclass('public.gate_runs')::text as runs`,
+              to_regclass('public.gate_runs')::text as runs,
+              to_regclass('public.service_bundles')::text as bundles,
+              to_regclass('public.active_bundle_pointers')::text as pointers`,
     );
     expect(reg.rows[0]).toEqual({
       bindings: "application_bindings",
       refusals: "binding_refusals",
       runs: "gate_runs",
+      bundles: "service_bundles",
+      pointers: "active_bundle_pointers",
     });
   });
 
-  it("migrate and migratePostgres are idempotent once 0001_ci_gate.sql is applied", async () => {
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 1 });
-    expect(await migratePostgres(owner)).toEqual({ applied: [], alreadyApplied: 1 });
+  it("migrate and migratePostgres are idempotent once 0001 and 0002 are applied", async () => {
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 2 });
+    expect(await migratePostgres(owner)).toEqual({ applied: [], alreadyApplied: 2 });
   });
 
   it("enforces TOFU on application_bindings: first bind persists, subsequent bind with a different fingerprint keeps the original", async () => {
