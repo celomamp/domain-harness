@@ -104,7 +104,13 @@ async function findKeyFilesInTree(root: string): Promise<string[]> {
 }
 
 describe("repository private-key file scan tripwire", () => {
-  it("passes when no private key file exists anywhere in the repository, and fails when one is staged", async () => {
+  // The tripwire walks every file of the repository; under the parallel test
+  // pool's contention the walk alone can exceed the default 5 s timeout, so
+  // give it room (the scan itself is the same, only the budget loosens).
+  it(
+    "passes when no private key file exists anywhere in the repository, and fails when one is staged",
+    { timeout: 30_000 },
+    async () => {
     expect(await findKeyFilesInTree(REPO_ROOT)).toEqual([]);
 
     const scratch = await mkdtemp(join(tmpdir(), "dh-key-scan-"));
