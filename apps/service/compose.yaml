@@ -1,0 +1,59 @@
+# Local development only. Start with
+# `docker compose -f apps/service/compose.yaml up -d --wait`.
+#
+# The password below is a LOCAL-ONLY DEVELOPMENT CREDENTIAL for a database
+# bound to localhost; it is not a secret and is never used outside a developer
+# machine. Real connection strings, vendor credentials and trust keys come
+# from your secret manager.
+#
+# The service container publishes NO ports (NFR-12): the daemon only makes
+# outbound calls toward SERVICE_VENDOR_URL. The record store's postgres
+# publishes 127.0.0.1:5433 → 5432 (distinct from the root compose's 5432 so
+# both stacks run on one developer machine).
+name: domain-harness-service
+
+services:
+  service:
+    build:
+      context: ../..
+      dockerfile: apps/service/Dockerfile
+    environment:
+      # Outbound base URL of the vendor registry.
+      SERVICE_VENDOR_URL: http://host.docker.internal:4100
+      # This Company's tenant id (UUIDv7) and its registry service credential.
+      SERVICE_TENANT_ID: 018f3d2a-7000-7000-8000-000000000100
+      # Export SERVICE_TENANT_CREDENTIAL and SERVICE_BUNDLE_TRUST_KEYS in your
+      # shell (see README) — the exports win; the placeholders below keep the
+      # file readable but do not start a properly configured daemon.
+      SERVICE_TENANT_CREDENTIAL: ${SERVICE_TENANT_CREDENTIAL:-replace-with-your-tenant-service-credential}
+      # Trust set: JSON object of keyId → Ed25519 PEM public key, e.g.
+      # {"key-1": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"}.
+      SERVICE_BUNDLE_TRUST_KEYS: ${SERVICE_BUNDLE_TRUST_KEYS:-replace-with-your-json-trust-set}
+      # The record store behind the service below (also the CI Gate store).
+      SERVICE_RECORD_DATABASE_URL: postgres://postgres:postgres@record-store:5432/postgres
+      # Optional: pull interval in milliseconds (default 60000).
+      SERVICE_PULL_INTERVAL_MS: "60000"
+    depends_on:
+      record-store:
+        condition: service_healthy
+    restart: unless-stopped
+
+  record-store:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres # local-only dev password, see above
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      # Postgres 18 images keep data under /var/lib/postgresql (versioned subdirectory).
+      - service-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  service-postgres-data:

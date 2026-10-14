@@ -351,6 +351,44 @@ A Boilerplate is a starter repository for one Application and one agent tool —
 
 **Archive format.** A ustar tar (regular files only, mode 0644, uid/gid 0, mtime 0, no owner names) in the order above, gzip-compressed, returned base64 in JSON as `domain-harness-<applicationId>-<target>.tar.gz`. Equal inputs give identical bytes. Logs carry the Application id, the target and the file count only. On the panel, after a placement, the Builder picks the agent tool (Claude Code or Cursor) and generates the Boilerplate; the result lists each artifact in text with a download link.
 
+## Service (bundles)
+
+The Company-operated service pulls the tenant's latest signed Standard bundle from the registry, verifies it strictly on the wire, and activates it by swapping the tenant's active-bundle pointer in its record store — all outbound only; the service listens on no port. Run the pull daemon:
+
+```sh
+node --conditions=@domain-harness/source apps/service/src/bundles/service-cli.ts
+```
+
+Configuration comes only from the environment:
+
+| Variable | Meaning |
+| --- | --- |
+| `SERVICE_VENDOR_URL` | outbound base URL of the vendor registry (http or https) |
+| `SERVICE_TENANT_ID` | this Company's tenant id (UUIDv7) |
+| `SERVICE_TENANT_CREDENTIAL` | the tenant's registry service credential, sent as a Bearer token |
+| `SERVICE_BUNDLE_TRUST_KEYS` | JSON object of keyId → Ed25519 PEM public key (rotation overlaps by key id) |
+| `SERVICE_RECORD_DATABASE_URL` | connection string of the record store (shared with the CI Gate store) |
+| `SERVICE_PULL_INTERVAL_MS` | optional; positive integer, default 60000 |
+
+Every cycle does one outbound GET, verifies the received bundle (shape → unknown key id → signature → tenant → hash → sequence; every refusal is recorded append-only with its reason), activates a verified bundle, then observes staleness against the Buyer-set bound the bundle carries (a recorded freeze suspends the bound). Logs carry ids and codes only; any start-up error prints one `{ code, message, subject }` envelope to stderr and exits 1.
+
+For local development, one container image ships the daemon beside its own PostgreSQL 18 record store:
+
+```sh
+export SERVICE_TENANT_CREDENTIAL=...   # from the registry's provision output
+export SERVICE_BUNDLE_TRUST_KEYS='{"key-1": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"}'
+docker compose -f apps/service/compose.yaml up -d --wait
+```
+
+The record store publishes `127.0.0.1:5433 → 5432` (distinct from the root compose's 5432); the service container publishes nothing. The store variables:
+
+| Variable | Used by | Connects as |
+| --- | --- | --- |
+| `SERVICE_RECORD_DATABASE_URL` | the bundle daemon and the CI Gate | the runtime role that owns the plain service tables |
+| `SERVICE_TEST_DATABASE_URL` | `pnpm test` (database suites in `apps/service`) | an admin role that may create and drop databases |
+
+The service database suites (`apps/service/src/ci-gate/store.postgres.test.ts` and `apps/service/src/bundles/bundles.db.test.ts`) run when `SERVICE_TEST_DATABASE_URL` is set, each creating and dropping its own throwaway database.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:
