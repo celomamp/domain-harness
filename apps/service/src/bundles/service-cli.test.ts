@@ -127,7 +127,11 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("service-cli: start, 
     expect(firstLine).not.toBeNull();
 
     const ledger = await owner.query<{ name: string }>("select name from service_migrations order by name asc");
-    expect(ledger.rows.map((row) => row.name)).toEqual(["0001_ci_gate.sql", "0002_standard_bundles.sql"]);
+    expect(ledger.rows.map((row) => row.name)).toEqual([
+      "0001_ci_gate.sql",
+      "0002_standard_bundles.sql",
+      "0003_guidance_identity.sql",
+    ]);
     const tables = await owner.query<{ to_regclass: string | null }>(
       "select to_regclass('public.service_bundles')::text as to_regclass",
     );

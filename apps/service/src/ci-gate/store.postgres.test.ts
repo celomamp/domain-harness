@@ -1,7 +1,7 @@
 // Database suite for the service CI Gate record store: runs against a real
 // PostgreSQL 18 named by SERVICE_TEST_DATABASE_URL (an admin connection).
-// Creates a throwaway database, migrates it with apps/service/migrations/0001_ci_gate.sql
-// and 0002_standard_bundles.sql, and exercises the Postgres store implementation.
+// Creates a throwaway database, migrates it with apps/service/migrations
+// (0001–0003) and exercises the Postgres store implementation.
 import { randomBytes } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -55,7 +55,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
     await owner.connect();
 
     const firstReport = await migrate(owner);
-    expect(firstReport).toEqual({ applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql"], alreadyApplied: 0 });
+    expect(firstReport).toEqual({ applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql"], alreadyApplied: 0 });
 
     pool = createPool(dbUrl);
     store = createPostgresGateRecordStore(pool);
@@ -81,6 +81,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
       "bundle_refusals",
       "bundle_staleness_observations",
       "gate_runs",
+      "guidance_project_mismatches",
       "service_bundles",
       "service_migrations",
     ]);
@@ -107,9 +108,9 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
     });
   });
 
-  it("migrate and migratePostgres are idempotent once 0001 and 0002 are applied", async () => {
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 2 });
-    expect(await migratePostgres(owner)).toEqual({ applied: [], alreadyApplied: 2 });
+  it("migrate and migratePostgres are idempotent once 0001, 0002 and 0003 are applied", async () => {
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 3 });
+    expect(await migratePostgres(owner)).toEqual({ applied: [], alreadyApplied: 3 });
   });
 
   it("enforces TOFU on application_bindings: first bind persists, subsequent bind with a different fingerprint keeps the original", async () => {

@@ -1,0 +1,38 @@
+{
+  "name": "@domain-harness/mcp-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The stdio MCP bridge a Builder's agent runs in its repository: it identifies the Application and repository at call time and forwards every MCP message to the Company Guidance endpoint over Streamable HTTP.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@domain-harness/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "mcp-bridge": "./dist/bridge.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@domain-harness/contract": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1"
+  },
+  "devDependencies": {
+    "@domain-harness/eslint-config": "workspace:*",
+    "@domain-harness/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

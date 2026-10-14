@@ -8,6 +8,7 @@ packages/
   core/        # pure resolver (imports only contract)
   extractor/   # revision facts from file contents (imports only contract)
   collector/   # record -> Compilation projection, durable queue
+  mcp-bridge/  # stdio MCP bridge run in a Builder's repository (imports only contract (+ its MCP SDK))
 apps/
   registry/    # vendor registry, bundle builder, Boilerplate (imports core + contract)
   panel/       # vendor management panel (imports contract only)
@@ -387,7 +388,43 @@ The record store publishes `127.0.0.1:5433 → 5432` (distinct from the root com
 | `SERVICE_RECORD_DATABASE_URL` | the bundle daemon and the CI Gate | the runtime role that owns the plain service tables |
 | `SERVICE_TEST_DATABASE_URL` | `pnpm test` (database suites in `apps/service`) | an admin role that may create and drop databases |
 
-The service database suites (`apps/service/src/ci-gate/store.postgres.test.ts` and `apps/service/src/bundles/bundles.db.test.ts`) run when `SERVICE_TEST_DATABASE_URL` is set, each creating and dropping its own throwaway database.
+The service database suites (`apps/service/src/ci-gate/store.postgres.test.ts`, `apps/service/src/bundles/bundles.db.test.ts` and `apps/service/src/guidance/guidance.db.test.ts`) run when `SERVICE_TEST_DATABASE_URL` is set, each creating and dropping its own throwaway database.
+
+## Guidance identity
+
+The Company service identifies the Application on every Guidance call (Story 4.3). A Builder's agent runs the stdio bridge in its repository — every Boilerplate's MCP configuration already declares exactly this command:
+
+```sh
+npx -y @domain-harness/mcp-bridge <guidance endpoint URL>
+```
+
+The bridge forwards every MCP message to the endpoint over Streamable HTTP, recomputing its identity at call time (never at start-up, never cached): the identification file `.domain-harness.json` is read and parsed both halves, and the repository fingerprint is computed with a separate `git` subprocess per call. Each header is sent exactly when its value was computable — a missing value simply means an absent header, and the call is forwarded regardless; the service decides every identity outcome.
+
+| Header | Sent when |
+| --- | --- |
+| `X-DH-Application-Id` | the identification file parsed |
+| `X-DH-Advisory-Project-Id` | the identification file parsed (the file's advisory `projectId`; the service cannot read the Builder's file) |
+| `X-DH-Repo-Fingerprint` | the repository fingerprint was computable |
+
+The fingerprint algorithm is versioned in `@domain-harness/contract` (`REPOSITORY_FINGERPRINT_ALGORITHM_VERSION`, currently `1`): the lowercase SHA-256 hex digest of the root commit SHA of `git rev-list --max-parents=0 HEAD`. The header names are versioned there too (`GUIDANCE_IDENTITY_HEADERS`). A repository with no commit cannot be identified — the Boilerplate instructions tell the agent to commit before calling Guidance.
+
+The bridge validates its endpoint URL at start-up: a missing or invalid URL prints one `{ code, message, subject }` envelope to stderr and exits 1. At run time, a forwarding or transport failure is told only to the requests the client is waiting on — each answers with one JSON-RPC error — while notifications are fire-and-forget (a failed forward drops them silently) and the bridge keeps running; stdout carries only the MCP stream and stderr carries no subject text at all.
+
+On the service, `resolveGuidanceIdentity` makes the one decision every serving surface shares (AD-19), against the active bundle payload, in this fixed order:
+
+| # | Input | Outcome |
+| --- | --- | --- |
+| 1 | no fingerprint | `unbound`, "make an initial commit and call Guidance again" |
+| 2 | no application id | `unbound`, "missing or unreadable identification file" |
+| 3 | id not in the bundle's `payload.applications` | `unbound`, "unbound Application"; the binding and nothing else is touched |
+| 4 | first-seen id | bound trust-on-first-use (first presented fingerprint wins) → `bound`, Project id resolved from the bundle |
+| 5 | bound id, different fingerprint | `refused`, "duplicate Application id"; one refusal row |
+| 6 | bound id, same fingerprint | `bound` |
+| 7 | store or bundle read fails | `unbound`, "run did not complete" (reason `unavailable`); nothing is bound or recorded |
+
+An advisory Project id that disagrees with the bundle's Project id for that Application is reported in the `bound` result and recorded in the append-only `guidance_project_mismatches` table (migration `0003_guidance_identity.sql`) — it is never used: the bundle's Project id is what is returned. Advisory mismatches are evaluated and recorded only on `bound` outcomes: a `refused` or `unbound` call drops its advisory mismatch. Every outcome is a typed result (`bound`/`unbound`/`refused` in `@domain-harness/contract`) whose sentences are the fixed UX-DR29 strings from `@domain-harness/gate`; only the commit-once sentence is new (inline in the service unit).
+
+Bindings and binding refusals reuse the Gate's shared record-store tables (`application_bindings`, `binding_refusals`): Guidance and the Gate use ONE check, one id→fingerprint row per Application — either unit's store sees the other surface's rows. Every refused call records one `binding_refusals` row — one row per refused call, so a repeat offender's refusals ledger grows by one each time.
 
 ## Telemetry
 

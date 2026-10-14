@@ -77,8 +77,11 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresBundleRecord
     await owner.connect();
 
     const report = await migrate(owner);
-    expect(report).toEqual({ applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql"], alreadyApplied: 0 });
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 2 });
+    expect(report).toEqual({
+      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql"],
+      alreadyApplied: 0,
+    });
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 3 });
 
     pool = createPool(dbUrl);
     store = createPostgresBundleRecordStore(pool);
@@ -91,7 +94,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresBundleRecord
     await admin.end();
   }, 60_000);
 
-  it("creates the four bundle tables beside the gate tables", async () => {
+  it("creates the four bundle tables beside the gate tables and the guidance mismatch table", async () => {
     const { rows } = await owner.query<{ table_name: string }>(
       `select table_name from information_schema.tables
        where table_schema = 'public' and table_type = 'BASE TABLE'
@@ -104,6 +107,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresBundleRecord
       "bundle_refusals",
       "bundle_staleness_observations",
       "gate_runs",
+      "guidance_project_mismatches",
       "service_bundles",
       "service_migrations",
     ]);

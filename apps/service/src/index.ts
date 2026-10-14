@@ -59,3 +59,26 @@ export {
   parseTrustKeys,
 } from "./bundles/env.ts";
 export type { BundleServiceConfig } from "./bundles/env.ts";
+
+// Story 4.3: the guidance identity unit (one decision on every Guidance call).
+
+export { COMMIT_ONCE, UNAVAILABLE, resolveGuidanceIdentity } from "./guidance/identity.ts";
+export type {
+  GuidanceIdentityHeaders,
+  PinnedActiveBundle,
+  ResolveGuidanceIdentityInput,
+} from "./guidance/identity.ts";
+
+export {
+  InMemoryGuidanceIdentityStore,
+  PostgresGuidanceIdentityStore,
+  createInMemoryGuidanceIdentityStore,
+  createPostgresGuidanceIdentityStore,
+} from "./guidance/store.ts";
+export type {
+  GuidanceBinding,
+  GuidanceBindingRefusal,
+  GuidanceIdentityStore,
+  GuidanceProjectMismatchInput,
+  GuidanceProjectMismatchRecord,
+} from "./guidance/store.ts";

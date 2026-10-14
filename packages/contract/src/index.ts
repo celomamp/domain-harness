@@ -229,3 +229,13 @@ export type {
   SignedStandardBundle,
   StandardBundlePayload,
 } from "./bundles.ts";
+export {
+  GUIDANCE_IDENTITY_HEADERS,
+  isGuidanceIdentityResult,
+  REPOSITORY_FINGERPRINT_ALGORITHM_VERSION,
+} from "./guidance-identity.ts";
+export type {
+  GuidanceAdvisoryProjectMismatch,
+  GuidanceIdentityResult,
+  GuidanceUnboundReason,
+} from "./guidance-identity.ts";
