@@ -27,6 +27,8 @@ import {
   registerApplication,
   setGuidanceEndpoint,
   getAcceptedDeviations,
+  getAcceptedDeviationAlerts,
+  dismissAcceptedDeviationAlert,
 } from "./registry.server.ts";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
@@ -592,6 +594,87 @@ describe("registry client", () => {
       expect(await getAcceptedDeviations("abc")).toEqual({ kind: "unavailable" });
       vi.stubGlobal("fetch", respond(204, null));
       expect(await getAcceptedDeviations("abc")).toEqual({ kind: "unavailable" });
+    });
+  });
+
+  describe("Accepted-deviation alerts", () => {
+    const ALERT = "018f3d2a-7000-7000-8000-00000000000b";
+    const AT = "2026-10-14T09:00:00.000Z";
+    const alert = {
+      id: ALERT,
+      acceptanceId: "018f3d2a-7000-7000-8000-00000000000c",
+      applicationId: "018f3d2a-7000-7000-8000-000000000001",
+      applicationName: "Expense cards",
+      standardId: "018f3d2a-7000-7000-8000-000000000002",
+      standardVersion: 1,
+      slot: { moduleKind: "code-stack", slotKind: "library", name: "React" },
+      subject: "React",
+      end: "2026-12-01T00:00:00.000Z",
+      dueAt: AT,
+      raisedAt: "2026-10-14T09:00:01.000Z",
+    };
+
+    it("reads the alerts by GET, guarding the `{ alerts }` envelope and mapping the alerts out", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const fetch = respond(200, { alerts: [alert] });
+      vi.stubGlobal("fetch", fetch);
+      expect(await getAcceptedDeviationAlerts("abc")).toEqual({ kind: "ok", value: [alert] });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("http://registry.test/v1/accepted-deviation-alerts");
+      expect(init.method).toBe("GET");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+    });
+
+    it("reports a refusal envelope, and a malformed, bare or wrong-status answer as unavailable", async () => {
+      const refused = { code: "not_found", message: "m", subject: "session" };
+      vi.stubGlobal("fetch", respond(403, refused));
+      expect(await getAcceptedDeviationAlerts("abc")).toEqual({ kind: "refused", error: refused });
+      // The bare list (the registry answers the envelope) is unavailable.
+      vi.stubGlobal("fetch", respond(200, [alert]));
+      expect(await getAcceptedDeviationAlerts("abc")).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(200, { alerts: [{ ...alert, end: "2026-12-01 00:00:00" }] }));
+      expect(await getAcceptedDeviationAlerts("abc")).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(500, { code: "internal_error", message: "m", subject: "s" }));
+      expect(await getAcceptedDeviationAlerts("abc")).toEqual({ kind: "unavailable" });
+    });
+
+    it("dismisses with POST { alertId } on the alert's dismissal path and expects 200 { dismissed: true }", async () => {
+      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const fetch = respond(200, { dismissed: true });
+      vi.stubGlobal("fetch", fetch);
+      expect(await dismissAcceptedDeviationAlert("abc", ALERT)).toEqual({ kind: "ok", value: { dismissed: true } });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`http://registry.test/v1/accepted-deviation-alerts/${ALERT}/dismissal`);
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe(JSON.stringify({ alertId: ALERT }));
+      const headers = new Headers(init.headers);
+      expect(headers.get("authorization")).toBe("Bearer abc");
+      expect(headers.get("content-type")).toBe("application/json");
+    });
+
+    it("escapes a path id that carries a slash", async () => {
+      const fetch = respond(200, { dismissed: true });
+      vi.stubGlobal("fetch", fetch);
+      await dismissAcceptedDeviationAlert("abc", "a/b");
+      const [url] = fetch.mock.calls[0] as unknown as [string];
+      expect(url).toMatch(/\/v1\/accepted-deviation-alerts\/a%2Fb\/dismissal$/);
+    });
+
+    it("reports a refusal, and a wrong shape or status as unavailable", async () => {
+      const refused = { code: "role_denied", message: "m", subject: "role" };
+      vi.stubGlobal("fetch", respond(403, refused));
+      expect(await dismissAcceptedDeviationAlert("abc", ALERT)).toEqual({ kind: "refused", error: refused });
+      vi.stubGlobal("fetch", respond(200, { dismissed: false }));
+      expect(await dismissAcceptedDeviationAlert("abc", ALERT)).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(200, { dismissed: true, extra: 1 }));
+      expect(await dismissAcceptedDeviationAlert("abc", ALERT)).toEqual({ kind: "unavailable" });
+      vi.stubGlobal("fetch", respond(404, { code: "not_found", message: "m", subject: "alertId" }));
+      expect(await dismissAcceptedDeviationAlert("abc", ALERT)).toEqual({
+        kind: "refused",
+        error: { code: "not_found", message: "m", subject: "alertId" },
+      });
+      vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("fetch failed"))));
+      expect(await dismissAcceptedDeviationAlert("abc", ALERT)).toEqual({ kind: "unavailable" });
     });
   });
 });

@@ -279,3 +279,121 @@ export function isAcceptedDeviationRecord(value: unknown): value is AcceptedDevi
 export function isAcceptedDeviationRecordList(value: unknown): value is AcceptedDeviationRecord[] {
   return Array.isArray(value) && value.every(isAcceptedDeviationRecord);
 }
+
+// ---------------------------------------------------------------------------
+// The alert surfaces (Story 5.6): the registry's Accepted-deviation-alert API
+// paths, the alert's wire shape and the dismissal answer. An alert is raised
+// by the registry at each acceptance's interval boundary; the Buyer dismisses
+// it through the panel band. Nothing here touches the bundle's
+// `acceptedDeviations` field, which keeps carrying only {@link AcceptedDeviation}.
+// ---------------------------------------------------------------------------
+
+/** Registry HTTP API paths for Accepted-deviation alerts. */
+export const ACCEPTED_DEVIATION_ALERT_API_PATHS = {
+  /** `GET` (every role) of the tenant's live alerts. */
+  alerts: "/v1/accepted-deviation-alerts",
+} as const;
+
+/** `POST` the id's dismissal here: 200 `{ dismissed: true }` (the Buyer only). */
+export function acceptedDeviationAlertDismissalPath(alertId: string): string {
+  return `${ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts}/${encodeURIComponent(alertId)}/dismissal`;
+}
+
+/**
+ * One raised alert: the acceptance it belongs to (with the Application's
+ * description read at read time, the Standard id and its stored version, the
+ * Conflict slot and subject), the acceptance's exclusive end instant, and the
+ * boundary the alert was raised for with the moment it was raised.
+ */
+export interface AcceptedDeviationAlert {
+  readonly id: UuidV7;
+  /** The acceptance whose interval boundary was reached. */
+  readonly acceptanceId: UuidV7;
+  readonly applicationId: UuidV7;
+  /** The Application's description, read by the registry when the list is served. */
+  readonly applicationName: string;
+  readonly standardId: UuidV7;
+  readonly standardVersion: number;
+  readonly slot: EffectiveSlot;
+  readonly subject: string;
+  /** UTC ISO-8601 and exclusive: at this instant the acceptance is over and the alert disappears. */
+  readonly end: string;
+  /** UTC ISO-8601; the interval boundary this alert was raised for. */
+  readonly dueAt: string;
+  /** UTC ISO-8601; when the registry raised the alert. */
+  readonly raisedAt: string;
+}
+
+const ACCEPTED_DEVIATION_ALERT_KEYS = new Set([
+  "id",
+  "acceptanceId",
+  "applicationId",
+  "applicationName",
+  "standardId",
+  "standardVersion",
+  "slot",
+  "subject",
+  "end",
+  "dueAt",
+  "raisedAt",
+]);
+
+/** True when `value` is a complete {@link AcceptedDeviationAlert} object. Never throws. */
+export function isAcceptedDeviationAlert(value: unknown): value is AcceptedDeviationAlert {
+  if (!isRecord(value)) return false;
+
+  for (const key of Object.keys(value)) {
+    if (!ACCEPTED_DEVIATION_ALERT_KEYS.has(key)) return false;
+  }
+
+  const slot = value["slot"];
+  const applicationName = value["applicationName"];
+  const subject = value["subject"];
+  return (
+    isUuidV7(value["id"]) &&
+    isUuidV7(value["acceptanceId"]) &&
+    isUuidV7(value["applicationId"]) &&
+    typeof applicationName === "string" &&
+    applicationName.trim() !== "" &&
+    isUuidV7(value["standardId"]) &&
+    isStandardVersion(value["standardVersion"]) &&
+    isEffectiveSlot(slot) &&
+    typeof slot["name"] === "string" &&
+    slot["name"].trim() !== "" &&
+    typeof subject === "string" &&
+    subject.trim() !== "" &&
+    isUtcIso(value["end"]) &&
+    isUtcIso(value["dueAt"]) &&
+    isUtcIso(value["raisedAt"])
+  );
+}
+
+/** True when `value` is an array of complete {@link AcceptedDeviationAlert} objects. Never throws. */
+export function isAcceptedDeviationAlertList(value: unknown): value is AcceptedDeviationAlert[] {
+  return Array.isArray(value) && value.every(isAcceptedDeviationAlert);
+}
+
+/** True when `value` is exactly the `{ alerts: [...] }` envelope the registry answers. Never throws. */
+export function isAcceptedDeviationAlerts(
+  value: unknown,
+): value is { readonly alerts: AcceptedDeviationAlert[] } {
+  return (
+    isRecord(value) &&
+    Object.keys(value).length === 1 &&
+    isAcceptedDeviationAlertList(value["alerts"])
+  );
+}
+
+/** The answer of a completed dismissal: 200 `{ dismissed: true }` and nothing else. */
+export interface AlertDismissedResult {
+  readonly dismissed: true;
+}
+
+/** True when `value` is exactly `{ dismissed: true }`. Never throws. */
+export function isAlertDismissedResult(value: unknown): value is AlertDismissedResult {
+  return (
+    isRecord(value) &&
+    Object.keys(value).length === 1 &&
+    value["dismissed"] === true
+  );
+}

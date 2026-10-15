@@ -5,15 +5,19 @@
  * thrown, so a registry outage cannot break a page.
  */
 import {
+  ACCEPTED_DEVIATION_ALERT_API_PATHS,
   ACCEPTED_DEVIATION_API_PATHS,
   APPLICATION_API_PATHS,
   applicationBoilerplatePath,
+  acceptedDeviationAlertDismissalPath,
   buildGrantsPath,
   childPermissionsPath,
   effectiveStandardsPath,
   GUIDANCE_ENDPOINT_PATH,
+  isAcceptedDeviationAlerts,
   isAcceptedDeviationRecord,
   isAcceptedDeviationRecordList,
+  isAlertDismissedResult,
   isApplicationInfo,
   isApplicationList,
   isBoilerplateResult,
@@ -46,7 +50,9 @@ import {
   standardVersionsPath,
 } from "@domain-harness/contract";
 import type {
+  AcceptedDeviationAlert,
   AcceptedDeviationRecord,
+  AlertDismissedResult,
   ApplicationCreateRequest,
   ApplicationInfo,
   ApplicationList,
@@ -422,4 +428,31 @@ export interface AcceptedDeviationRecordRequest {
   readonly end: string;
   readonly justification: string;
   readonly alertIntervalHours: number;
+}
+
+/**
+ * The Company's raised, undismissed Accepted-deviation alerts whose window
+ * is still open (every role may read). The registry answers the
+ * `{ alerts }` envelope and the guard checks that envelope before the list
+ * is mapped out — the value is the alerts themselves.
+ */
+export async function getAcceptedDeviationAlerts(sessionToken: string): Promise<RegistryResult<AcceptedDeviationAlert[]>> {
+  const result = await call(ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts, getJson(sessionToken), 200, isAcceptedDeviationAlerts);
+  return result.kind === "ok" ? { kind: "ok", value: result.value.alerts } : result;
+}
+
+/**
+ * Dismiss one Accepted-deviation alert (the registry allows only the Buyer);
+ * the registry answers `{ dismissed: true }`, again for a repeat dismissal.
+ */
+export function dismissAcceptedDeviationAlert(
+  sessionToken: string,
+  alertId: string,
+): Promise<RegistryResult<AlertDismissedResult>> {
+  return call(
+    acceptedDeviationAlertDismissalPath(alertId),
+    json({ alertId }, bearer(sessionToken)),
+    200,
+    isAlertDismissedResult,
+  );
 }

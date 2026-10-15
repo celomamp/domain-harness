@@ -2,13 +2,17 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  ACCEPTED_DEVIATION_ALERT_API_PATHS,
   ACCEPTED_DEVIATION_API_PATHS,
+  acceptedDeviationAlertDismissalPath,
   APPLICATION_NOT_FOUND,
   applicationBoilerplatePath,
   applicationIdentificationFilePath,
   GUIDANCE_ENDPOINT_PATH,
   GUIDANCE_ENDPOINT_UNSET,
+  isAcceptedDeviationAlerts,
   isAcceptedDeviationRecord,
+  isAlertDismissedResult,
   isBoilerplateResult,
   isGuidanceEndpointState,
   entrySlotName,
@@ -33,8 +37,10 @@ import {
   isStandardInfo,
   isStandardList,
   isStandardVersionList,
+  isUuidV7,
 } from "@domain-harness/contract";
 import type {
+  AcceptedDeviationAlert,
   AcceptedDeviationRecord,
   ApplicationInfo,
   ApplicationList,
@@ -70,6 +76,8 @@ import { EnvelopeError } from "../errors.ts";
 import { assertAcceptedDeviationBuyer } from "../accepted-deviations/service.ts";
 import type { AcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { validateAcceptedDeviationBody } from "../accepted-deviations/validate.ts";
+import { assertAcceptedDeviationAlertBuyer } from "../accepted-deviation-alerts/service.ts";
+import type { AcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { assertGuidanceEndpointBuyer } from "../guidance-endpoint/service.ts";
 import type { GuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { validateGuidanceEndpointBody } from "../guidance-endpoint/validate.ts";
@@ -529,6 +537,42 @@ class FakeAcceptedDeviations implements AcceptedDeviationsService {
   }
 }
 
+/** A fake Accepted-deviation-alert service that records calls and uses the real role check and body shape. */
+class FakeAcceptedDeviationAlerts implements AcceptedDeviationAlertsService {
+  calls: unknown[] = [];
+  /** The alert ids "raised"; a dismissal must name one of them. */
+  raised: string[] = [];
+  raiseDueAlerts(): Promise<{ raised: number; failed: number }> {
+    return Promise.resolve({ raised: 0, failed: 0 });
+  }
+  listAlerts(caller: SessionInfo): Promise<{ alerts: AcceptedDeviationAlert[] }> {
+    this.calls.push(["list", caller.role]);
+    return Promise.resolve({ alerts: this.alerts });
+  }
+  dismissAlert(caller: SessionInfo, alertId: string, body: unknown): Promise<{ dismissed: true }> {
+    this.calls.push(["dismiss", caller.role, alertId, body]);
+    return Promise.resolve().then(() => {
+      assertAcceptedDeviationAlertBuyer(caller);
+      if (!isUuidV7(alertId)) {
+        throw new EnvelopeError({ code: "invalid_input", message: "m", subject: "alertId" });
+      }
+      const record = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+      if (
+        record === null ||
+        Object.keys(record).length !== 1 ||
+        record["alertId"] !== alertId
+      ) {
+        throw new EnvelopeError({ code: "invalid_input", message: "m", subject: "alertId" });
+      }
+      if (!this.raised.includes(alertId)) throw notFound("not_found", "alertId");
+      // The real store answers a repeat POST the same way (the dismissal row
+      // is idempotent); the db suite pins the database mechanics.
+      return { dismissed: true };
+    });
+  }
+  alerts: AcceptedDeviationAlert[] = [];
+}
+
 /** A fake Boilerplate service: the known Application, the real body validator, then the endpoint check. */
 class FakeBoilerplate implements BoilerplateService {
   private readonly knownId: string;
@@ -575,6 +619,7 @@ describe("registry HTTP API", () => {
   const applications = new FakeApplications();
   const guidanceEndpoint = new FakeGuidanceEndpoint();
   const acceptedDeviations = new FakeAcceptedDeviations();
+  const acceptedDeviationAlerts = new FakeAcceptedDeviationAlerts();
   const boilerplate = new FakeBoilerplate(applications.knownId, guidanceEndpoint);
   const events: LogEvent[] = [];
   let server: Server;
@@ -593,6 +638,7 @@ describe("registry HTTP API", () => {
         applications,
         guidanceEndpoint,
         acceptedDeviations,
+        acceptedDeviationAlerts,
         boilerplate,
       },
       (event) => events.push(event),
@@ -622,6 +668,9 @@ describe("registry HTTP API", () => {
     acceptedDeviations.calls = [];
     acceptedDeviations.planRefused = false;
     acceptedDeviations.records = [];
+    acceptedDeviationAlerts.calls = [];
+    acceptedDeviationAlerts.raised = [];
+    acceptedDeviationAlerts.alerts = [];
     boilerplate.calls = [];
     events.length = 0;
   });
@@ -1603,6 +1652,85 @@ describe("registry HTTP API", () => {
         expect(response.headers.get("allow")).toBe("GET, POST");
         await expectEnvelope(response, 405, "method_not_allowed");
         expect(acceptedDeviations.calls).toEqual([]);
+      });
+    });
+
+    describe("Accepted-deviation alerts", () => {
+      const alertsPath = ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts;
+      const dismissPath = acceptedDeviationAlertDismissalPath;
+      const buyerAuth = { authorization: `Bearer ${GOOD_SESSION}`, "content-type": "application/json" };
+      const builderAuth = { authorization: `Bearer ${BUILDER_SESSION}` };
+
+      it("serves the live list to every role as the guarded { alerts } envelope", async () => {
+        for (const headers of [buyerAuth, builderAuth]) {
+          const response = await fetch(`${base}${alertsPath}`, { headers });
+          expect(response.status).toBe(200);
+          const body: unknown = await response.json();
+          expect(isAcceptedDeviationAlerts(body)).toBe(true);
+          expect(body).toEqual({ alerts: [] });
+        }
+        expect(acceptedDeviationAlerts.calls).toEqual([
+          ["list", "Buyer"],
+          ["list", "Builder"],
+        ]);
+      });
+
+      it("answers the Buyer's dismissal with 200 { dismissed: true }, again on a repeat", async () => {
+        const id = mintUuidV7();
+        acceptedDeviationAlerts.raised = [id];
+        for (let i = 0; i < 2; i += 1) {
+          const response = await post(dismissPath(id), { alertId: id }, { headers: buyerAuth });
+          expect(response.status).toBe(200);
+          const body: unknown = await response.json();
+          expect(isAlertDismissedResult(body)).toBe(true);
+          expect(body).toEqual({ dismissed: true });
+        }
+        expect(acceptedDeviationAlerts.calls.map((call: unknown) => (call as unknown[])[0])).toEqual([
+          "dismiss",
+          "dismiss",
+        ]);
+      });
+
+      it("refuses a non-Buyer's dismissal with 403 role_denied before the body is read", async () => {
+        const response = await post(dismissPath(mintUuidV7()), "{not json", { headers: builderAuth });
+        await expectEnvelope(response, 403, "role_denied");
+        expect(acceptedDeviationAlerts.calls).toEqual([]);
+      });
+
+      it("answers 404 for a dismissal of an unknown or foreign alert", async () => {
+        const raised = mintUuidV7();
+        const unknown = mintUuidV7();
+        acceptedDeviationAlerts.raised = [raised];
+        const response = await post(dismissPath(unknown), { alertId: unknown }, { headers: buyerAuth });
+        expect(response.status).toBe(404);
+        expect(await response.json()).toMatchObject({ code: "not_found", subject: "alertId" });
+      });
+
+      it("answers 400 for a body that is not exactly a known { alertId }", async () => {
+        const id = mintUuidV7();
+        acceptedDeviationAlerts.raised = [id];
+        for (const invalid of [{}, { other: id }, { alertId: "nope" }, { alertId: id, extra: 1 }]) {
+          const response = await post(dismissPath(id), invalid, { headers: buyerAuth });
+          expect(response.status).toBe(400);
+          expect(await response.json()).toMatchObject({ code: "invalid_input", subject: "alertId" });
+        }
+        expect(acceptedDeviationAlerts.calls.length).toBe(4);
+        // Malformed JSON is the body's failure too, reported under the alert
+        // id's own name — not the generic `body` subject.
+        const malformed = await post(dismissPath(id), "{not json", { headers: buyerAuth });
+        expect(malformed.status).toBe(400);
+        expect(await malformed.json()).toMatchObject({ code: "invalid_input", subject: "alertId" });
+        expect(acceptedDeviationAlerts.calls.length).toBe(4);
+      });
+
+      it("answers 401 without a session and 405 for a method other than GET/POST", async () => {
+        await expectEnvelope(await fetch(`${base}${alertsPath}`), 401, "session_invalid");
+        const response = await fetch(`${base}${alertsPath}`, { method: "POST", headers: buyerAuth });
+        expect(response.headers.get("allow")).toBe("GET");
+        await expectEnvelope(response, 405, "method_not_allowed");
+        expect(acceptedDeviationAlerts.calls).toEqual([]);
+        const genericPost = await fetch(`${base}/v1/accepted-deviation-alerts/x/dismissal`, { method: "GET" });
+        await expectEnvelope(genericPost, 405, "method_not_allowed");
       });
     });
   });

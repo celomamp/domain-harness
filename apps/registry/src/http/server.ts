@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import {
+  ACCEPTED_DEVIATION_ALERT_API_PATHS,
   ACCEPTED_DEVIATION_API_PATHS,
   APPLICATION_API_PATHS,
   BUNDLE_API_PATHS,
@@ -41,6 +42,8 @@ import { assertApplicationBuyer } from "../applications/service.ts";
 import type { BoilerplateService } from "../boilerplate/service.ts";
 import { assertAcceptedDeviationBuyer } from "../accepted-deviations/service.ts";
 import type { AcceptedDeviationsService } from "../accepted-deviations/service.ts";
+import { assertAcceptedDeviationAlertBuyer } from "../accepted-deviation-alerts/service.ts";
+import type { AcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import type { BuildGrantService } from "../build-grants/service.ts";
 import type { ChildPermissionService } from "../child-permissions/service.ts";
 import { assertGuidanceEndpointBuyer } from "../guidance-endpoint/service.ts";
@@ -109,6 +112,7 @@ const PROJECT_BUILD_GRANTS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/build-gra
 const APPLICATION_IDENTIFICATION_FILE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/identification-file`;
 const APPLICATION_BOILERPLATE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/boilerplate`;
 const BUNDLE_LATEST_ROUTE = "/v1/standard-bundles/{id}";
+const ACCEPTED_DEVIATION_ALERT_DISMISSAL_ROUTE = `${ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts}/{id}/dismissal`;
 
 /** Each parameterised route and the pattern capturing its raw `{id}` segment. */
 const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
@@ -124,6 +128,7 @@ const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
   [APPLICATION_IDENTIFICATION_FILE_ROUTE, /^\/v1\/applications\/([^/]+)\/identification-file$/],
   [APPLICATION_BOILERPLATE_ROUTE, /^\/v1\/applications\/([^/]+)\/boilerplate$/],
   [BUNDLE_LATEST_ROUTE, /^\/v1\/standard-bundles\/([^/]+)$/],
+  [ACCEPTED_DEVIATION_ALERT_DISMISSAL_ROUTE, /^\/v1\/accepted-deviation-alerts\/([^/]+)\/dismissal$/],
 ];
 
 /** Allowed methods per route. */
@@ -148,6 +153,8 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [APPLICATION_BOILERPLATE_ROUTE]: ["POST"],
   [GUIDANCE_ENDPOINT_PATH]: ["GET", "POST"],
   [ACCEPTED_DEVIATION_API_PATHS.acceptedDeviations]: ["GET", "POST"],
+  [ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts]: ["GET"],
+  [ACCEPTED_DEVIATION_ALERT_DISMISSAL_ROUTE]: ["POST"],
   [BUNDLE_API_PATHS.staleness]: ["POST"],
   [BUNDLE_API_PATHS.freeze]: ["POST"],
   [BUNDLE_LATEST_ROUTE]: ["GET"],
@@ -188,6 +195,7 @@ export interface RegistryServices {
   readonly applications: ApplicationService;
   readonly guidanceEndpoint: GuidanceEndpointService;
   readonly acceptedDeviations: AcceptedDeviationsService;
+  readonly acceptedDeviationAlerts: AcceptedDeviationAlertsService;
   readonly boilerplate: BoilerplateService;
   readonly bundles?: BundleService;
 }
@@ -220,10 +228,18 @@ class HttpFailure extends Error {
  * to every role. The Company Guidance endpoint is open to every role and only
  * the Buyer may set it (`role_denied` before the body is read). The Accepted
  * deviations' records are open to every role, but only the Buyer may record
- * an acceptance (`role_denied` before the body is read); reading (and,
- * a fortiori, recording) is refused with `plan_refused` on a plan without the
- * capability, and the application that records an acceptance joins the
- * post-mutation list building one Standard bundle. Generating an
+ * The Accepted deviations' records are open to every role, but only the
+ * Buyer may record an acceptance (`role_denied` before the body is read);
+ * reading (and, a fortiori, recording) is refused with `plan_refused` on a
+ * plan without the capability, and the application that records an
+ * acceptance joins the post-mutation list building one Standard bundle. The
+ * Accepted-deviation alerts are the raised intervals of those acceptances:
+ * reading them is open to every role with no plan check (a Community tenant
+ * can hold no acceptance, hence no alert, so the read is simply empty), and
+ * a dismissal is the Buyer's alone (`role_denied` before the body is read;
+ * the body is then `{ alertId }`, and an unknown alert is `not_found`).
+ * Neither alert surface writes anything that enters a bundle.
+ * Generating an
  * Application's Boilerplate is open to every role. Only the Buyer may register
  * an existing Application (`role_denied` before the body is read); the answer
  * is only its Project identification file, and no Boilerplate is generated.
@@ -502,6 +518,40 @@ async function handle(
       const record = await services.acceptedDeviations.recordAcceptance(session, await readJson(req));
       await buildBundleAfterMutation(services, log, session);
       sendJson(res, 201, record);
+      return;
+    }
+    case ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts: {
+      const session = await service.getSession(bearerToken(req));
+      // Reading is open to every role with no plan check: a Community tenant
+      // can hold no acceptance, hence no alert, and the service answers an
+      // empty list; the read is one query under the tenant's scope.
+      sendJson(res, 200, await services.acceptedDeviationAlerts.listAlerts(session));
+      return;
+    }
+    case ACCEPTED_DEVIATION_ALERT_DISMISSAL_ROUTE: {
+      const session = await service.getSession(bearerToken(req));
+      // The role check happens before the body is read (it is drained, never
+      // parsed for any other role); then the service checks the body's
+      // alertId, the alert's visibility in the tenant, and appends one
+      // idempotent dismissal row. Nothing here mutates a bundle, so no
+      // post-mutation build runs. Every refusal of the body — malformed JSON
+      // included — is reported under the alert id's own name, as the service
+      // reports its own body checks.
+      requireBuyer(req, session, assertAcceptedDeviationAlertBuyer);
+      let body: unknown;
+      try {
+        body = await readJson(req);
+      } catch (error) {
+        if (
+          error instanceof HttpFailure &&
+          error.envelope.code === "invalid_input" &&
+          error.envelope.subject === "body"
+        ) {
+          throw new HttpFailure({ ...error.envelope, subject: "alertId" });
+        }
+        throw error;
+      }
+      sendJson(res, 200, await services.acceptedDeviationAlerts.dismissAlert(session, match.id, body));
       return;
     }
     case BUNDLE_API_PATHS.staleness: {
