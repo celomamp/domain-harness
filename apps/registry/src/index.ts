@@ -112,6 +112,15 @@ export {
 export type { AcceptedDeviationsService } from "./accepted-deviations/service.ts";
 export { validateAcceptedDeviationBody } from "./accepted-deviations/validate.ts";
 export type { AcceptedDeviationBody } from "./accepted-deviations/validate.ts";
+export {
+  ALERT_TICK_SECONDS,
+  assertAcceptedDeviationAlertBuyer,
+  createAcceptedDeviationAlertsService,
+  dismissAlert,
+  listAlerts,
+  raiseDueAlerts,
+} from "./accepted-deviation-alerts/service.ts";
+export type { AcceptedDeviationAlertsService, AlertsRaised } from "./accepted-deviation-alerts/service.ts";
 export { createBoilerplateService, generateBoilerplate, validateBoilerplateBody } from "./boilerplate/service.ts";
 export type { BoilerplateService } from "./boilerplate/service.ts";
 export { isNpmPackageName, planBoilerplate, SUPPORTED_LANGUAGES } from "./boilerplate/plan.ts";

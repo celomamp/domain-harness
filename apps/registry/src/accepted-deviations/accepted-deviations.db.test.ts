@@ -25,6 +25,7 @@ import { createBoilerplateService } from "../boilerplate/service.ts";
 import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createAcceptedDeviationsService } from "./service.ts";
+import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
 import { createModuleService } from "../modules/service.ts";
@@ -217,6 +218,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("accepted deviation r
         applications: createApplicationService(db),
         guidanceEndpoint: createGuidanceEndpointService(db),
         acceptedDeviations: createAcceptedDeviationsService(db),
+        acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
         bundles: wrappedBundles,
       },
@@ -273,7 +275,9 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("accepted deviation r
          from pg_class c join pg_namespace n on n.oid = c.relnamespace
          where n.nspname = 'public' and c.relname = 'accepted_deviation_records'`,
       );
-      expect(rows).toEqual([{ rls: true, forced: true, policies: ["tenant_isolation"] }]);
+      // Migration 0014 adds the alert scheduler's per-role SELECT policy (the
+      // 0002 pattern) beside the tenant_isolation policy.
+      expect(rows).toEqual([{ rls: true, forced: true, policies: ["alert_scheduler", "tenant_isolation"] }]);
       const grants = await owner.query<{ privilege_type: string }>(
         `select privilege_type from information_schema.role_table_grants
          where grantee = $1 and table_name = 'accepted_deviation_records' order by 1`,

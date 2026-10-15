@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
+import type { Role } from "@domain-harness/contract";
 import { loader as home } from "./home.tsx";
 import { headers as panelHeaders, loader as panelLayout } from "./panel-layout.tsx";
 import { loader as verify } from "./sign-in-verify.ts";
@@ -111,14 +112,37 @@ describe("panel layout (/inventory, /standards)", () => {
     expect(headers.get("cache-control")).toBe("private, no-store");
   });
 
-  it("returns the role for a live session", async () => {
-    const fetch = registryAnswers(200, session);
-    expect(await panelLayout(args("http://x/inventory", { cookie: `dh_session=${SESSION_TOKEN}` }))).toEqual({
-      role: "Standard owner",
+  it("returns the role and streams the alert band's read for a live Buyer session", async () => {
+    const buyerSession = { ...session, role: "Buyer" };
+    const fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      const body = url.includes("/v1/accepted-deviation-alerts") ? { alerts: [] } : buyerSession;
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
     });
-    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toMatch(/\/v1\/session$/);
-    expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${SESSION_TOKEN}`);
+    vi.stubGlobal("fetch", fetch);
+    const result = await panelLayout(args("http://x/inventory", { cookie: `dh_session=${SESSION_TOKEN}` }));
+    expect(result).not.toBeInstanceOf(Response);
+    const data = result as { role: Role; alerts: Promise<unknown> };
+    expect(data.role).toBe("Buyer");
+    expect(await data.alerts).toEqual({ kind: "ok", value: [] });
+    const alertsCall = fetch.mock.calls.find((call: unknown[]) =>
+      (call[0] as string).includes("/v1/accepted-deviation-alerts"),
+    ) as unknown[] | undefined;
+    if (alertsCall === undefined) throw new Error("no alerts call");
+    expect(alertsCall[0]).toEqual("http://127.0.0.1:4100/v1/accepted-deviation-alerts");
+    expect(new Headers((alertsCall[1] as RequestInit).headers).get("authorization")).toBe(`Bearer ${SESSION_TOKEN}`);
+  });
+
+  it("makes no alert read for a non-Buyer session: only the Buyer renders bands", async () => {
+    const fetch = registryAnswers(200, session);
+    const result = await panelLayout(args("http://x/inventory", { cookie: `dh_session=${SESSION_TOKEN}` }));
+    expect(result).not.toBeInstanceOf(Response);
+    const data = result as { role: Role; alerts: Promise<unknown> };
+    expect(data.role).toBe("Standard owner");
+    expect(await data.alerts).toEqual({ kind: "ok", value: [] });
+    expect(
+      fetch.mock.calls.filter((call: unknown[]) => (call[0] as string).includes("/v1/accepted-deviation-alerts")),
+    ).toEqual([]);
   });
 
   it("sends to sign-in saying it is unavailable when the registry cannot be reached", async () => {

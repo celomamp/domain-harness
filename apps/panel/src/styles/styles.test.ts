@@ -66,14 +66,24 @@ describe("stylesheets", () => {
     }
   });
 
-  it("fill with gold only on button-primary", async () => {
+  it("fill with gold only on button-primary and the accepted-deviation-alert band", async () => {
+    const GOLD_SELECTORS = /^(\.button-primary|\.accepted-deviation-alert)(:hover)?$/;
     for (const [name, css] of await stylesheets()) {
       for (const rule of rules(css)) {
         if (rule.body.includes("--color-accent")) {
           const selectors = rule.selector.split(",").map((s) => s.trim());
-          for (const selector of selectors) expect(selector, name).toMatch(/^\.button-primary(:hover)?$/);
+          for (const selector of selectors) expect(selector, name).toMatch(GOLD_SELECTORS);
           expect(rule.body, name).toMatch(/^\s*background:\s*var\(--color-accent(-strong)?\);/m);
         }
+      }
+    }
+  });
+
+  it("never animates or transitions the accepted-deviation-alert band's rules (the pause/hide rule holds vacuously)", async () => {
+    for (const [name, css] of await stylesheets()) {
+      for (const rule of rules(css)) {
+        if (!rule.selector.includes("accepted-deviation-alert")) continue;
+        expect(rule.body, name).not.toMatch(/\b(animation|transition)\b/);
       }
     }
   });

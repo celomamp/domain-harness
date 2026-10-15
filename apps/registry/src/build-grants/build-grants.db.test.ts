@@ -38,6 +38,7 @@ import { provisionCompany } from "../tenancy/provision.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
+import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createBuildGrantService } from "./service.ts";
@@ -221,6 +222,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("build grant against 
         applications: createApplicationService(db),
         guidanceEndpoint: createGuidanceEndpointService(db),
         acceptedDeviations: createAcceptedDeviationsService(db),
+        acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
       },
       () => undefined,

@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCEPTED_DEVIATION_ALERT_API_PATHS,
   ACCEPTED_DEVIATION_API_PATHS,
   DEVIATION_KINDS,
+  acceptedDeviationAlertDismissalPath,
   isAcceptedDeviation,
+  isAcceptedDeviationAlert,
+  isAcceptedDeviationAlertList,
+  isAcceptedDeviationAlerts,
   isAcceptedDeviationRecord,
   isAcceptedDeviationRecordList,
+  isAlertDismissedResult,
   isDeviation,
   parseDeviationLine,
 } from "./index.ts";
 import type {
   AcceptedDeviation,
+  AcceptedDeviationAlert,
   AcceptedDeviationRecord,
   Deviation,
   DeviationMatchKey,
@@ -292,5 +299,110 @@ describe("accepted deviation record guard", () => {
   it("accepts the interval bounds 1 and 8760", () => {
     expect(isAcceptedDeviationRecord({ ...validRecord, alertIntervalHours: 1 })).toBe(true);
     expect(isAcceptedDeviationRecord({ ...validRecord, alertIntervalHours: 8760 })).toBe(true);
+  });
+});
+
+describe("Accepted-deviation alert API paths", () => {
+  it("names the registry's alert surface and its dismissal path exactly", () => {
+    expect(ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts).toBe("/v1/accepted-deviation-alerts");
+    expect(acceptedDeviationAlertDismissalPath(RECORD_ID)).toBe(
+      `/v1/accepted-deviation-alerts/${RECORD_ID}/dismissal`,
+    );
+  });
+
+  it("escapes a path id so it cannot change the route shape", () => {
+    expect(acceptedDeviationAlertDismissalPath("a/b")).toBe("/v1/accepted-deviation-alerts/a%2Fb/dismissal");
+  });
+});
+
+describe("Accepted-deviation alert guards", () => {
+  const ALERT_ID = "018f3d2a-7000-7000-8000-00000000000b" as UuidV7;
+  const ACCEPTANCE_ID = "018f3d2a-7000-7000-8000-00000000000c" as UuidV7;
+
+  const validAlert: AcceptedDeviationAlert = {
+    id: ALERT_ID,
+    acceptanceId: ACCEPTANCE_ID,
+    applicationId: APPLICATION_ID,
+    applicationName: "Expense cards",
+    standardId: STANDARD_ID,
+    standardVersion: 3,
+    slot,
+    subject: "lodash",
+    end: "2026-12-31T23:59:59.000Z",
+    dueAt: "2026-10-14T09:00:00.000Z",
+    raisedAt: "2026-10-14T09:00:01.000Z",
+  };
+
+  it("round-trips a valid alert, its list and the { alerts } envelope through JSON", () => {
+    expect(isAcceptedDeviationAlert(validAlert)).toBe(true);
+    expect(isAcceptedDeviationAlert(JSON.parse(JSON.stringify(validAlert)) as unknown)).toBe(true);
+    expect(isAcceptedDeviationAlertList([validAlert])).toBe(true);
+    expect(isAcceptedDeviationAlerts({ alerts: [validAlert] })).toBe(true);
+    expect(isAcceptedDeviationAlerts({ alerts: [] })).toBe(true);
+    expect(isAcceptedDeviationAlerts(JSON.parse(JSON.stringify({ alerts: [validAlert] })))).toBe(true);
+  });
+
+  it("rejects alert shapes that are not the envelope, list or dismissal result", () => {
+    expect(isAcceptedDeviationAlertList(null)).toBe(false);
+    expect(isAcceptedDeviationAlertList({})).toBe(false);
+    expect(isAcceptedDeviationAlertList([validAlert, { bad: 1 }])).toBe(false);
+    expect(isAcceptedDeviationAlerts(null)).toBe(false);
+    expect(isAcceptedDeviationAlerts([validAlert])).toBe(false);
+    expect(isAcceptedDeviationAlerts({ alerts: {} })).toBe(false);
+    expect(isAcceptedDeviationAlerts({ alerts: [validAlert], extra: true })).toBe(false);
+    expect(isAcceptedDeviationAlerts({ records: [validAlert] })).toBe(false);
+  });
+
+  it("rejects malformed alerts", () => {
+    expect(isAcceptedDeviationAlert(null)).toBe(false);
+    expect(isAcceptedDeviationAlert("alert")).toBe(false);
+    expect(isAcceptedDeviationAlert([])).toBe(false);
+    expect(isAcceptedDeviationAlert({})).toBe(false);
+
+    const badCase = (label: string, overrides: Record<string, unknown>): void => {
+      const broken = { ...validAlert, ...overrides } as unknown;
+      expect(isAcceptedDeviationAlert(broken), label).toBe(false);
+    };
+
+    badCase("a missing raisedAt", { raisedAt: undefined });
+    badCase("an extra key", { kind: "prohibited" });
+    badCase("a non-UUID id", { id: "not-a-uuid" });
+    badCase("an uppercase id", { id: (ALERT_ID as string).toUpperCase() });
+    badCase("a non-UUID acceptance", { acceptanceId: 42 });
+    badCase("a non-UUID application", { applicationId: "018f3d2a-7000-7000-8000-00000000000g" });
+    badCase("a non-UUID standard", { standardId: null });
+    badCase("a zero version", { standardVersion: 0 });
+    badCase("a fractional version", { standardVersion: 1.5 });
+    badCase("an empty application name", { applicationName: "   " });
+    badCase("a numeric application name", { applicationName: 7 });
+    badCase("an empty subject", { subject: "" });
+    badCase("an empty slot name", { slot: { ...slot, name: "" } });
+    badCase("a whitespace slot name", { slot: { ...slot, name: "  " } });
+    badCase("a slotless object", { slot: {} });
+    badCase("a null slot", { slot: null });
+    badCase("an unknown module kind", { slot: { moduleKind: "tree", slotKind: "library", name: "x" } });
+    badCase("a non-ISO end", { end: "2026-12-31 23:59:59" });
+    badCase("an offset dueAt", { dueAt: "2026-10-14T09:00:00+00:00" });
+    // `isUtcIso` is regex-only: a calendar-invalid instant (February 30) rolls
+    // over and passes here, exactly as in the 5.5 record guard; the registry's
+    // window gate rejects calendar-invalid instants, so none is ever stored.
+    badCase("a NaN date", { dueAt: "not-a-date" });
+  });
+
+  it("accepts alerts whose subject, application name or slot name carry surrounding whitespace", () => {
+    expect(isAcceptedDeviationAlert({ ...validAlert, subject: " lodash " })).toBe(true);
+    expect(isAcceptedDeviationAlert({ ...validAlert, applicationName: " Expense cards " })).toBe(true);
+    expect(isAcceptedDeviationAlert({ ...validAlert, slot: { ...slot, name: " Lodash " } })).toBe(true);
+  });
+
+  it("accepts only { dismissed: true } as the dismissal result", () => {
+    expect(isAlertDismissedResult({ dismissed: true })).toBe(true);
+    expect(isAlertDismissedResult(JSON.parse(JSON.stringify({ dismissed: true })))).toBe(true);
+    expect(isAlertDismissedResult(null)).toBe(false);
+    expect(isAlertDismissedResult([])).toBe(false);
+    expect(isAlertDismissedResult({})).toBe(false);
+    expect(isAlertDismissedResult({ dismissed: false })).toBe(false);
+    expect(isAlertDismissedResult({ dismissed: "true" })).toBe(false);
+    expect(isAlertDismissedResult({ dismissed: true, extra: 1 })).toBe(false);
   });
 });

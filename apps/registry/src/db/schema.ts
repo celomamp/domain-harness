@@ -585,7 +585,63 @@ export const acceptedDeviationRecords = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0013. */
+/**
+ * Migration 0014: the Buyer's recurring alerts (Story 5.6), append-only. One
+ * row per raised interval boundary of an acceptance (one alert per boundary
+ * forever, made idempotent by the boundary key), and one row per Buyer
+ * dismissal.
+ */
+export const acceptedDeviationAlerts = pgTable(
+  "accepted_deviation_alerts",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    acceptanceId: uuid("acceptance_id").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true, mode: "date" }).notNull(),
+    raisedAt: timestamp("raised_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("accepted_deviation_alerts_boundary_key").on(table.tenantId, table.acceptanceId, table.dueAt),
+    unique("accepted_deviation_alerts_tenant_id_id_key").on(table.tenantId, table.id),
+    foreignKey({ name: "accepted_deviation_alerts_tenant_fkey", columns: [table.tenantId], foreignColumns: [tenants.id] }),
+    foreignKey({
+      name: "accepted_deviation_alerts_acceptance_fkey",
+      columns: [table.tenantId, table.acceptanceId],
+      foreignColumns: [acceptedDeviationRecords.tenantId, acceptedDeviationRecords.id],
+    }),
+  ],
+);
+
+export const acceptedDeviationAlertDismissals = pgTable(
+  "accepted_deviation_alert_dismissals",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    alertId: uuid("alert_id").notNull(),
+    dismissedBy: uuid("dismissed_by").notNull(),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("accepted_deviation_alert_dismissals_alert_key").on(table.tenantId, table.alertId),
+    foreignKey({
+      name: "accepted_deviation_alert_dismissals_tenant_fkey",
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+    }),
+    foreignKey({
+      name: "accepted_deviation_alert_dismissals_alert_fkey",
+      columns: [table.tenantId, table.alertId],
+      foreignColumns: [acceptedDeviationAlerts.tenantId, acceptedDeviationAlerts.id],
+    }),
+    foreignKey({
+      name: "accepted_deviation_alert_dismissals_dismissed_by_fkey",
+      columns: [table.tenantId, table.dismissedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0014. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -607,7 +663,12 @@ export const TENANT_TABLES = [
   "tenant_service_credentials",
   "bundle_setting_changes",
   "accepted_deviation_records",
+  "accepted_deviation_alerts",
+  "accepted_deviation_alert_dismissals",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */
 export const SIGN_IN_LOOKUP_ROLE = "dh_sign_in_lookup";
+
+/** The NOLOGIN role that owns the cross-tenant live-acceptance lookup (migration 0014); never a runtime role. */
+export const ALERT_SCHEDULER_ROLE = "dh_alert_scheduler";

@@ -24,6 +24,12 @@ describe("route wiring", () => {
     ]);
   });
 
+  it("serves the alert band's dismissal as a top-level resource action route", () => {
+    expect(entries.find((e) => e.path === "accepted-deviation-alerts/dismissals")?.file).toBe(
+      "routes/accepted-deviation-alert-dismiss.ts",
+    );
+  });
+
   it("serves no panel surface from a top-level entry", () => {
     for (const entry of entries) {
       expect(

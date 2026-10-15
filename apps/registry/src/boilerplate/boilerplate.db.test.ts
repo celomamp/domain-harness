@@ -31,6 +31,7 @@ import { migrate } from "../db/migrate.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { mintUuidV7 } from "../ids.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
+import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createRegistryServer } from "../http/server.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
@@ -227,6 +228,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
         applications: createApplicationService(db),
         guidanceEndpoint: createGuidanceEndpointService(db),
         acceptedDeviations: createAcceptedDeviationsService(db),
+        acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
       },
       () => undefined,

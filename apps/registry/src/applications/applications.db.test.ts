@@ -46,6 +46,7 @@ import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createApplicationService } from "./service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
+import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
@@ -207,6 +208,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Applications against
         applications: createApplicationService(db),
         guidanceEndpoint: createGuidanceEndpointService(db),
         acceptedDeviations: createAcceptedDeviationsService(db),
+        acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
       },
       () => undefined,

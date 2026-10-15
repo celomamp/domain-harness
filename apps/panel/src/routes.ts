@@ -5,6 +5,9 @@ export default [
   { index: true, file: "routes/home.tsx" },
   { path: "sign-in", file: "routes/sign-in.tsx" },
   { path: "sign-in/verify", file: "routes/sign-in-verify.ts" },
+  // The alert band's dismissal is a resource action outside the layout: it
+  // has no UI and it must never navigate the current page.
+  { path: "accepted-deviation-alerts/dismissals", file: "routes/accepted-deviation-alert-dismiss.ts" },
   {
     id: "routes/panel-layout",
     file: "routes/panel-layout.tsx",

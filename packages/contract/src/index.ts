@@ -188,18 +188,26 @@ export type {
   GuidanceEndpointState,
 } from "./boilerplate.ts";
 export {
+  ACCEPTED_DEVIATION_ALERT_API_PATHS,
   ACCEPTED_DEVIATION_API_PATHS,
   DEVIATION_KINDS,
   DEVIATION_STATUSES,
+  acceptedDeviationAlertDismissalPath,
   isAcceptedDeviation,
+  isAcceptedDeviationAlert,
+  isAcceptedDeviationAlertList,
+  isAcceptedDeviationAlerts,
   isAcceptedDeviationRecord,
   isAcceptedDeviationRecordList,
+  isAlertDismissedResult,
   isDeviation,
   parseDeviationLine,
 } from "./deviations.ts";
 export type {
   AcceptedDeviation,
+  AcceptedDeviationAlert,
   AcceptedDeviationRecord,
+  AlertDismissedResult,
   Deviation,
   DeviationKind,
   DeviationMatchKey,

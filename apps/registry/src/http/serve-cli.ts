@@ -23,6 +23,7 @@ import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
+import { ALERT_TICK_SECONDS, createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { ed25519SignerFromEnv } from "../bundles/sign.ts";
 import { createBundleService } from "../bundles/service.ts";
 import { createSignInService } from "../sign-in/service.ts";
@@ -104,6 +105,9 @@ async function main(): Promise<void> {
     throw error;
   }
 
+  // The alert service serves both the HTTP routes and the schedule: one
+  // instance for everything.
+  const acceptedDeviationAlerts = createAcceptedDeviationAlertsService(db);
   const server = createRegistryServer(
     {
       signIn: createSignInService(db, mailer, config),
@@ -116,6 +120,7 @@ async function main(): Promise<void> {
       applications: createApplicationService(db),
       guidanceEndpoint: createGuidanceEndpointService(db),
       acceptedDeviations: createAcceptedDeviationsService(db),
+      acceptedDeviationAlerts,
       boilerplate: createBoilerplateService(db),
       bundles: createBundleService(db, signer),
     },
@@ -132,7 +137,30 @@ async function main(): Promise<void> {
   const boundPort = typeof address === "object" && address !== null ? address.port : listenPort;
   stdoutLogger({ event: "listening", host, port: boundPort });
 
+  // The alert schedule runs in this process: one catch-up evaluation, then a
+  // plain in-process tick at ALERT_TICK_SECONDS. Each evaluation passes the
+  // registry's own clock, so the loop stays a parameter short of testability.
+  // Failures log counts and codes only; a failed tenant is counted by the
+  // evaluation itself and a failed tick is logged and retried next interval.
+  const raiseUntilNow = async (): Promise<void> => {
+    try {
+      const { raised, failed } = await acceptedDeviationAlerts.raiseDueAlerts(new Date());
+      stdoutLogger({ event: "alerts_raised", raised, failed });
+    } catch (error) {
+      stdoutLogger({
+        event: "alert_tick_failed",
+        code: error instanceof EnvelopeError ? error.code : "unexpected",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  void raiseUntilNow();
+  const alertTimer = setInterval(() => {
+    void raiseUntilNow();
+  }, ALERT_TICK_SECONDS * 1000);
+
   const stop = (): void => {
+    clearInterval(alertTimer);
     server.close(() => {
       void pool.end();
     });
