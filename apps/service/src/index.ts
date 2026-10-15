@@ -88,6 +88,16 @@ export type {
 export { SERVE_REFUSED_ORIGIN, SERVE_SET_UNREADABLE_ORIGIN, SERVE_UNAVAILABLE_ORIGIN, missSentenceOf, serveGuidanceCall } from "./guidance/serve.ts";
 export type { ServeGuidanceCallInput } from "./guidance/serve.ts";
 
+// Story 4.5: Guidance event records and gaps (one table, miss projection).
+
+export {
+  InMemoryGuidanceEventStore,
+  PostgresGuidanceEventStore,
+  createInMemoryGuidanceEventStore,
+  createPostgresGuidanceEventStore,
+} from "./guidance/events.ts";
+export type { GuidanceEventInput, GuidanceEventStore } from "./guidance/events.ts";
+
 export {
   DEFAULT_GUIDANCE_PORT,
   GuidanceConfigError,

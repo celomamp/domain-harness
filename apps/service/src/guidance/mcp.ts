@@ -21,7 +21,7 @@
  * on this server.
  */
 import { canonicalJson, GUIDANCE_IDENTITY_HEADERS, GUIDANCE_TOOL_SUBJECT_MAX, GUIDANCE_TOOLS, isGuidanceToolName, isGuidanceToolSubject } from "@domain-harness/contract";
-import type { UuidV7 } from "@domain-harness/contract";
+import type { GuidanceToolName, UuidV7 } from "@domain-harness/contract";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -30,6 +30,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { serveGuidanceCall } from "./serve.ts";
 import type { GuidanceIdentityHeaders, PinnedActiveBundle } from "./identity.ts";
 import type { GuidanceIdentityStore } from "./store.ts";
+import type { GuidanceEventStore } from "./events.ts";
 import type { BundledStateOutcome } from "../bundles/puller.ts";
 
 /** The versioned path the Streamable HTTP endpoint serves. */
@@ -43,6 +44,10 @@ export interface GuidanceMcpDeps {
   readonly tenantId: UuidV7;
   /** Story 4.3's identity store: the one binding check every surface shares. */
   readonly identityStore: GuidanceIdentityStore;
+  /** Story 4.5's event store: every bound `hit`/`miss` appends one row here. */
+  readonly eventStore: GuidanceEventStore;
+  /** The ids-only record-error hook, passed through to the serving unit. */
+  readonly onRecordError?: ((input: { readonly applicationId: UuidV7; readonly tool: GuidanceToolName; readonly error: unknown }) => void) | undefined;
   /** The pinned active bundle through the bundles unit. */
   readonly getPinnedBundle: (tenantId: UuidV7) => Promise<PinnedActiveBundle | null>;
   /** The staleness view through `bundledState`. */
@@ -158,6 +163,8 @@ async function toolCallResult(
     tenantId: deps.tenantId,
     now: (deps.now ?? defaultNow)(),
     identityStore: deps.identityStore,
+    eventStore: deps.eventStore,
+    onRecordError: deps.onRecordError,
     getPinnedBundle: deps.getPinnedBundle,
     getBundledState: deps.getBundledState,
   });

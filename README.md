@@ -464,6 +464,27 @@ node --conditions=@domain-harness/source apps/service/src/guidance/server-cli.ts
 
 Start-up is one envelope: the record store is opened and migrated (`SERVICE_RECORD_DATABASE_URL`), then the MCP server binds `SERVICE_GUIDANCE_PORT` (default 8080) and serves the MCP SDK's Streamable HTTP endpoint at `/mcp` (`@modelcontextprotocol/sdk` 1.32.1, the same version the bridge pins). Logs carry ids, routes, statuses and counts — never subject text. Point the bridge at it by setting the Company's Guidance endpoint URL to `http://<service host>:8080/mcp`; the bridge recomputes the identity headers on every HTTP request, so `@domain-harness/mcp-bridge <url>` needs no prior briefing call and caches nothing between turns.
 
+## Guidance records
+
+The service remembers every bound Guidance answer (Story 4.5) in its own record store — no agent cooperation required. Each bound `hit`/`miss` appends exactly one row to the append-only `guidance_events` table (migration `0004_guidance_events.sql`); `unbound`, refused and unavailable calls record nothing here (unknown or missing Application ids have no attributable row, and copied fingerprints are already ledgered as binding refusals by 4.3). A record failure never changes the typed answer: the already-computed result is returned unchanged and an ids-only hook fires (the entry wires it to the stdout logger with the Application id and tool — never subject text).
+
+| Recorded field | Meaning |
+| --- | --- |
+| `applicationId` | the bound Application, from the identity step |
+| `sequence` | the per-Application sequence, store-assigned (`max + 1` under `pg_advisory_xact_lock`, the `gate_runs` pattern) |
+| `tool` | the Guidance tool called |
+| `subject` | the asked subject term only — never raw prompt text (NFR-9) |
+| `outcome` | `hit` with Standard id + version, or `miss` |
+| `agentTool` | the agent tool known to the PINNED bundle's application entry (`BoilerplateTarget` or `null`) |
+| `bundleHash` | the hash of the bundle the answer was resolved against |
+| `createdAt` | UTC ISO-8601 of the recording |
+
+A `miss` row IS the gap: there is no second table and no dual write — `listGuidanceGaps(applicationId)` reads the miss projection. Retention defaults to 90 days (`GUIDANCE_EVENT_RETENTION_DAYS` in `@domain-harness/contract`); scheduled enforcement is Story 6.7 and `created_at` is this story's only hook.
+
+**Agent-tool lag.** The agent tool rides the bundle because nothing else in the Company knows it. Boilerplate generation never rebuilds the bundle (pinned 4.1/3.x behavior), so a freshly generated tool appears in records only after the next bundle — records carry the tool known to the PINNED bundle, `null` before that. A pre-4.5 active bundle still serves (a missing `agentTool` key guards valid) and records with a null agent tool.
+
+**How to run.** The same guidance server entry records automatically — no extra flag. Its database suites (`apps/service/src/guidance/events.db.test.ts` alongside `guidance.db.test.ts`) run when `SERVICE_TEST_DATABASE_URL` is set, each creating and dropping its own throwaway database.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:

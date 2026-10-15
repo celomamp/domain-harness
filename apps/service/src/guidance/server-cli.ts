@@ -17,6 +17,8 @@
 // one { code, message, subject } envelope to stderr and exits 1.
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { ErrorEnvelope, UuidV7 } from "@domain-harness/contract";
 import type { Pool } from "pg";
 import { migrate } from "../db/migrate.ts";
@@ -25,6 +27,7 @@ import { bundledState } from "../bundles/puller.ts";
 import { guidanceServiceConfigFromEnv } from "./config.ts";
 import type { GuidanceServiceConfig } from "./config.ts";
 import { createPostgresGuidanceIdentityStore } from "./store.ts";
+import { createPostgresGuidanceEventStore } from "./events.ts";
 import { createGuidanceMcpHandler, GUIDANCE_MCP_PATH } from "./mcp.ts";
 import type { PinnedActiveBundle } from "./identity.ts";
 
@@ -92,9 +95,16 @@ export async function pinnedActiveBundle(
 export function createGuidanceHttpServer(config: GuidanceServiceConfig, pool: Pool, log: Logger = stdoutLogger): Server {
   const bundleStore = createPostgresBundleRecordStore(pool);
   const identityStore = createPostgresGuidanceIdentityStore(pool);
+  const eventStore = createPostgresGuidanceEventStore(pool);
   const handler = createGuidanceMcpHandler({
     tenantId: config.tenantId,
     identityStore,
+    eventStore,
+    // A record failure never changes the typed answer; the hook carries ids
+    // and the tool only — never subject text (NFR-9).
+    onRecordError: ({ applicationId, tool }) => {
+      log({ event: "guidance_record_error", code: "record_failed", applicationId, tool });
+    },
     getPinnedBundle: (tenantId) => pinnedActiveBundle(bundleStore, tenantId),
     getBundledState: (now) => bundledState(bundleStore, config.tenantId, now),
   });
@@ -258,15 +268,28 @@ async function main(): Promise<void> {
   stdoutLogger({ event: "guidance_stopped" });
 }
 
-main().catch((error: unknown) => {
-  const envelope = envelopeOf(error, {
-    code: "guidance_start_failed",
-    message: "the guidance server could not start",
-    subject: "guidance",
+/** Run the entry only when this file is the process's main module (bridge.ts precedent: keeps the module importable in tests). */
+function isDirectEntry(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return pathToFileURL(resolve(entry)).href === import.meta.url;
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectEntry()) {
+  main().catch((error: unknown) => {
+    const envelope = envelopeOf(error, {
+      code: "guidance_start_failed",
+      message: "the guidance server could not start",
+      subject: "guidance",
+    });
+    // Exit only once the flush completes, so piped stderr cannot lose the one
+    // required envelope.
+    process.stderr.write(`${JSON.stringify(envelope)}\n`, () => {
+      process.exit(1);
+    });
   });
-  // Exit only once the flush completes, so piped stderr cannot lose the one
-  // required envelope.
-  process.stderr.write(`${JSON.stringify(envelope)}\n`, () => {
-    process.exit(1);
-  });
-});
+}

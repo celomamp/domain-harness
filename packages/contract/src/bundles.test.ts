@@ -66,6 +66,7 @@ const validApplication: BundleApplication = {
   id: APP_ID,
   projectId: CHILD_ID,
   fromFlow: true,
+  agentTool: null,
 };
 
 const validAcceptedDeviation: AcceptedDeviation = {
@@ -134,6 +135,20 @@ describe("Standard bundle wire contract (Story 4.1)", () => {
     expect(isBundleApplication({ ...validApplication, projectId: "nope" })).toBe(false);
     expect(isBundleApplication({ ...validApplication, fromFlow: "yes" })).toBe(false);
     expect(isBundleApplication({ ...validApplication, extra: 1 })).toBe(false);
+    expect(isBundleApplication({ ...validApplication, agentTool: "emacs" })).toBe(false);
+    expect(isBundleApplication({ ...validApplication, agentTool: 1 })).toBe(false);
+  });
+
+  it("round-trips the new agentTool shape and still rejects other unknown keys", () => {
+    expect(isBundleApplication({ ...validApplication, agentTool: "claude-code" })).toBe(true);
+    expect(isBundleApplication({ ...validApplication, agentTool: "cursor" })).toBe(true);
+    expect(isBundleApplication({ ...validApplication, agentTool: null })).toBe(true);
+  });
+
+  it("accepts a pre-4.5 application entry without the agentTool key, reading it as null", () => {
+    const oldShape: Record<string, unknown> = { id: APP_ID, projectId: CHILD_ID, fromFlow: true };
+    expect(isBundleApplication(oldShape)).toBe(true);
+    expect(isStandardBundlePayload({ ...validPayload, applications: [oldShape] })).toBe(true);
   });
 
   it.each([
@@ -213,6 +228,7 @@ describe("Standard bundle wire contract (Story 4.1)", () => {
       const reorderedPayload = {
         acceptedDeviations: validPayload.acceptedDeviations,
         applications: validPayload.applications.map((app) => ({
+          agentTool: app.agentTool,
           fromFlow: app.fromFlow,
           projectId: app.projectId,
           id: app.id,

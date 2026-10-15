@@ -4,7 +4,7 @@
  * active-bundle source, in fixed precedence and never throwing.
  */
 import { describe, expect, it } from "vitest";
-import type { StandardBundlePayload, UuidV7 } from "@domain-harness/contract";
+import type { BundleApplication, StandardBundlePayload, UuidV7 } from "@domain-harness/contract";
 import {
   MISSING_IDENTIFICATION_FILE,
   RUN_DID_NOT_COMPLETE,
@@ -27,7 +27,7 @@ const BUNDLE_HASH = "a".repeat(64);
 const FP_1 = "1".repeat(64);
 const FP_2 = "2".repeat(64);
 
-function bundleWithApplications(applications: readonly { id: UuidV7; projectId: UuidV7; fromFlow: boolean }[]): PinnedActiveBundle {
+function bundleWithApplications(applications: readonly BundleApplication[]): PinnedActiveBundle {
   const payload: StandardBundlePayload = {
     ...makeBundlePayload({ keyId: "identity-test-key", sequence: 1, issuedAt: "2026-10-14T12:00:00.000Z" }),
     applications,
@@ -45,7 +45,7 @@ function inputOf(overrides: Partial<ResolveGuidanceIdentityInput> = {}): Resolve
     },
     tenantId: overrides.tenantId ?? TENANT,
     store: overrides.store ?? createInMemoryGuidanceIdentityStore(),
-    getPinnedBundle: overrides.getPinnedBundle ?? (() => Promise.resolve(bundleWithApplications([{ id: APPLICATION_ID, projectId: PROJECT_ID, fromFlow: false }]))),
+    getPinnedBundle: overrides.getPinnedBundle ?? (() => Promise.resolve(bundleWithApplications([{ id: APPLICATION_ID, projectId: PROJECT_ID, fromFlow: false, agentTool: null }]))),
   };
 }
 
@@ -89,7 +89,7 @@ describe("resolveGuidanceIdentity: the unbound rows", () => {
 
   it("answers the unbound-Application sentence when the active bundle belongs to another tenant", async () => {
     const result = await resolveGuidanceIdentity(
-      inputOf({ tenantId: OTHER_TENANT, getPinnedBundle: (tenantId) => Promise.resolve(tenantId === TENANT ? bundleWithApplications([{ id: APPLICATION_ID, projectId: PROJECT_ID, fromFlow: false }]) : null) }),
+      inputOf({ tenantId: OTHER_TENANT, getPinnedBundle: (tenantId) => Promise.resolve(tenantId === TENANT ? bundleWithApplications([{ id: APPLICATION_ID, projectId: PROJECT_ID, fromFlow: false, agentTool: null }]) : null) }),
     );
     expect(result).toEqual({ kind: "unbound", reason: "unknown_application", sentence: UNBOUND });
   });

@@ -38,11 +38,14 @@
  *
  * Sentences are the fixed UX-DR29 constants from `@domain-harness/gate`;
  * only the per-tool miss templates are new constants of this unit (house
- * precedent). Nothing here logs, records or metricizes the subject: a tool
- * call of story 4.4 writes no row of its own.
+ * precedent). Nothing here logs, records or metricizes the subject: the
+ * event row holds the asked subject term only, and every log/metric event
+ * carries ids and codes only. Recording (Story 4.5) appends one event for
+ * every bound `hit`/`miss` — awaited but never throwing, with the agent tool
+ * from the pinned bundle's application entry only.
  */
-import type { GuidanceToolHit, GuidanceToolMiss, GuidanceToolName, GuidanceToolResult, StandardBundlePayload, StandardEntry, StandardInfo, UuidV7 } from "@domain-harness/contract";
-import { isStandardBundlePayload } from "@domain-harness/contract";
+import type { BoilerplateTarget, GuidanceToolHit, GuidanceToolMiss, GuidanceToolName, GuidanceToolResult, StandardBundlePayload, StandardEntry, StandardInfo, UuidV7 } from "@domain-harness/contract";
+import { isBoilerplateTarget, isStandardBundlePayload } from "@domain-harness/contract";
 import { entrySlot, normalizeSlotName, resolveEffectiveSet } from "@domain-harness/core";
 import type { ConflictSlot, SlotHolder } from "@domain-harness/core";
 import {
@@ -54,6 +57,7 @@ import {
 import { resolveGuidanceIdentity } from "./identity.ts";
 import type { GuidanceIdentityHeaders, PinnedActiveBundle } from "./identity.ts";
 import type { GuidanceIdentityStore } from "./store.ts";
+import type { GuidanceEventStore } from "./events.ts";
 import type { BundledStateOutcome } from "../bundles/puller.ts";
 
 /**
@@ -102,12 +106,26 @@ export interface ServeGuidanceCallInput {
   readonly getPinnedBundle: (tenantId: UuidV7) => Promise<PinnedActiveBundle | null>;
   /** The staleness view through `bundledState`; a not-ok outcome is a failing store read. */
   readonly getBundledState: (now: string) => Promise<BundledStateOutcome>;
+  /**
+   * The Guidance event store (Story 4.5): every bound `hit`/`miss` appends
+   * exactly one event here, awaited but never throwing. Required — the
+   * service persists every bound outcome with no agent cooperation.
+   */
+  readonly eventStore: GuidanceEventStore;
+  /**
+   * The ids-only record-error hook: fired with the Application id and tool
+   * (never subject text) when the event insert throws. Defaults to a no-op.
+   */
+  readonly onRecordError?: ((input: { readonly applicationId: UuidV7; readonly tool: GuidanceToolName; readonly error: unknown }) => void) | undefined;
 }
 
 /**
- * Serve one Guidance tool call. Never throws; never writes a row of its own
- * (the miss/gap records are Story 4.5). The typed result is what the MCP
- * adapter serializes — `canonicalJson(result)` is the text the client sees.
+ * Serve one Guidance tool call. Never throws. The typed result is what the
+ * MCP adapter serializes — `canonicalJson(result)` is the text the client
+ * sees. Every bound `hit`/`miss` appends exactly one Guidance event
+ * (Story 4.5) after the decision, awaited but never throwing: a record
+ * failure returns the already-computed typed result unchanged and fires the
+ * ids-only `onRecordError` hook. `unbound`/refused calls record nothing.
  */
 export async function serveGuidanceCall(input: ServeGuidanceCallInput): Promise<GuidanceToolResult> {
   try {
@@ -193,6 +211,11 @@ async function decide(input: ServeGuidanceCallInput): Promise<GuidanceToolResult
       bundleHash: pinned.hash,
       stale,
     };
+    await recordGuidanceEvent(input, pinned, identity.applicationId, {
+      kind: "hit",
+      standardId: standard.id,
+      version: standard.version,
+    });
     return hit;
   }
   const miss: GuidanceToolMiss = {
@@ -203,7 +226,53 @@ async function decide(input: ServeGuidanceCallInput): Promise<GuidanceToolResult
     bundleHash: pinned.hash,
     stale,
   };
+  await recordGuidanceEvent(input, pinned, identity.applicationId, { kind: "miss" });
   return miss;
+}
+
+/**
+ * Append one Guidance event for a bound `hit`/`miss`. Awaited but never
+ * throwing: a record failure leaves the already-computed typed result
+ * unchanged and fires the ids-only `onRecordError` hook (default no-op).
+ * The agent tool comes ONLY from the pinned bundle's application entry —
+ * never from headers or client claims; a pre-4.5 entry without the key
+ * records `null`.
+ */
+async function recordGuidanceEvent(
+  input: ServeGuidanceCallInput,
+  pinned: PinnedActiveBundle,
+  applicationId: UuidV7,
+  outcome: { readonly kind: "hit"; readonly standardId: string; readonly version: number } | { readonly kind: "miss" },
+): Promise<void> {
+  try {
+    await input.eventStore.appendGuidanceEvent({
+      applicationId,
+      tool: input.tool,
+      subject: input.subject,
+      outcome,
+      agentTool: agentToolOf(pinned.payload, applicationId),
+      bundleHash: pinned.hash,
+    });
+  } catch (error) {
+    try {
+      input.onRecordError?.({ applicationId, tool: input.tool, error });
+    } catch {
+      // The hook never breaks the typed answer either.
+    }
+  }
+}
+
+/**
+ * The agent tool known to the PINNED bundle's application entry, `null` when
+ * the entry predates the generation (pre-4.5 payloads carry no key) or when
+ * the Application never generated a Boilerplate.
+ */
+function agentToolOf(payload: StandardBundlePayload, applicationId: UuidV7): BoilerplateTarget | null {
+  const entry = payload.applications.find((candidate) => candidate.id === applicationId);
+  if (entry === undefined) return null;
+  const raw = (entry as { readonly agentTool?: unknown }).agentTool;
+  if (raw === undefined || raw === null) return null;
+  return isBoilerplateTarget(raw) ? raw : null;
 }
 
 /** The miss sentence: the per-tool template including the subject; `bundle stale` appended when stale. */

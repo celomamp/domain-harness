@@ -63,10 +63,10 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGuidanceIden
 
     const report = await migrate(owner);
     expect(report).toEqual({
-      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql"],
+      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql"],
       alreadyApplied: 0,
     });
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 3 });
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 4 });
 
     pool = createPool(dbUrl);
     store = createPostgresGuidanceIdentityStore(pool);
@@ -92,6 +92,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGuidanceIden
       "bundle_refusals",
       "bundle_staleness_observations",
       "gate_runs",
+      "guidance_events",
       "guidance_project_mismatches",
       "service_bundles",
       "service_migrations",
@@ -204,7 +205,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGuidanceIden
     const bundle = {
       payload: {
         ...makeBundlePayload({ keyId: "identity-db-key", sequence: 1, issuedAt: "2026-10-14T12:00:00.000Z" }),
-        applications: [{ id: racingApp, projectId: BUNDLE_PROJECT_ID, fromFlow: false }],
+        applications: [{ id: racingApp, projectId: BUNDLE_PROJECT_ID, fromFlow: false, agentTool: null }],
       },
       hash: bundleHash,
     };

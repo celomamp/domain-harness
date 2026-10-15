@@ -78,10 +78,10 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresBundleRecord
 
     const report = await migrate(owner);
     expect(report).toEqual({
-      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql"],
+      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql"],
       alreadyApplied: 0,
     });
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 3 });
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 4 });
 
     pool = createPool(dbUrl);
     store = createPostgresBundleRecordStore(pool);
@@ -107,6 +107,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresBundleRecord
       "bundle_refusals",
       "bundle_staleness_observations",
       "gate_runs",
+      "guidance_events",
       "guidance_project_mismatches",
       "service_bundles",
       "service_migrations",
