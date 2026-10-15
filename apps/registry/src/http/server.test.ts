@@ -8,6 +8,8 @@ import {
   APPLICATION_NOT_FOUND,
   applicationBoilerplatePath,
   applicationIdentificationFilePath,
+  CATALOG_UNREAD,
+  COMPILATION_CATALOG_VERSION,
   GUIDANCE_ENDPOINT_PATH,
   GUIDANCE_ENDPOINT_UNSET,
   isAcceptedDeviationAlerts,
@@ -49,6 +51,9 @@ import type {
   BuildGrantState,
   ChildPermissionList,
   ChildPermissionState,
+  Compilation,
+  CompilationCatalogRead,
+  CompilationCatalogReadState,
   EffectiveStandardSet,
   GuidanceEndpointState,
   IdentificationFileRendering,
@@ -63,6 +68,7 @@ import type {
   StandardList,
   StandardVersionList,
 } from "@domain-harness/contract";
+import type { UuidV7 } from "@domain-harness/contract";
 import type { ApplicationService } from "../applications/service.ts";
 import { assertApplicationBuyer } from "../applications/service.ts";
 import { validateApplicationBody } from "../applications/validate.ts";
@@ -81,6 +87,9 @@ import type { AcceptedDeviationAlertsService } from "../accepted-deviation-alert
 import { assertGuidanceEndpointBuyer } from "../guidance-endpoint/service.ts";
 import type { GuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { validateGuidanceEndpointBody } from "../guidance-endpoint/validate.ts";
+import { assertCompilationBuyer } from "../compilations/service.ts";
+import type { CompilationsService } from "../compilations/service.ts";
+import { validateCatalogReadBody, validateCompilationBody } from "../compilations/validate.ts";
 import { mintUuidV7 } from "../ids.ts";
 import { validateLockedRuleBody } from "../locked-rules/service.ts";
 import type { LockedRuleService } from "../locked-rules/service.ts";
@@ -573,6 +582,62 @@ class FakeAcceptedDeviationAlerts implements AcceptedDeviationAlertsService {
   alerts: AcceptedDeviationAlert[] = [];
 }
 
+/** A fake Compilations service that records calls and uses the real role check, validators and read gate. */
+class FakeCompilations implements CompilationsService {
+  calls: unknown[] = [];
+  reads: CompilationCatalogRead[] = [];
+  stored: Compilation[] = [];
+  assertCatalogRead(tenantId: UuidV7): Promise<void> {
+    this.calls.push(["gate", tenantId]);
+    return Promise.resolve().then(() => {
+      if (!this.reads.some((read) => read.catalogVersion === COMPILATION_CATALOG_VERSION)) {
+        throw new EnvelopeError({ code: CATALOG_UNREAD, message: "m", subject: "catalog" });
+      }
+    });
+  }
+  recordCatalogRead(
+    caller: SessionInfo,
+    body: unknown,
+  ): Promise<{ record: CompilationCatalogRead; created: boolean }> {
+    this.calls.push(["record", caller.role, body]);
+    return Promise.resolve().then(() => {
+      assertCompilationBuyer(caller);
+      const catalogVersion = validateCatalogReadBody(body);
+      const existing = this.reads.find((read) => read.catalogVersion === catalogVersion);
+      if (existing !== undefined) return { record: existing, created: false };
+      const record: CompilationCatalogRead = {
+        catalogVersion,
+        readBy: { accountId: caller.accountId, name: "Bea Buyer" },
+        readAt: "2026-10-15T12:00:00.000Z",
+      };
+      this.reads = [...this.reads, record];
+      return { record, created: true };
+    });
+  }
+  getCatalogRead(caller: SessionInfo): Promise<CompilationCatalogReadState> {
+    this.calls.push(["get", caller.role]);
+    const read = this.reads.find((entry) => entry.catalogVersion === COMPILATION_CATALOG_VERSION);
+    return Promise.resolve(
+      read === undefined
+        ? { catalogVersion: COMPILATION_CATALOG_VERSION, read: false, readBy: null, readAt: null }
+        : { catalogVersion: read.catalogVersion, read: true, readBy: read.readBy, readAt: read.readAt },
+    );
+  }
+  ingestCompilation(tenantId: UuidV7, body: unknown): Promise<{ compilation: Compilation; replay: boolean }> {
+    this.calls.push(["ingest", tenantId, body]);
+    return Promise.resolve().then(() => {
+      if (!this.reads.some((read) => read.catalogVersion === COMPILATION_CATALOG_VERSION)) {
+        throw new EnvelopeError({ code: CATALOG_UNREAD, message: "m", subject: "catalog" });
+      }
+      const compilation = validateCompilationBody(body);
+      const existing = this.stored.find((entry) => entry.idempotencyKey === compilation.idempotencyKey);
+      if (existing !== undefined) return { compilation: existing, replay: true };
+      this.stored = [...this.stored, compilation];
+      return { compilation, replay: false };
+    });
+  }
+}
+
 /** A fake Boilerplate service: the known Application, the real body validator, then the endpoint check. */
 class FakeBoilerplate implements BoilerplateService {
   private readonly knownId: string;
@@ -621,6 +686,7 @@ describe("registry HTTP API", () => {
   const acceptedDeviations = new FakeAcceptedDeviations();
   const acceptedDeviationAlerts = new FakeAcceptedDeviationAlerts();
   const boilerplate = new FakeBoilerplate(applications.knownId, guidanceEndpoint);
+  const compilations = new FakeCompilations();
   const events: LogEvent[] = [];
   let server: Server;
   let base: string;
@@ -640,6 +706,7 @@ describe("registry HTTP API", () => {
         acceptedDeviations,
         acceptedDeviationAlerts,
         boilerplate,
+        compilations,
       },
       (event) => events.push(event),
     );
@@ -672,6 +739,9 @@ describe("registry HTTP API", () => {
     acceptedDeviationAlerts.raised = [];
     acceptedDeviationAlerts.alerts = [];
     boilerplate.calls = [];
+    compilations.calls = [];
+    compilations.reads = [];
+    compilations.stored = [];
     events.length = 0;
   });
 

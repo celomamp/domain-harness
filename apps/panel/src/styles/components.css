@@ -484,6 +484,40 @@
   color: var(--color-ink);
 }
 
+/* schema-reader: raised surface, body type, schema text ink on white. */
+.schema-reader {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-form);
+  font-family: var(--type-body-family);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line-height);
+}
+
+.schema-reader dl {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.schema-reader dt {
+  color: var(--color-ink);
+  font-family: var(--type-label-strong-family);
+  font-size: var(--type-label-strong-size);
+  font-weight: var(--type-label-strong-weight);
+  line-height: var(--type-label-strong-line-height);
+}
+
+.schema-reader dd {
+  margin: 0;
+  color: var(--color-ink);
+}
+
 /* The registered Application's file content: its exact bytes, unformatted. */
 .boilerplate-result pre {
   margin: 0;

@@ -45,6 +45,7 @@ import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createApplicationService } from "./service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
+import { createCompilationsService } from "../compilations/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
@@ -210,6 +211,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Applications against
         acceptedDeviations: createAcceptedDeviationsService(db),
         acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
+        compilations: createCompilationsService(db),
       },
       () => undefined,
     );

@@ -11,7 +11,7 @@ interface Entry {
 const entries = routes as readonly Entry[];
 
 describe("route wiring", () => {
-  it("nests Inventory, Standards, a Module's Standards, the Project tree, the New-application flow and the Accepted-deviation surface under the session-guarded panel layout", () => {
+  it("nests Inventory, Standards, a Module's Standards, the Project tree, the New-application flow, the Accepted-deviation surface and the Compilations surface under the session-guarded panel layout", () => {
     const layout = entries.find((e) => e.file === "routes/panel-layout.tsx");
     expect(layout?.path).toBeUndefined();
     expect(layout?.children?.map((c) => [c.path, c.file])).toEqual([
@@ -21,6 +21,7 @@ describe("route wiring", () => {
       ["projects", "routes/project-tree.tsx"],
       ["new-application", "routes/new-application.tsx"],
       ["accepted-deviation", "routes/accepted-deviation.tsx"],
+      ["compilations", "routes/compilations.tsx"],
     ]);
   });
 
@@ -33,7 +34,7 @@ describe("route wiring", () => {
   it("serves no panel surface from a top-level entry", () => {
     for (const entry of entries) {
       expect(
-        ["inventory", "standards", "standards/:moduleId", "projects", "new-application", "accepted-deviation"],
+        ["inventory", "standards", "standards/:moduleId", "projects", "new-application", "accepted-deviation", "compilations"],
       ).not.toContain(entry.path);
       expect([
         "routes/inventory.tsx",
@@ -42,6 +43,7 @@ describe("route wiring", () => {
         "routes/project-tree.tsx",
         "routes/new-application.tsx",
         "routes/accepted-deviation.tsx",
+        "routes/compilations.tsx",
       ]).not.toContain(entry.file);
     }
   });

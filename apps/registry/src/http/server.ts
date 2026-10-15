@@ -8,7 +8,9 @@ import {
   APPLICATION_NOT_FOUND,
   BOILERPLATE_CONFLICT,
   BUILD_GRANT_DENIED,
+  CATALOG_UNREAD,
   CHILD_PERMISSION_DENIED,
+  COMPILATION_API_PATHS,
   GUIDANCE_ENDPOINT_PATH,
   GUIDANCE_ENDPOINT_UNSET,
   isEmailAddress,
@@ -39,6 +41,8 @@ import type { ApplicationService } from "../applications/service.ts";
 import type { BundleService } from "../bundles/service.ts";
 import { assertBundleSettingsBuyer } from "../bundles/service.ts";
 import { assertApplicationBuyer } from "../applications/service.ts";
+import type { CompilationsService } from "../compilations/service.ts";
+import { assertCompilationBuyer } from "../compilations/service.ts";
 import type { BoilerplateService } from "../boilerplate/service.ts";
 import { assertAcceptedDeviationBuyer } from "../accepted-deviations/service.ts";
 import type { AcceptedDeviationsService } from "../accepted-deviations/service.ts";
@@ -79,6 +83,7 @@ const STATUS_BY_CODE: Readonly<Record<string, number>> = {
   [CHILD_PERMISSION_DENIED]: 403,
   [BUILD_GRANT_DENIED]: 403,
   [PLAN_REFUSED]: 403,
+  [CATALOG_UNREAD]: 403,
   not_found: 404,
   [MODULE_NOT_FOUND]: 404,
   [STANDARD_NOT_FOUND]: 404,
@@ -158,6 +163,8 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [BUNDLE_API_PATHS.staleness]: ["POST"],
   [BUNDLE_API_PATHS.freeze]: ["POST"],
   [BUNDLE_LATEST_ROUTE]: ["GET"],
+  [COMPILATION_API_PATHS.compilations]: ["POST"],
+  [COMPILATION_API_PATHS.catalogReads]: ["GET", "POST"],
 };
 
 interface RouteMatch {
@@ -198,6 +205,7 @@ export interface RegistryServices {
   readonly acceptedDeviationAlerts: AcceptedDeviationAlertsService;
   readonly boilerplate: BoilerplateService;
   readonly bundles?: BundleService;
+  readonly compilations: CompilationsService;
 }
 
 class HttpFailure extends Error {
@@ -243,6 +251,15 @@ class HttpFailure extends Error {
  * Application's Boilerplate is open to every role. Only the Buyer may register
  * an existing Application (`role_denied` before the body is read); the answer
  * is only its Project identification file, and no Boilerplate is generated.
+ * The Compilation catalog's read record is open to every role, but only the
+ * Buyer may record reading it (`role_denied` before the body is read); a
+ * re-read of the same catalog version answers the existing record. Ingesting
+ * a Compilation authenticates with the bundle service's service credential
+ * (the tenant comes from the credential, never from the path or body), then
+ * refuses with `catalog_unread` while the tenant recorded no read of the
+ * current catalog version, then validates the body, then stores the
+ * Compilation exactly once per idempotency key (a replay answers the stored
+ * Compilation).
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
@@ -588,6 +605,44 @@ async function handle(
         });
       }
       sendJson(res, 200, bundle);
+      return;
+    }
+    case COMPILATION_API_PATHS.compilations: {
+      // The tenant comes from the service credential, never from the path or
+      // body: authentication runs before anything is parsed, so a bad
+      // credential is 401 `session_invalid` with nothing else read. The
+      // catalog-read gate runs next, still before the body is read (the body
+      // is drained, never parsed, on a refusal), so an unread tenant is
+      // refused whatever the body holds. Then the service checks the body and
+      // the idempotent insert, so the first failure in that order wins.
+      const bundles = requireBundles(services);
+      const credentialTenant = await bundles.authenticateCredential(bearerToken(req));
+      try {
+        await services.compilations.assertCatalogRead(credentialTenant);
+      } catch (error) {
+        req.resume();
+        throw error;
+      }
+      const { compilation, replay } = await services.compilations.ingestCompilation(
+        credentialTenant,
+        await readJson(req),
+      );
+      sendJson(res, replay ? 200 : 201, compilation);
+      return;
+    }
+    case COMPILATION_API_PATHS.catalogReads: {
+      const session = await service.getSession(bearerToken(req));
+      if (req.method === "GET") {
+        sendJson(res, 200, await services.compilations.getCatalogRead(session));
+        return;
+      }
+      // The role check happens before the body is read (it is drained, never
+      // parsed for any other role); then the service checks the body and
+      // appends one idempotent read row. A re-read of the same version answers
+      // the existing record.
+      requireBuyer(req, session, assertCompilationBuyer);
+      const { record, created } = await services.compilations.recordCatalogRead(session, await readJson(req));
+      sendJson(res, created ? 201 : 200, record);
       return;
     }
     case STANDARD_LOCKED_RULE_ROUTE: {

@@ -1,7 +1,7 @@
 import { boolean, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { isNull, sql } from "drizzle-orm";
 import { CODE_STACK_CATEGORIES, DESIGN_SYSTEM_ENTRY_KINDS, MODULE_KINDS, PLANS, ROLES } from "@domain-harness/contract";
-import type { StandardEntry } from "@domain-harness/contract";
+import type { Compilation, StandardEntry } from "@domain-harness/contract";
 
 // Drizzle mirror of migrations/0001_tenancy.sql to 0010_guidance_endpoint.sql, used for typed queries only.
 // The SQL migration is the source of truth for constraints, RLS and grants.
@@ -641,7 +641,56 @@ export const acceptedDeviationAlertDismissals = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0014. */
+/**
+ * Migration 0015: the published Compilation catalog (Story 6.1), append-only.
+ * One catalog-read row per tenant per catalog version (re-reads insert
+ * nothing), and one row per accepted Compilation (resends answer the stored
+ * row; the per-Application order stays single).
+ */
+export const compilationCatalogReads = pgTable(
+  "compilation_catalog_reads",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    catalogVersion: text("catalog_version").notNull(),
+    readBy: uuid("read_by").notNull(),
+    readAt: timestamp("read_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("compilation_catalog_reads_tenant_version_key").on(table.tenantId, table.catalogVersion),
+    foreignKey({ name: "compilation_catalog_reads_tenant_fkey", columns: [table.tenantId], foreignColumns: [tenants.id] }),
+    foreignKey({
+      name: "compilation_catalog_reads_read_by_fkey",
+      columns: [table.tenantId, table.readBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+export const compilations = pgTable(
+  "compilations",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    applicationId: uuid("application_id").notNull(),
+    typeName: text("type_name").notNull(),
+    schemaVersion: text("schema_version").notNull(),
+    catalogVersion: text("catalog_version").notNull(),
+    agentToolName: text("agent_tool_name").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" }).notNull(),
+    sequence: integer("sequence").notNull(),
+    payload: jsonb("payload").$type<Compilation>().notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("compilations_tenant_idempotency_key").on(table.tenantId, table.idempotencyKey),
+    unique("compilations_tenant_application_sequence_key").on(table.tenantId, table.applicationId, table.sequence),
+    foreignKey({ name: "compilations_tenant_fkey", columns: [table.tenantId], foreignColumns: [tenants.id] }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0015. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -665,6 +714,8 @@ export const TENANT_TABLES = [
   "accepted_deviation_records",
   "accepted_deviation_alerts",
   "accepted_deviation_alert_dismissals",
+  "compilation_catalog_reads",
+  "compilations",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */
