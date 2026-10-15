@@ -37,6 +37,7 @@ function entryEnv(overrides: Record<string, string | undefined> = {}): NodeJS.Pr
     ...process.env,
     SERVICE_TENANT_ID: TENANT,
     SERVICE_RECORD_DATABASE_URL: "postgres://postgres:postgres@localhost/dh_never_used",
+    SERVICE_READ_CREDENTIAL: "read-secret-4-6-opaque",
     ...overrides,
   };
 }
@@ -78,6 +79,22 @@ describe("guidance server-cli: start failure", () => {
       expect(failure.stdout ?? "").toBe("");
     }
   }, 60_000);
+
+  it("reports a missing read credential as missing_configuration and never logs it", async () => {
+    try {
+      await run(process.execPath, [CLI_PATH], { env: entryEnv({ SERVICE_READ_CREDENTIAL: undefined }) });
+      throw new Error("the guidance server entry did not exit 1");
+    } catch (error) {
+      const failure = error as { code?: number; stdout?: string; stderr?: string };
+      expect(failure.code).toBe(1);
+      const lines = (failure.stderr ?? "").split("\n").filter((line) => line.trim() !== "");
+      expect(lines).toHaveLength(1);
+      const envelope = JSON.parse(lines[0] ?? "") as { code?: unknown; subject?: unknown };
+      expect(envelope.code).toBe("missing_configuration");
+      expect(envelope.subject).toBe("SERVICE_READ_CREDENTIAL");
+      expect(failure.stdout ?? "").toBe("");
+    }
+  }, 60_000);
 });
 
 const DB_ENV = "SERVICE_TEST_DATABASE_URL";
@@ -116,6 +133,7 @@ const FP_1 = "1".repeat(64);
 const ISSUED = "2026-10-14T06:00:00.000Z";
 const STD_REACT = "018f3d2a-7000-7000-8000-000000000131" as UuidV7;
 const STD_QUETZAL = "018f3d2a-7000-7000-8000-000000000132" as UuidV7;
+const READ_CREDENTIAL = "read-secret-4-6-opaque";
 
 /** The identity headers of a bound Application. */
 const BOUND_HEADERS: Record<string, string> = {
@@ -215,7 +233,7 @@ describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-
 
     const port = await freePort();
     server = createGuidanceHttpServer(
-      { tenantId: TENANT as UuidV7, recordDatabaseUrl: dbUrl, port },
+      { tenantId: TENANT as UuidV7, recordDatabaseUrl: dbUrl, readCredential: READ_CREDENTIAL, port },
       pool,
       (event) => {
         logs.push(event);
@@ -292,5 +310,21 @@ describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-
       tool: "code_stack_rule",
     });
     expect(JSON.stringify(recordLines[0])).not.toContain("quetzal");
+  });
+
+  it("serves a credentialed Effective set read with the active hash quoted through the deployed wiring", async () => {
+    const port = (server.address() as AddressInfo).port;
+    const response = await fetch(`http://127.0.0.1:${String(port)}/v1/projects/${WEB}/effective-standards`, {
+      headers: { authorization: `Bearer ${READ_CREDENTIAL}` },
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { bundleHash?: unknown; project?: unknown; standards?: unknown };
+    expect(body.bundleHash).toBe(hash);
+    expect(body.project).toEqual({ id: WEB, name: "Web" });
+    expect(Array.isArray(body.standards)).toBe(true);
+    // A missing credential on the same path is 401, never the set.
+    const denied = await fetch(`http://127.0.0.1:${String(port)}/v1/projects/${WEB}/effective-standards`);
+    expect(denied.status).toBe(401);
+    expect(await denied.json()).toEqual({ code: "session_invalid", message: "the service credential is not valid", subject: "session" });
   });
 });

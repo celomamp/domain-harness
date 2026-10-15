@@ -118,6 +118,8 @@ export { isLockedRuleMark, isLockedRuleState, LOCKED_RULE_CONFLICT, lockedRulePa
 export type { LockedRuleMark, LockedRuleRequest, LockedRuleState } from "./locked-rules.ts";
 export { effectiveStandardsPath, isEffectiveSlot, isEffectiveStandard, isEffectiveStandardSet } from "./effective.ts";
 export type { EffectiveSlot, EffectiveStandard, EffectiveStandardSet } from "./effective.ts";
+export { BUNDLE_UNREADABLE, READ_API_PATHS, isReadEffectiveSetResponse, isReadStandardsResponse } from "./read-api.ts";
+export type { ReadEffectiveSetResponse, ReadStandardsResponse } from "./read-api.ts";
 export {
   CHILD_PERMISSION_DENIED,
   childPermissionsPath,

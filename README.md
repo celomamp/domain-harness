@@ -485,6 +485,37 @@ A `miss` row IS the gap: there is no second table and no dual write — `listGui
 
 **How to run.** The same guidance server entry records automatically — no extra flag. Its database suites (`apps/service/src/guidance/events.db.test.ts` alongside `guidance.db.test.ts`) run when `SERVICE_TEST_DATABASE_URL` is set, each creating and dropping its own throwaway database.
 
+## Company Read API
+
+A Company system that never runs the Gate reads the published Standards and one Project's Effective Standard set from the same source of truth Guidance resolves from (Story 4.6). The same guidance server entry serves the credentialed, read-only HTTP Read API from its pinned active bundle through the shared derivation (`apps/service/src/read/effective.ts` — never a second resolver, core order never re-sorted); every response quotes the active-pointer bundle hash alongside its payload, so hash and set are consistent by construction.
+
+| Endpoint | Answer |
+| --- | --- |
+| `GET /v1/standards` | 200 `{ bundleHash, standards }` — the pinned bundle's standards array |
+| `GET /v1/projects/{id}/effective-standards` | 200 `{ bundleHash, project, standards }` — `joinEffectiveSet` of the pinned bundle; the `{project, standards}` half is the `EffectiveStandardSet` shape |
+
+The credential is one opaque shared secret from required `SERVICE_READ_CREDENTIAL` (threaded through `GuidanceServiceConfig`; a missing or blank value fails start with `missing_configuration` and is never logged), sent as `Authorization: Bearer <secret>` (scheme case-insensitive) and compared constant-time. Reads are Project-scoped, not identity-scoped: no per-Application binding, no event or gap recording, no retention surface.
+
+**Guidance parity.** For an Application on Project P against the same pinned bundle hash, the read set for P equals what Guidance would resolve: every Guidance `hit` standard is in the read set, and the full set equals the shared derivation.
+
+| Input | Outcome |
+| --- | --- |
+| missing, malformed or wrong credential | 401 `session_invalid` (`{ code, message, subject: "session" }`, one indistinguishable envelope) |
+| `POST`/`PUT`/`PATCH`/`DELETE` on either read path | 405 `method_not_allowed`; the router holds no write handler |
+| unknown or malformed Project id | 404 `project_not_found`, subject `projectId` |
+| no active bundle | 404 `not_found`, subject `bundle` |
+| invalid stored payload, or a resolved Standard/source missing from the payload | 500 `bundle_unreadable`, subject `bundle` |
+| conflicting scopes in the bundle | core's error as is (for example 409 `slot_conflict`) |
+
+**How to run.** The same guidance server entry serves the Read API — no extra flag:
+
+```sh
+SERVICE_TENANT_ID=<tenant uuid> SERVICE_RECORD_DATABASE_URL=postgres://… SERVICE_READ_CREDENTIAL=<opaque secret> \
+node --conditions=@domain-harness/source apps/service/src/guidance/server-cli.ts
+```
+
+Its suites (`apps/service/src/read/read.http.test.ts` over `fetch` against the in-process server with the InMemory twins, `apps/service/src/read/effective.test.ts`, `packages/contract/src/read-api.test.ts`, plus the throwaway-DB threading suite in `server-cli.test.ts`) run with `pnpm test`; the database suites run when `SERVICE_TEST_DATABASE_URL` is set.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:

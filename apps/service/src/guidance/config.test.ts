@@ -1,5 +1,5 @@
-// Unit tests for the Guidance server's environment configuration (Story
-// 4.4): every start-up failure is exactly one envelope
+// Unit tests for the Guidance server's environment configuration (Stories
+// 4.4 + 4.6): every start-up failure is exactly one envelope
 // (missing_configuration or invalid_configuration) naming the offending
 // variable, checked in the declared-variable order — the bundles daemon's
 // env-suite pattern.
@@ -13,6 +13,7 @@ function baseEnv(): Record<string, string | undefined> {
   return {
     SERVICE_TENANT_ID: TENANT,
     SERVICE_RECORD_DATABASE_URL: "postgres://postgres:postgres@localhost:5432/postgres",
+    SERVICE_READ_CREDENTIAL: "read-secret-4-6-opaque",
   };
 }
 
@@ -31,6 +32,7 @@ describe("guidanceServiceConfigFromEnv", () => {
     const config = guidanceServiceConfigFromEnv(baseEnv());
     expect(config.tenantId).toBe(TENANT);
     expect(config.recordDatabaseUrl).toBe("postgres://postgres:postgres@localhost:5432/postgres");
+    expect(config.readCredential).toBe("read-secret-4-6-opaque");
     expect(config.port).toBe(DEFAULT_GUIDANCE_PORT);
     expect(DEFAULT_GUIDANCE_PORT).toBe(8080);
   });
@@ -42,7 +44,7 @@ describe("guidanceServiceConfigFromEnv", () => {
   });
 
   it("requires each variable with one envelope", () => {
-    for (const name of ["SERVICE_TENANT_ID", "SERVICE_RECORD_DATABASE_URL"]) {
+    for (const name of ["SERVICE_TENANT_ID", "SERVICE_RECORD_DATABASE_URL", "SERVICE_READ_CREDENTIAL"]) {
       const env = baseEnv();
       env[name] = undefined;
       const removed = configErrorOf(() => guidanceServiceConfigFromEnv(env));
@@ -53,6 +55,14 @@ describe("guidanceServiceConfigFromEnv", () => {
       const blank = configErrorOf(() => guidanceServiceConfigFromEnv({ ...baseEnv(), [name]: "   " }));
       expect(blank.code).toBe("missing_configuration");
       expect(blank.subject).toBe(name);
+    }
+  });
+
+  it("rejects an empty or whitespace-only read credential as missing_configuration", () => {
+    for (const raw of ["", "   ", "\t\n "]) {
+      const error = configErrorOf(() => guidanceServiceConfigFromEnv({ ...baseEnv(), SERVICE_READ_CREDENTIAL: raw }));
+      expect(error.code).toBe("missing_configuration");
+      expect(error.subject).toBe("SERVICE_READ_CREDENTIAL");
     }
   });
 
@@ -79,7 +89,13 @@ describe("guidanceServiceConfigFromEnv", () => {
     // With the tenant id fine, an unset database URL is next.
     const second = configErrorOf(() => guidanceServiceConfigFromEnv({ SERVICE_TENANT_ID: TENANT }));
     expect(second.subject).toBe("SERVICE_RECORD_DATABASE_URL");
-    // With both fine, a bad port is the only failure left.
+    // With both fine, a missing read credential is next (checked before the optional port).
+    const credential = configErrorOf(() =>
+      guidanceServiceConfigFromEnv({ SERVICE_TENANT_ID: TENANT, SERVICE_RECORD_DATABASE_URL: "postgres://x" }),
+    );
+    expect(credential.code).toBe("missing_configuration");
+    expect(credential.subject).toBe("SERVICE_READ_CREDENTIAL");
+    // With all required fine, a bad port is the only failure left.
     const third = configErrorOf(() => guidanceServiceConfigFromEnv({ ...baseEnv(), SERVICE_GUIDANCE_PORT: "0" }));
     expect(third.subject).toBe("SERVICE_GUIDANCE_PORT");
   });

@@ -113,3 +113,11 @@ export {
   respondEnvelope,
 } from "./guidance/mcp.ts";
 export type { GuidanceMcpDeps, GuidanceMcpHandler } from "./guidance/mcp.ts";
+
+// Story 4.6: the Company Read API (credentialed reads of the pinned bundle through the shared derivation).
+
+export { effectiveSetInputOf, joinEffectiveSet } from "./read/effective.ts";
+export type { EffectiveJoinResult } from "./read/effective.ts";
+
+export { handleReadRequest, isReadApiPath, readRouteOf } from "./read/server.ts";
+export type { ReadApiDeps, ReadRouteLabel } from "./read/server.ts";
