@@ -27,6 +27,7 @@ import { createProjectService } from "../projects/service.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
+import { createCompilationsService } from "../compilations/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
@@ -410,6 +411,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
         acceptedDeviations: createAcceptedDeviationsService(db),
         acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
           boilerplate: createBoilerplateService(db),
+          compilations: createCompilationsService(db),
         },
         () => undefined,
       );

@@ -22,6 +22,7 @@ import type { LogEvent } from "../http/server.ts";
 import { MemoryTransport } from "../mail/memory.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
+import { createCompilationsService } from "../compilations/service.ts";
 import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createAcceptedDeviationsService } from "./service.ts";
@@ -220,6 +221,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("accepted deviation r
         acceptedDeviations: createAcceptedDeviationsService(db),
         acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
+        compilations: createCompilationsService(db),
         bundles: wrappedBundles,
       },
       (event) => {

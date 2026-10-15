@@ -43,6 +43,7 @@ import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
 import { untarGz } from "./archive.ts";
 import { createBoilerplateService } from "./service.ts";
+import { createCompilationsService } from "../compilations/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -230,6 +231,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
         acceptedDeviations: createAcceptedDeviationsService(db),
         acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
+        compilations: createCompilationsService(db),
       },
       () => undefined,
     );

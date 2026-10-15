@@ -104,6 +104,16 @@ export {
 export type { GuidanceEndpointService } from "./guidance-endpoint/service.ts";
 export { validateGuidanceEndpointBody } from "./guidance-endpoint/validate.ts";
 export {
+  assertCatalogRead,
+  assertCompilationBuyer,
+  createCompilationsService,
+  getCatalogRead,
+  ingestCompilation,
+  recordCatalogRead,
+} from "./compilations/service.ts";
+export type { CompilationsService } from "./compilations/service.ts";
+export { validateCatalogReadBody, validateCompilationBody } from "./compilations/validate.ts";
+export {
   assertAcceptedDeviationBuyer,
   createAcceptedDeviationsService,
   listAcceptances,

@@ -12,6 +12,7 @@ import {
   acceptedDeviationAlertDismissalPath,
   buildGrantsPath,
   childPermissionsPath,
+  COMPILATION_API_PATHS,
   effectiveStandardsPath,
   GUIDANCE_ENDPOINT_PATH,
   isAcceptedDeviationAlerts,
@@ -25,6 +26,8 @@ import {
   isBuildGrantState,
   isChildPermissionList,
   isChildPermissionState,
+  isCompilationCatalogRead,
+  isCompilationCatalogReadState,
   isEffectiveStandardSet,
   isErrorEnvelope,
   isGuidanceEndpointState,
@@ -64,6 +67,8 @@ import type {
   ChildPermissionList,
   ChildPermissionRequest,
   ChildPermissionState,
+  CompilationCatalogRead,
+  CompilationCatalogReadState,
   EffectiveStandardSet,
   ErrorEnvelope,
   GuidanceEndpointRequest,
@@ -100,7 +105,7 @@ export function registryBaseUrl(env: Readonly<Record<string, string | undefined>
 async function call<T>(
   path: string,
   init: RequestInit,
-  okStatus: number,
+  okStatus: number | readonly number[],
   guard: (value: unknown) => value is T,
 ): Promise<RegistryResult<T>> {
   let response: Response;
@@ -115,7 +120,8 @@ async function call<T>(
   } catch {
     return { kind: "unavailable" };
   }
-  if (response.status === okStatus && guard(body)) return { kind: "ok", value: body };
+  const ok = Array.isArray(okStatus) ? okStatus.includes(response.status) : response.status === okStatus;
+  if (ok && guard(body)) return { kind: "ok", value: body };
   if (response.status >= 400 && response.status < 500 && isErrorEnvelope(body)) return { kind: "refused", error: body };
   return { kind: "unavailable" };
 }
@@ -454,5 +460,27 @@ export function dismissAcceptedDeviationAlert(
     json({ alertId }, bearer(sessionToken)),
     200,
     isAlertDismissedResult,
+  );
+}
+
+/** The tenant's read state for the current Compilation catalog version (every role may read). */
+export function getCatalogRead(sessionToken: string): Promise<RegistryResult<CompilationCatalogReadState>> {
+  return call(COMPILATION_API_PATHS.catalogReads, getJson(sessionToken), 200, isCompilationCatalogReadState);
+}
+
+/**
+ * Record reading the Compilation catalog (the registry allows only the
+ * Buyer). The version is passed as shown; the registry answers 201 for a new
+ * record and 200 for a re-read of the same version.
+ */
+export function recordCatalogRead(
+  sessionToken: string,
+  catalogVersion: string,
+): Promise<RegistryResult<CompilationCatalogRead>> {
+  return call(
+    COMPILATION_API_PATHS.catalogReads,
+    json({ catalogVersion }, bearer(sessionToken)),
+    [201, 200],
+    isCompilationCatalogRead,
   );
 }

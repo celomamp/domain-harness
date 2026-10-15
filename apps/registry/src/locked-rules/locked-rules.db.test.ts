@@ -40,6 +40,7 @@ import { provisionCompany } from "../tenancy/provision.ts";
 import { createLockedRuleService } from "./service.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
+import { createCompilationsService } from "../compilations/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
@@ -240,6 +241,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Locked rules against
         acceptedDeviations: createAcceptedDeviationsService(db),
         acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
+        compilations: createCompilationsService(db),
       },
       () => undefined,
     );
