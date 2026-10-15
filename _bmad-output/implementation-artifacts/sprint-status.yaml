@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-10-2026 12:00
-last_updated: 15-10-2026 10:25
+last_updated: 15-10-2026 13:46
 project: domain harness
 project_key: NOKEY
 tracking_system: file-system
@@ -66,7 +66,7 @@ development_status:
   4-2-company-service-pulls-verifies-and-activates-bundles: done
   4-3-identify-the-application-on-every-guidance-call: done
   4-4-serve-document-response-through-the-four-mcp-tools: done
-  4-5-record-guidance-events-and-gaps-in-the-company-store: backlog
+  4-5-record-guidance-events-and-gaps-in-the-company-store: done
   4-6-read-the-effective-standard-set-through-the-read-api: backlog
   epic-4-retrospective: optional
 
@@ -80,7 +80,7 @@ development_status:
   epic-5-retrospective: optional
 
   epic-6: backlog
-  6-1-publish-the-compilation-catalog-and-gate-sending-on-the-buye: backlog
+  6-1-publish-the-compilation-catalog-and-gate-sending-on-the-buye: done
   6-2-project-records-into-compilations-through-one-collector-chok: backlog
   6-3-deliver-compilations-durably-without-touching-the-builder: backlog
   6-4-buyer-sees-bundle-status-collector-health-and-drops: backlog
@@ -99,7 +99,7 @@ development_status:
   epic-7-retrospective: optional
 
   epic-8: backlog
-  8-1-load-and-verify-a-bundle-file-offline: backlog
+  8-1-load-and-verify-a-bundle-file-offline: done
   8-2-run-the-gate-locally-with-the-same-result-as-ci: backlog
   8-3-distribute-the-cli: backlog
   epic-8-retrospective: optional
