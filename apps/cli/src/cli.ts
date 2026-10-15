@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Offline CLI entry (Story 8.1): `domain-harness bundle verify`.
+ * Offline CLI entry (Stories 8.1, 8.2): `domain-harness bundle verify` and
+ * `domain-harness gate`.
  *
  * Reads a bundle file and a trust-keys file from command paths, verifies
  * offline via `loadBundleFile`, prints exactly one line, and exits with the
@@ -11,11 +12,17 @@
  * exactly the shared gate sentence (`bundle verification failed` or
  * `bundle stale`, exit 1). Usage defects fail closed with the
  * verification-failed sentence; no plan names ever appear in output.
+ *
+ * The gate path (`domain-harness gate ...`) reuses the verifier, adapts the
+ * wire bundle through `core` exactly as the service does, and evaluates via
+ * the shared `runGateDirect` adapter; its usage defects fail closed with
+ * `run did not complete`.
  */
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { BUNDLE_VERIFICATION_FAILED } from "@domain-harness/gate";
+import { BUNDLE_VERIFICATION_FAILED, RUN_DID_NOT_COMPLETE } from "@domain-harness/gate";
 import { loadBundleFile } from "./bundle-file.ts";
+import { runGateCommand } from "./gate.ts";
 
 export interface VerifyCommandOptions {
   readonly bundlePath: string;
@@ -166,19 +173,62 @@ export function isCliEntryPoint(argv1: string | undefined): boolean {
   }
 }
 
-function main(): void {
+/** The dispatched CLI result: one line per printed row. */
+export interface CliDispatchResult {
+  readonly exitCode: number;
+  readonly lines: readonly string[];
+}
+
+/**
+ * Dispatch argv words to the verify or gate command. The verify path is
+ * untouched (sync, one line); `gate ...` runs the offline Gate and returns
+ * its sentence plus one line per open Deviation. Never throws.
+ */
+export async function runCli(argv: readonly string[]): Promise<CliDispatchResult> {
   try {
-    const result = run(process.argv.slice(2));
-    process.stdout.write(`${result.line}\n`);
-    process.exit(result.exitCode);
+    if (argv.length >= 1 && argv[0] === "gate") {
+      const gate = await runGateCommand(argv);
+      return { exitCode: gate.exitCode, lines: [...gate.lines] };
+    }
+    const result = run(argv);
+    return { exitCode: result.exitCode, lines: [result.line] };
   } catch {
     try {
-      process.stdout.write(`${BUNDLE_VERIFICATION_FAILED}\n`);
+      if (argv.length >= 1 && argv[0] === "gate") {
+        return { exitCode: 1, lines: [RUN_DID_NOT_COMPLETE] };
+      }
     } catch {
-      // Ignore stdout failures on the way out.
+      // Ignore inspection failures on the way out.
     }
-    process.exit(1);
+    return { exitCode: 1, lines: [BUNDLE_VERIFICATION_FAILED] };
   }
+}
+
+function main(): void {
+  const argv = process.argv.slice(2);
+  const gate = argv.length >= 1 && argv[0] === "gate";
+  const fallback = gate ? RUN_DID_NOT_COMPLETE : BUNDLE_VERIFICATION_FAILED;
+  // Routing and sentence mapping live in `runCli`; `main` only writes the
+  // lines and exits. `runCli` never rejects, so the rejection handler is the
+  // last-resort envelope keyed to the dispatched command.
+  runCli(argv).then(
+    (result) => {
+      try {
+        for (const line of result.lines) process.stdout.write(`${line}\n`);
+      } catch {
+        // Ignore stdout failures on the way out.
+      }
+      process.exit(result.exitCode);
+    },
+    () => {
+      try {
+        process.stdout.write(`${fallback}\n`);
+      } catch {
+        // Ignore stdout failures on the way out.
+      }
+      process.exit(1);
+    },
+  );
 }
 
 if (isCliEntryPoint(process.argv[1])) {
