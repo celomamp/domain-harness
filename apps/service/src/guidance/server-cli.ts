@@ -1,15 +1,19 @@
-// The Company Standards service Guidance MCP server (Story 4.4). Run from
+// The Company Standards service Guidance MCP server (Stories 4.4 + 4.6). Run from
 // the repository root with
 // `node --conditions=@domain-harness/source apps/service/src/guidance/server-cli.ts`.
 // Configuration comes only from the environment:
 //   SERVICE_TENANT_ID             this Company's tenant id (UUIDv7)
 //   SERVICE_RECORD_DATABASE_URL   connection string of the record store (shared with the bundles and CI Gate stores)
+//   SERVICE_READ_CREDENTIAL       the Read API's opaque shared secret (required, never logged)
 //   SERVICE_GUIDANCE_PORT         optional inbound port; default 8080
 //
 // The server serves the four Guidance tools over Streamable HTTP at `/mcp`,
 // without authentication: it is reachable only inside the Company network
 // (the container publishes no other inbound port; authentication is a
-// deployment concern the network edge handles). Start-up is one envelope:
+// deployment concern the network edge handles). The same service serves the
+// credentialed, read-only Company Read API (`GET /v1/standards` and
+// `GET /v1/projects/{id}/effective-standards`) from the pinned active bundle
+// through the shared derivation Guidance uses. Start-up is one envelope:
 // the record store is opened and migrated, then the MCP server binds. Every
 // request is logged as one id-and-code event that never carries subject
 // text; each tool call answers exactly one typed result, with nothing
@@ -30,6 +34,7 @@ import { createPostgresGuidanceIdentityStore } from "./store.ts";
 import { createPostgresGuidanceEventStore } from "./events.ts";
 import { createGuidanceMcpHandler, GUIDANCE_MCP_PATH } from "./mcp.ts";
 import type { PinnedActiveBundle } from "./identity.ts";
+import { handleReadRequest, readRouteOf } from "../read/server.ts";
 
 const RECORD_DATABASE_URL = "SERVICE_RECORD_DATABASE_URL";
 
@@ -88,9 +93,10 @@ export async function pinnedActiveBundle(
 
 /**
  * The guidance HTTP server for a started record store: the bundle and
- * guidance identity stores over one pool, the MCP handler at `/mcp`, and
- * id-and-code logging. Every request answers exactly one response; a
- * request that is not the endpoint answers 404, never a hang.
+ * guidance identity stores over one pool, the MCP handler at `/mcp`, the
+ * credentialed Read API at its two GET routes, and id-and-code logging.
+ * Every request answers exactly one response; a request that is neither the
+ * MCP endpoint nor a Read API path answers 404, never a hang.
  */
 export function createGuidanceHttpServer(config: GuidanceServiceConfig, pool: Pool, log: Logger = stdoutLogger): Server {
   const bundleStore = createPostgresBundleRecordStore(pool);
@@ -112,10 +118,21 @@ export function createGuidanceHttpServer(config: GuidanceServiceConfig, pool: Po
   return createServer((request: IncomingMessage, response: ServerResponse) => {
     const started = performance.now();
     const path = endpointPath(request.url);
-    const handled =
+    const handled: Promise<void> =
       path === GUIDANCE_MCP_PATH
         ? handler(request, response)
-        : notFound(response, path);
+        : handleReadRequest(
+            {
+              tenantId: config.tenantId,
+              readCredential: config.readCredential,
+              getPinnedBundle: (tenantId) => pinnedActiveBundle(bundleStore, tenantId),
+            },
+            request,
+            response,
+            path,
+          ).then((read) => {
+            if (!read) return notFound(response, path);
+          });
     handled.catch(() => {
       // Unexpected failure outside the MCP layer: one envelope, codes only.
       log({ event: "internal_error", code: "unexpected" });
@@ -133,7 +150,7 @@ export function createGuidanceHttpServer(config: GuidanceServiceConfig, pool: Po
       log({
         event: "http_request",
         method: request.method ?? "",
-        route: path === GUIDANCE_MCP_PATH ? "guidance_mcp" : "unmatched",
+        route: path === GUIDANCE_MCP_PATH ? "guidance_mcp" : (readRouteOf(path) ?? "unmatched"),
         status: response.statusCode,
         ms: Math.round(performance.now() - started),
       });

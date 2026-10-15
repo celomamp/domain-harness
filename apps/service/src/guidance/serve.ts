@@ -46,8 +46,8 @@
  */
 import type { BoilerplateTarget, GuidanceToolHit, GuidanceToolMiss, GuidanceToolName, GuidanceToolResult, StandardBundlePayload, StandardEntry, StandardInfo, UuidV7 } from "@domain-harness/contract";
 import { isBoilerplateTarget, isStandardBundlePayload } from "@domain-harness/contract";
-import { entrySlot, normalizeSlotName, resolveEffectiveSet } from "@domain-harness/core";
-import type { ConflictSlot, SlotHolder } from "@domain-harness/core";
+import { normalizeSlotName, resolveEffectiveSet } from "@domain-harness/core";
+import type { ConflictSlot } from "@domain-harness/core";
 import {
   BUNDLE_STALE,
   DUPLICATE_APPLICATION_ID,
@@ -59,6 +59,7 @@ import type { GuidanceIdentityHeaders, PinnedActiveBundle } from "./identity.ts"
 import type { GuidanceIdentityStore } from "./store.ts";
 import type { GuidanceEventStore } from "./events.ts";
 import type { BundledStateOutcome } from "../bundles/puller.ts";
+import { effectiveSetInputOf } from "../read/effective.ts";
 
 /**
  * The `unbound` reasons of this unit that no other surface shares. The
@@ -279,22 +280,6 @@ function agentToolOf(payload: StandardBundlePayload, applicationId: UuidV7): Boi
 export function missSentenceOf(tool: GuidanceToolName, subject: string, stale: boolean): string {
   const sentence = MISS_SENTENCE_TEMPLATES[tool](subject);
   return stale ? `${sentence} (${BUNDLE_STALE})` : sentence;
-}
-
-/** `resolveEffectiveSet`'s inputs, derived only from the bundle payload; the Project comes from the identity step. */
-function effectiveSetInputOf(payload: StandardBundlePayload, projectId: string) {
-  const holders: SlotHolder[] = payload.standards.map((standard) => ({
-    standardId: standard.id,
-    projectId: standard.project.id,
-    slot: entrySlot(standard.entry),
-  }));
-  return {
-    projects: payload.tree.projects.map((project) => ({ id: project.id, parentId: project.parentId })),
-    standards: holders,
-    // Locked ids deduplicated by `standardId`, in payload order.
-    lockedStandardIds: [...new Set(payload.tree.lockedRules.map((mark) => mark.standardId))],
-    projectId,
-  };
 }
 
 /**

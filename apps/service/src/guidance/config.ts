@@ -1,10 +1,11 @@
 /**
- * The Guidance MCP server's configuration (Story 4.4): it comes only from
- * the environment; every failure throws one envelope-shaped error the entry
- * prints once to stderr before exiting 1 — never a partial start. The
+ * The Guidance MCP server's configuration (Stories 4.4 + 4.6): it comes only
+ * from the environment; every failure throws one envelope-shaped error the
+ * entry prints once to stderr before exiting 1 — never a partial start. The
  * `SERVICE_TENANT_ID` and `SERVICE_RECORD_DATABASE_URL` names follow the
  * bundles daemon (`apps/service/src/bundles/env.ts`); the port is optional
- * with the documented default.
+ * with the documented default. The Read API credential (Story 4.6) is the one
+ * opaque shared secret, required, and never logged.
  */
 import type { ErrorEnvelope, UuidV7 } from "@domain-harness/contract";
 import { isUuidV7 } from "@domain-harness/contract";
@@ -31,6 +32,8 @@ export interface GuidanceServiceConfig {
   readonly tenantId: UuidV7;
   /** Connection string of the record store, shared with the bundles and CI Gate stores. */
   readonly recordDatabaseUrl: string;
+  /** The Read API's opaque shared secret (`Authorization: Bearer`), from required `SERVICE_READ_CREDENTIAL`. */
+  readonly readCredential: string;
   /** The inbound port; the server is reachable only inside the Company network, with no authentication. */
   readonly port: number;
 }
@@ -80,6 +83,7 @@ export function guidanceServiceConfigFromEnv(env: Record<string, string | undefi
   return {
     tenantId: tenantId(env),
     recordDatabaseUrl: required(env, "SERVICE_RECORD_DATABASE_URL"),
+    readCredential: required(env, "SERVICE_READ_CREDENTIAL"),
     port: port(env),
   };
 }
