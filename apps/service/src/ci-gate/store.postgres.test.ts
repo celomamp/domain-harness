@@ -55,7 +55,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
     await owner.connect();
 
     const firstReport = await migrate(owner);
-    expect(firstReport).toEqual({ applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql"], alreadyApplied: 0 });
+    expect(firstReport).toEqual({ applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql"], alreadyApplied: 0 });
 
     pool = createPool(dbUrl);
     store = createPostgresGateRecordStore(pool);
@@ -81,6 +81,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
       "bundle_refusals",
       "bundle_staleness_observations",
       "gate_runs",
+      "guidance_events",
       "guidance_project_mismatches",
       "service_bundles",
       "service_migrations",
@@ -108,9 +109,9 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
     });
   });
 
-  it("migrate and migratePostgres are idempotent once 0001, 0002 and 0003 are applied", async () => {
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 3 });
-    expect(await migratePostgres(owner)).toEqual({ applied: [], alreadyApplied: 3 });
+  it("migrate and migratePostgres are idempotent once 0001, 0002, 0003 and 0004 are applied", async () => {
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 4 });
+    expect(await migratePostgres(owner)).toEqual({ applied: [], alreadyApplied: 4 });
   });
 
   it("enforces TOFU on application_bindings: first bind persists, subsequent bind with a different fingerprint keeps the original", async () => {

@@ -1,10 +1,11 @@
 /**
- * Load suite for the Guidance serving unit (Story 4.4, NFR-6): many
+ * Load suite for the Guidance serving unit (Stories 4.4 + 4.5, NFR-6): many
  * concurrent `serveGuidanceCall`s over the InMemory twins with a
- * realistically-sized bundle. Guidance never blocks an agent's turn and
- * needs no prior briefing call, so the whole decision — identity, staleness,
- * core resolution and the match — must land well under the p95 bound of
- * 500 ms from the bundle cache.
+ * realistically-sized bundle, with recording in the path. Guidance never
+ * blocks an agent's turn and needs no prior briefing call, so the whole
+ * decision — identity, staleness, core resolution, the match and the one
+ * event append — must land well under the p95 bound of 500 ms from the
+ * bundle cache.
  */
 import { describe, expect, it } from "vitest";
 import { performance } from "node:perf_hooks";
@@ -12,6 +13,7 @@ import type { GuidanceToolName, StandardBundlePayload, StandardInfo, UuidV7 } fr
 import { serveGuidanceCall } from "./serve.ts";
 import type { ServeGuidanceCallInput } from "./serve.ts";
 import { createInMemoryGuidanceIdentityStore } from "./store.ts";
+import { createInMemoryGuidanceEventStore } from "./events.ts";
 import { createInMemoryBundleRecordStore } from "../bundles/store.ts";
 import { bundleHashOf } from "../bundles/verify.ts";
 import { makeBundlePayload, makeSigningKey, signPayload } from "../bundles/test-fixtures.ts";
@@ -85,7 +87,7 @@ function makeLargePayload(): StandardBundlePayload {
     ...makeBundlePayload({ keyId: "perf-test-key", sequence: 1, issuedAt: ISSUED }),
     standards,
     tree: { rootId: ROOT, projects, lockedRules: [] },
-    applications: [{ id: APPLICATION_ID, projectId: PROJECT_A, fromFlow: true }],
+    applications: [{ id: APPLICATION_ID, projectId: PROJECT_A, fromFlow: true, agentTool: null }],
   };
 }
 
@@ -104,10 +106,11 @@ describe("serveGuidanceCall under load (NFR-6)", () => {
     const bundleStore = createInMemoryBundleRecordStore();
     await bundleStore.activate(signed, hash, TENANT);
     const identityStore = createInMemoryGuidanceIdentityStore();
-    const shared: Pick<ServeGuidanceCallInput, "tenantId" | "now" | "identityStore" | "getPinnedBundle" | "getBundledState"> = {
+    const shared: Pick<ServeGuidanceCallInput, "tenantId" | "now" | "identityStore" | "eventStore" | "getPinnedBundle" | "getBundledState"> = {
       tenantId: TENANT,
       now: NOW,
       identityStore,
+      eventStore: createInMemoryGuidanceEventStore(),
       getPinnedBundle: () => Promise.resolve({ payload, hash }),
       getBundledState: (now) => bundledState(bundleStore, TENANT, now),
     };

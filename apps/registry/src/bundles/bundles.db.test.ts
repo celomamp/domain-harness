@@ -603,10 +603,12 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
         id: flowApp.id,
         projectId: childProject.id,
         fromFlow: true,
+        agentTool: null,
       });
       expect(latest.payload.applications.find((a) => a.id !== flowApp.id)).toMatchObject({
         projectId: subProject.id,
         fromFlow: false,
+        agentTool: null,
       });
 
       // 13. POST /v1/accepted-deviations (Community's pin: this tenant is Enterprise)
@@ -670,6 +672,25 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
       expect(bpRes.status).toBe(200);
       // Boilerplate generation is not in the pinned mutating hook list
       expect(await bundleCount(tenantA)).toBe(15);
+
+      // A fresh generation's tool appears only after the next bundle: the
+      // next mutation builds bundle 16 carrying `claude-code` for the
+      // generated app and `null` for the app without a generation.
+      const r16 = await post("/v1/applications", "builder", {
+        description: "Post-generation app",
+        projectId: childProject.id,
+      });
+      expect(r16.status).toBe(201);
+      const afterGeneration = await assertLatestBundle(16);
+      expect(afterGeneration.payload.applications.find((a) => a.id === flowApp.id)).toEqual({
+        id: flowApp.id,
+        projectId: childProject.id,
+        fromFlow: true,
+        agentTool: "claude-code",
+      });
+      for (const entry of afterGeneration.payload.applications) {
+        if (entry.id !== flowApp.id) expect(entry.agentTool).toBeNull();
+      }
 
       // Tenant B still has no bundle and gets 404
       await expectRefused(await pull(tenantB, credentialB), 404, "not_found", "bundle");

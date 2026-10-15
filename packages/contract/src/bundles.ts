@@ -13,6 +13,8 @@ import { isUuidV7 } from "./ids.ts";
 import type { UuidV7 } from "./ids.ts";
 import { isStandardInfo } from "./standards.ts";
 import type { StandardInfo } from "./standards.ts";
+import { isBoilerplateTarget } from "./boilerplate.ts";
+import type { BoilerplateTarget } from "./boilerplate.ts";
 import { isProjectTree } from "./projects.ts";
 import type { ProjectTree } from "./projects.ts";
 import { isAcceptedDeviation } from "./deviations.ts";
@@ -30,6 +32,12 @@ export interface BundleApplication {
   readonly id: UuidV7;
   readonly projectId: UuidV7;
   readonly fromFlow: boolean;
+  /**
+   * The agent tool of the Application's latest successful Boilerplate
+   * generation, or `null` when none was generated yet. A bundle compiled
+   * before Story 4.5 carries no key; the guard reads a missing key as `null`.
+   */
+  readonly agentTool: BoilerplateTarget | null;
 }
 
 /** The format marker carried by every bundle payload. */
@@ -75,7 +83,7 @@ export function standardBundleLatestPath(tenantId: string): string {
 // Guards. Never throw; exact key sets.
 // ---------------------------------------------------------------------------
 
-const BUNDLE_APPLICATION_KEYS = new Set(["id", "projectId", "fromFlow"]);
+const BUNDLE_APPLICATION_KEYS = new Set(["id", "projectId", "fromFlow", "agentTool"]);
 const BUNDLE_FORMAT_KEYS = new Set(["type", "version"]);
 const STANDARD_BUNDLE_PAYLOAD_KEYS = new Set([
   "format",
@@ -98,10 +106,16 @@ export function isBundleApplication(value: unknown): value is BundleApplication 
   for (const key of Object.keys(value)) {
     if (!BUNDLE_APPLICATION_KEYS.has(key)) return false;
   }
+  // Pre-4.5 stored payloads carry no `agentTool` key: a missing key reads as
+  // `null` so those bundles keep serving; any other unknown key is rejected
+  // above. A present key must be `null` or a known target.
+  const agentTool = value["agentTool"];
+  const agentToolOk = !("agentTool" in value) || agentTool === null || isBoilerplateTarget(agentTool);
   return (
     isUuidV7(value["id"]) &&
     isUuidV7(value["projectId"]) &&
-    typeof value["fromFlow"] === "boolean"
+    typeof value["fromFlow"] === "boolean" &&
+    agentToolOk
   );
 }
 

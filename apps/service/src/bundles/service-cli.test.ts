@@ -131,6 +131,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("service-cli: start, 
       "0001_ci_gate.sql",
       "0002_standard_bundles.sql",
       "0003_guidance_identity.sql",
+      "0004_guidance_events.sql",
     ]);
     const tables = await owner.query<{ to_regclass: string | null }>(
       "select to_regclass('public.service_bundles')::text as to_regclass",

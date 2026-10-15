@@ -1,10 +1,12 @@
 /**
- * HTTP suite for the Guidance MCP adapter (Story 4.4): an in-process
+ * HTTP suite for the Guidance MCP adapter (Stories 4.4 + 4.5): an in-process
  * `node:http` server (no database — the InMemory twins) with a real SDK
  * client over Streamable HTTP. Pins tools/list (exactly the four contract
  * tools), a hit, a miss, an unbound flow, the stale flag, the per-request
- * identity headers, and the protocol-layer refusal of a subject the contract
- * schema rejects.
+ * identity headers, the protocol-layer refusal of a subject the contract
+ * schema rejects, and end-to-end recording (hit records, miss records AND
+ * appears in gaps, refused calls record nothing) with wire text
+ * byte-identical to 4.4.
  */
 import { describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -18,6 +20,9 @@ import type { GuidanceToolResult, StandardBundlePayload, UuidV7 } from "@domain-
 import { createGuidanceMcpHandler } from "./mcp.ts";
 import type { GuidanceMcpDeps } from "./mcp.ts";
 import { createInMemoryGuidanceIdentityStore } from "./store.ts";
+import type { GuidanceIdentityStore } from "./store.ts";
+import { createInMemoryGuidanceEventStore } from "./events.ts";
+import type { GuidanceEventStore } from "./events.ts";
 import { bundledState } from "../bundles/puller.ts";
 import { createInMemoryBundleRecordStore } from "../bundles/store.ts";
 import { bundleHashOf } from "../bundles/verify.ts";
@@ -83,25 +88,31 @@ function payloadOf(issuedAt: string = ISSUED): StandardBundlePayload {
       ],
       lockedRules: [],
     },
-    applications: [{ id: APPLICATION_ID, projectId: WEB, fromFlow: true }],
+    applications: [{ id: APPLICATION_ID, projectId: WEB, fromFlow: true, agentTool: null }],
   };
 }
 
 interface Fixture {
   readonly serverUrl: string;
   readonly httpServer: HttpServer;
+  readonly eventStore: GuidanceEventStore;
+  readonly identityStore: GuidanceIdentityStore;
 }
 
 /** One in-process guidance server (no DB): the InMemory twins behind the real MCP handler at `/mcp`. */
-async function setup(issuedAt: string = ISSUED): Promise<Fixture> {
+async function setup(issuedAt: string = ISSUED, overrides: { eventStore?: GuidanceEventStore; onRecordError?: GuidanceMcpDeps["onRecordError"] } = {}): Promise<Fixture> {
   const payload = payloadOf(issuedAt);
   const signed = signPayload(payload, makeSigningKey("mcp-http-key"));
   const hash = bundleHashOf(signed);
   const bundleStore = createInMemoryBundleRecordStore();
   await bundleStore.activate(signed, hash, TENANT);
+  const eventStore = overrides.eventStore ?? createInMemoryGuidanceEventStore();
+  const identityStore = createInMemoryGuidanceIdentityStore();
   const deps: GuidanceMcpDeps = {
     tenantId: TENANT,
-    identityStore: createInMemoryGuidanceIdentityStore(),
+    identityStore,
+    eventStore,
+    onRecordError: overrides.onRecordError,
     getPinnedBundle: () => Promise.resolve({ payload, hash }),
     getBundledState: (now) => bundledState(bundleStore, TENANT, now),
     now: () => NOW,
@@ -115,7 +126,7 @@ async function setup(issuedAt: string = ISSUED): Promise<Fixture> {
     });
   });
   const address = httpServer.address() as AddressInfo;
-  return { serverUrl: `http://127.0.0.1:${String(address.port)}/mcp`, httpServer };
+  return { serverUrl: `http://127.0.0.1:${String(address.port)}/mcp`, httpServer, eventStore, identityStore };
 }
 
 /** A connected SDK client whose every HTTP request carries `headers` (identity is re-read per request server-side). */
@@ -285,5 +296,95 @@ describe("the Guidance MCP server over Streamable HTTP", () => {
     } finally {
       await stop(fixture, null);
     }
+  });
+
+  it("records bound outcomes service-side: a hit records, a miss records AND appears in gaps, a refused call records nothing", async () => {
+    const fixture = await setup();
+    let client: Client | null = null;
+    try {
+      client = await connectedClient(fixture.serverUrl, BOUND_HEADERS);
+      // A hit over the wire is byte-identical to 4.4 and records one row.
+      const hitText = textOf(await client.callTool({ name: "code_stack_rule", arguments: { subject: "react" } }));
+      const hit = JSON.parse(hitText) as GuidanceToolResult;
+      expect(hit.kind).toBe("hit");
+      expect(hitText).toBe(canonicalJson(hit));
+      // A miss over the wire records and appears in the gaps projection.
+      const missText = textOf(await client.callTool({ name: "design_import", arguments: { subject: "~/acme/unknown" } }));
+      const miss = JSON.parse(missText) as GuidanceToolResult;
+      expect(miss.kind).toBe("miss");
+      expect(missText).toBe(canonicalJson(miss));
+
+      const events = await fixture.eventStore.listGuidanceEvents(APPLICATION_ID);
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({ tool: "code_stack_rule", subject: "react", outcome: { kind: "hit" } });
+      expect(events[1]).toMatchObject({ tool: "design_import", subject: "~/acme/unknown", outcome: { kind: "miss" } });
+      const gaps = await fixture.eventStore.listGuidanceGaps(APPLICATION_ID);
+      expect(gaps).toHaveLength(1);
+      expect(gaps[0]).toMatchObject({ tool: "design_import", subject: "~/acme/unknown" });
+    } finally {
+      await stop(fixture, client);
+    }
+  });
+
+  it("records nothing over the wire for a refused call: a copied fingerprint is ledgered by 4.3, not here", async () => {
+    const fixture = await setup();
+    // Bind the Application to a different fingerprint first: the fixture's
+    // fingerprint then presents as a copy and is refused.
+    await fixture.identityStore.bindApplication(APPLICATION_ID, "9".repeat(64));
+    let client: Client | null = null;
+    try {
+      client = await connectedClient(fixture.serverUrl, BOUND_HEADERS);
+      const refused = JSON.parse(textOf(await client.callTool({ name: "code_stack_rule", arguments: { subject: "react" } }))) as GuidanceToolResult;
+      expect(refused).toMatchObject({ kind: "unbound", reason: "refused" });
+      expect(await fixture.eventStore.listGuidanceEvents(APPLICATION_ID)).toEqual([]);
+      expect(await fixture.eventStore.listGuidanceGaps(APPLICATION_ID)).toEqual([]);
+    } finally {
+      await stop(fixture, client);
+    }
+  });
+
+  it("records nothing for an unbound caller over the wire", async () => {
+    const fixture = await setup();
+    let client: Client | null = null;
+    try {
+      const headers = { [HEADER_KEYS.repoFingerprint]: FP_1, [HEADER_KEYS.applicationId]: "018f3d2a-7000-7000-8000-000000000999" as UuidV7 };
+      client = await connectedClient(fixture.serverUrl, headers);
+      const unbound = JSON.parse(textOf(await client.callTool({ name: "code_stack_rule", arguments: { subject: "react" } }))) as GuidanceToolResult;
+      expect(unbound.kind).toBe("unbound");
+      expect(await fixture.eventStore.listGuidanceEvents()).toEqual([]);
+    } finally {
+      await stop(fixture, client);
+    }
+  });
+
+  it("forwards a failing record insert to the ids-only hook without changing the wire answer", async () => {
+    const seen: { applicationId: unknown; tool: unknown; error: unknown }[] = [];
+    const rejecting: GuidanceEventStore = {
+      appendGuidanceEvent: () => Promise.reject(new Error("record store down")),
+      listGuidanceEvents: () => Promise.resolve([]),
+      listGuidanceGaps: () => Promise.resolve([]),
+      countGuidanceEvents: () => Promise.resolve(0),
+    };
+    // Without the `onRecordError` forwarding in the MCP handler, the hook
+    // would never fire and this case would fail on the length assertion.
+    const fixture = await setup(ISSUED, {
+      eventStore: rejecting,
+      onRecordError: (input) => {
+        seen.push(input);
+      },
+    });
+    let client: Client | null = null;
+    try {
+      client = await connectedClient(fixture.serverUrl, BOUND_HEADERS);
+      const text = textOf(await client.callTool({ name: "design_component", arguments: { subject: "clickable action" } }));
+      const result = JSON.parse(text) as GuidanceToolResult;
+      expect(result.kind).toBe("hit");
+      expect(text).toBe(canonicalJson(result));
+    } finally {
+      await stop(fixture, client);
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ applicationId: APPLICATION_ID, tool: "design_component" });
+    expect(JSON.stringify(seen[0])).not.toContain("clickable action");
   });
 });

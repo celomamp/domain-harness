@@ -271,6 +271,8 @@ export type {
   GuidanceToolUnbound,
   GuidanceToolUnboundReason,
 } from "./guidance-tools.ts";
+export { GUIDANCE_EVENT_RETENTION_DAYS, isGuidanceEvent } from "./guidance-events.ts";
+export type { GuidanceEvent, GuidanceEventOutcome } from "./guidance-events.ts";
 export type {
   GuidanceAdvisoryProjectMismatch,
   GuidanceIdentityResult,

@@ -1,13 +1,13 @@
 /**
- * Unit suite for the Guidance serving unit (Story 4.4): every I/O-matrix row
- * pinned against the InMemory twins and synthetic bundles — identity precedes
- * everything, staleness flags every response, the Effective Standard set is
- * resolved only through core, matching is the contract's deterministic rule,
- * and a failing read never throws. Nothing records here beyond 4.3's own
- * decisions (miss records are Story 4.5).
+ * Unit suite for the Guidance serving unit (Stories 4.4 + 4.5): every
+ * I/O-matrix row pinned against the InMemory twins and synthetic bundles —
+ * identity precedes everything, staleness flags every response, the Effective
+ * Standard set is resolved only through core, matching is the contract's
+ * deterministic rule, a failing read never throws, and every bound `hit` /
+ * `miss` appends exactly one Guidance event (a `miss` is the gap).
  */
 import { describe, expect, it } from "vitest";
-import { canonicalJson, isGuidanceToolResult } from "@domain-harness/contract";
+import { canonicalJson, isGuidanceEvent, isGuidanceToolResult } from "@domain-harness/contract";
 import type { BundleApplication, GuidanceToolResult, ProjectTree, StandardBundlePayload, StandardInfo, UuidV7 } from "@domain-harness/contract";
 import {
   EFFECTIVE_STANDARD_SET_COULD_NOT_BE_READ,
@@ -23,6 +23,8 @@ import { serveGuidanceCall } from "./serve.ts";
 import type { ServeGuidanceCallInput } from "./serve.ts";
 import { createInMemoryGuidanceIdentityStore } from "./store.ts";
 import type { GuidanceIdentityStore } from "./store.ts";
+import { createInMemoryGuidanceEventStore } from "./events.ts";
+import type { GuidanceEventStore } from "./events.ts";
 import { bundledState } from "../bundles/puller.ts";
 import { createInMemoryBundleRecordStore } from "../bundles/store.ts";
 import { bundleHashOf } from "../bundles/verify.ts";
@@ -131,7 +133,7 @@ function payloadOf(spec: BundleSpec = {}): StandardBundlePayload {
     stalenessHours: spec.stalenessHours ?? base.stalenessHours,
     standards: spec.standards ?? [],
     tree,
-    applications: spec.applications ?? [{ id: APPLICATION_ID, projectId: WEB, fromFlow: true }],
+    applications: spec.applications ?? [{ id: APPLICATION_ID, projectId: WEB, fromFlow: true, agentTool: null }],
     acceptedDeviations: [],
   };
   if (spec.payloadDropKey === undefined) return payload;
@@ -146,6 +148,7 @@ interface ServingFixture {
   readonly hash: string;
   readonly identityStore: GuidanceIdentityStore;
   readonly bundleStore: BundleRecordStore;
+  readonly eventStore: GuidanceEventStore;
 }
 
 /** A serving fixture over the InMemory twins and one synthetic bundle. */
@@ -156,6 +159,7 @@ async function setup(spec: BundleSpec = {}): Promise<ServingFixture> {
   const bundleStore = createInMemoryBundleRecordStore();
   await bundleStore.activate(signed, hash, TENANT);
   const identityStore = createInMemoryGuidanceIdentityStore();
+  const eventStore = createInMemoryGuidanceEventStore();
   const pinned: PinnedActiveBundle = { payload, hash };
   return {
     call: (overrides: Partial<ServeGuidanceCallInput>): Promise<GuidanceToolResult> =>
@@ -166,12 +170,15 @@ async function setup(spec: BundleSpec = {}): Promise<ServingFixture> {
         tenantId: TENANT,
         now: overrides.now ?? NOW,
         identityStore: overrides.identityStore ?? identityStore,
+        eventStore: overrides.eventStore ?? eventStore,
+        onRecordError: overrides.onRecordError,
         getPinnedBundle: overrides.getPinnedBundle ?? (() => Promise.resolve(pinned)),
         getBundledState: overrides.getBundledState ?? ((now) => bundledState(bundleStore, TENANT, now)),
       }),
     hash,
     identityStore,
     bundleStore,
+    eventStore,
   };
 }
 
@@ -297,7 +304,7 @@ describe("serveGuidanceCall: bound answers", () => {
     const dataToken = tokenStandard(DATA, "DataToken");
     const { call, identityStore, hash } = await setup({
       standards: [webToken, dataToken],
-      applications: [{ id: APPLICATION_ID, projectId: WEB, fromFlow: true }],
+      applications: [{ id: APPLICATION_ID, projectId: WEB, fromFlow: true, agentTool: null }],
     });
     const result = await call({
       tool: "design_token",
@@ -390,6 +397,7 @@ describe("serveGuidanceCall: staleness", () => {
       tenantId: TENANT,
       now: NOW,
       identityStore: createInMemoryGuidanceIdentityStore(),
+      eventStore: createInMemoryGuidanceEventStore(),
       getPinnedBundle: () => Promise.resolve({ payload, hash }),
       // The staleness read names another bundle than the pinned one.
       getBundledState: () =>
@@ -484,5 +492,186 @@ describe("serveGuidanceCall: never throws, always typed", () => {
       expect(isGuidanceToolResult(result)).toBe(true);
       expect(() => canonicalJson(result)).not.toThrow();
     }
+  });
+});
+
+describe("serveGuidanceCall: recording bound outcomes (Story 4.5)", () => {
+  it("records one event row for a bound hit, with every field and a store-assigned per-app sequence", async () => {
+    const react = codeStackStandard(ROOT, "React");
+    const { call, hash, eventStore } = await setup({
+      standards: [react],
+      applications: [{ id: APPLICATION_ID, projectId: WEB, fromFlow: true, agentTool: "cursor" }],
+    });
+    const result = await call({ subject: "react" });
+    expect(result.kind).toBe("hit");
+    const events = await eventStore.listGuidanceEvents(APPLICATION_ID);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (event === undefined) throw new Error("the bound hit recorded no event");
+    expect(isGuidanceEvent(event)).toBe(true);
+    expect(event).toMatchObject({
+      applicationId: APPLICATION_ID,
+      sequence: 1,
+      tool: "code_stack_rule",
+      subject: "react",
+      outcome: { kind: "hit", standardId: react.id, version: 2 },
+      agentTool: "cursor",
+      bundleHash: hash,
+    });
+    expect(typeof event.id).toBe("string");
+    expect(typeof event.createdAt).toBe("string");
+  });
+
+  it("records one event row for a bound miss, and the row is listed as a gap with no second write", async () => {
+    const { call, hash, eventStore } = await setup({ standards: [codeStackStandard(ROOT, "React")] });
+    const result = await call({ tool: "design_token", subject: "NoSuchToken" });
+    expect(result.kind).toBe("miss");
+    expect(await eventStore.countGuidanceEvents(APPLICATION_ID)).toBe(1);
+    const gaps = await eventStore.listGuidanceGaps(APPLICATION_ID);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatchObject({
+      applicationId: APPLICATION_ID,
+      tool: "design_token",
+      subject: "NoSuchToken",
+      outcome: { kind: "miss" },
+      agentTool: null,
+      bundleHash: hash,
+    });
+  });
+
+  it("persists the record service-side with no agent cooperation: the agent tool comes only from the pinned bundle entry", async () => {
+    const { call, eventStore } = await setup({
+      standards: [codeStackStandard(ROOT, "React")],
+      applications: [{ id: APPLICATION_ID, projectId: WEB, fromFlow: true, agentTool: "claude-code" }],
+    });
+    // No header carries the agent tool; the pinned entry is the only source.
+    await call({ subject: "react", headers: { applicationId: APPLICATION_ID, advisoryProjectId: WEB, repoFingerprint: FP_1 } });
+    const events = await eventStore.listGuidanceEvents(APPLICATION_ID);
+    expect(events[0]?.agentTool).toBe("claude-code");
+  });
+
+  it("records nothing for a copied fingerprint: the refusal ledger row is 4.3's, no event row", async () => {
+    const { call, identityStore, eventStore } = await setup({ standards: [codeStackStandard(ROOT, "React")] });
+    await identityStore.bindApplication(APPLICATION_ID, "9".repeat(64));
+    const result = await call({ headers: { applicationId: APPLICATION_ID, advisoryProjectId: WEB, repoFingerprint: FP_1 } });
+    expect(result).toMatchObject({ kind: "unbound", reason: "refused" });
+    expect(await eventStore.listGuidanceEvents(APPLICATION_ID)).toEqual([]);
+  });
+
+  it("records nothing for unbound callers: missing file, unknown id and failing reads leave no row", async () => {
+    const { call, eventStore } = await setup({ standards: [codeStackStandard(ROOT, "React")] });
+    await call({ headers: { applicationId: undefined, advisoryProjectId: undefined, repoFingerprint: FP_1 } });
+    await call({
+      headers: { applicationId: "018f3d2a-7000-7000-8000-000000000999", advisoryProjectId: WEB, repoFingerprint: FP_1 },
+    });
+    await call({ getPinnedBundle: () => Promise.reject(new Error("bundle source down")) });
+    expect(await eventStore.listGuidanceEvents()).toEqual([]);
+  });
+
+  it("returns the typed answer unchanged when the record insert throws, and fires the ids-only hook without subject text", async () => {
+    const distinctive = "quetzal-distinctive-subject-4-5";
+    const distinctiveStandard = codeStackStandard(ROOT, "Quetzal-Distinctive-Subject-4-5");
+    const { call, hash } = await setup({ standards: [distinctiveStandard] });
+    const failingEvents: GuidanceEventStore = {
+      appendGuidanceEvent: () => Promise.reject(new Error("record store down")),
+      listGuidanceEvents: () => Promise.resolve([]),
+      listGuidanceGaps: () => Promise.resolve([]),
+      countGuidanceEvents: () => Promise.resolve(0),
+    };
+    const seen: { applicationId: unknown; tool: unknown; error: unknown }[] = [];
+    const hit = await call({
+      subject: distinctive,
+      eventStore: failingEvents,
+      onRecordError: (input) => {
+        seen.push(input);
+      },
+    });
+    // The typed answer is byte-identical to the no-recording answer: a hit quoting the bundle hash.
+    expect(hit).toMatchObject({ kind: "hit", tool: "code_stack_rule", subject: distinctive, bundleHash: hash });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ applicationId: APPLICATION_ID, tool: "code_stack_rule" });
+    // Ids only: the hook payload carries no subject text.
+    expect(JSON.stringify(seen[0])).not.toContain(distinctive);
+  });
+
+  it("serves a pre-4.5 bundle without the agentTool key and records with a null agent tool", async () => {
+    const react = codeStackStandard(ROOT, "React");
+    const payload = payloadOf({ standards: [react] });
+    const oldApplications = [{ id: APPLICATION_ID, projectId: WEB, fromFlow: true }] as unknown as BundleApplication[];
+    const oldPayload = { ...payload, applications: oldApplications };
+    const signed = signPayload(oldPayload, makeSigningKey("serve-test-key"));
+    const hash = bundleHashOf(signed);
+    const bundleStore = createInMemoryBundleRecordStore();
+    await bundleStore.activate(signed, hash, TENANT);
+    const identityStore = createInMemoryGuidanceIdentityStore();
+    const eventStore = createInMemoryGuidanceEventStore();
+    const pinned: PinnedActiveBundle = { payload: oldPayload, hash };
+    const result = await serveGuidanceCall({
+      headers: { applicationId: APPLICATION_ID, advisoryProjectId: WEB, repoFingerprint: FP_1 },
+      tool: "code_stack_rule",
+      subject: "react",
+      tenantId: TENANT,
+      now: NOW,
+      identityStore,
+      eventStore,
+      getPinnedBundle: () => Promise.resolve(pinned),
+      getBundledState: (now) => bundledState(bundleStore, TENANT, now),
+    });
+    expect(result.kind).toBe("hit");
+    const events = await eventStore.listGuidanceEvents(APPLICATION_ID);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.agentTool).toBeNull();
+  });
+
+  it("assigns distinct per-app sequences under N parallel bound calls, and per-app counters stay independent", async () => {
+    const { call, eventStore } = await setup({ standards: [codeStackStandard(ROOT, "React")] });
+    const otherApp = "018f3d2a-7000-7000-8000-000000000777" as UuidV7;
+    const N = 10;
+    await Promise.all(
+      Array.from({ length: N }, (_unused, index) =>
+        call({
+          subject: `subject-${String(index)}`,
+          headers: { applicationId: APPLICATION_ID, advisoryProjectId: WEB, repoFingerprint: FP_1 },
+        }),
+      ),
+    );
+    const sequences = (await eventStore.listGuidanceEvents(APPLICATION_ID)).map((event) => event.sequence).sort((a, b) => a - b);
+    expect(sequences).toEqual(Array.from({ length: N }, (_unused, index) => index + 1));
+    // A second Application starts its own sequence at 1.
+    const { call: callB } = await setup({ standards: [codeStackStandard(ROOT, "React")] });
+    await callB({
+      subject: "react",
+      headers: { applicationId: otherApp, advisoryProjectId: WEB, repoFingerprint: FP_1 },
+    });
+    expect(await eventStore.countGuidanceEvents(otherApp)).toBe(0);
+  });
+
+  it("keeps per-Application counters independent: A (2 rows) then B (0 rows) yields A=3, B=1", async () => {
+    const appB = "018f3d2a-7000-7000-8000-000000000888" as UuidV7;
+    const { call, eventStore } = await setup({
+      standards: [codeStackStandard(ROOT, "React")],
+      applications: [
+        { id: APPLICATION_ID, projectId: WEB, fromFlow: true, agentTool: null },
+        { id: appB, projectId: WEB, fromFlow: false, agentTool: null },
+      ],
+    });
+    await call({ subject: "react" });
+    await call({ subject: "vue", tool: "code_stack_rule" });
+    await call({ subject: "react" });
+    expect((await eventStore.listGuidanceEvents(APPLICATION_ID)).map((event) => event.sequence)).toEqual([1, 2, 3]);
+    await call({
+      subject: "react",
+      headers: { applicationId: appB, advisoryProjectId: WEB, repoFingerprint: FP_1 },
+    });
+    expect((await eventStore.listGuidanceEvents(appB)).map((event) => event.sequence)).toEqual([1]);
+  });
+
+  it("holds only the asked subject term: a distinctive subject appears in the row and the hook carries ids only", async () => {
+    const distinctive = "xylophone-distinctive-4-5-privacy";
+    const { call, eventStore } = await setup({ standards: [codeStackStandard(ROOT, "React")] });
+    await call({ subject: distinctive });
+    const events = await eventStore.listGuidanceEvents(APPLICATION_ID);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.subject).toBe(distinctive);
   });
 });

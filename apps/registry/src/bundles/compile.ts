@@ -16,6 +16,7 @@ import {
 import type { BundleInput } from "@domain-harness/core";
 import type { RegistryTx } from "../db/client.ts";
 import { acceptedDeviationRecords, applications, bundleSettingChanges } from "../db/schema.ts";
+import { currentAgentTools } from "../applications/agent-tool.ts";
 import { currentLockedIds, currentLockedMarks } from "../locked-rules/current.ts";
 import type { LockedRuleRow } from "../locked-rules/current.ts";
 import { accountNames, accountRef, toId } from "../modules/service.ts";
@@ -167,12 +168,20 @@ export async function compileBundle(
     .where(eq(applications.tenantId, tenantId))
     .orderBy(asc(applications.createdAt), asc(applications.id));
 
+  // The agent tool rides the bundle because nothing else in the Company knows
+  // it: the registry's agent-tool table never leaves the registry except
+  // inside bundles. Same-tx read; an Application with no row carries `null`.
+  // Boilerplate generation never rebuilds the bundle (pinned), so a fresh
+  // generation's tool appears in records only after the next bundle.
+  const agentTools = await currentAgentTools(tx, tenantId);
+
   const applicationsPayload: BundleApplication[] = [...appRows]
     .sort((a, b) => compare(a.id, b.id))
     .map((row) => ({
       id: toId(row.id),
       projectId: toId(row.projectId),
       fromFlow: row.fromFlow,
+      agentTool: agentTools.get(row.id) ?? null,
     }));
 
   const payload: StandardBundlePayload = {
