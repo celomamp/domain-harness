@@ -277,6 +277,9 @@ importers:
       '@domain-harness/contract':
         specifier: workspace:*
         version: link:../../packages/contract
+      '@domain-harness/gate':
+        specifier: workspace:*
+        version: link:../../packages/gate
     devDependencies:
       '@domain-harness/eslint-config':
         specifier: workspace:*
