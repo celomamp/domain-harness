@@ -426,6 +426,44 @@ An advisory Project id that disagrees with the bundle's Project id for that Appl
 
 Bindings and binding refusals reuse the Gate's shared record-store tables (`application_bindings`, `binding_refusals`): Guidance and the Gate use ONE check, one id→fingerprint row per Application — either unit's store sees the other surface's rows. Every refused call records one `binding_refusals` row — one row per refused call, so a repeat offender's refusals ledger grows by one each time.
 
+## Guidance tools
+
+Once the Application is bound, the service answers Document response (Story 4.4) through exactly four granular MCP tools, versioned in `packages/contract` (`GUIDANCE_TOOLS`, UX-DR30 product copy stating each tool's decision and input):
+
+| Tool | Decision it serves | Input |
+| --- | --- | --- |
+| `code_stack_rule` | the Company's rule for a language, framework or library (approved / required / prohibited, plus its Correction instruction) | the language, framework or library name |
+| `design_component` | a component's usage rule and tokens — by name, or by a usage situation naming none | a component name, or the usage situation |
+| `design_token` | whether a design token is required or prohibited | the token name |
+| `design_import` | whether importing a module specifier is required or prohibited | the module specifier |
+
+Every call carries one required `subject` string of 1..1000 characters. The serving unit (`apps/service/src/guidance/serve.ts`) never throws; a starting, running or failing service answers:
+
+| Input | Outcome |
+| --- | --- |
+| unbound caller (no commit, missing file, unknown id) | `unbound` with that identity outcome's fixed sentence |
+| copied fingerprint | `unbound`, "duplicate Application id" (4.3 already recorded the refusal) |
+| unreadable Effective Standard set (invalid payload, unresolved Project, slot conflict, invalid tree) | `unbound`, "Effective Standard set could not be read" |
+| store or bundle read fails | `unbound`, "run did not complete" |
+
+Otherwise the answer is a typed result (`@domain-harness/contract`, `GuidanceToolResult`):
+
+- **`hit`** — the winning Standard's id, live version, a deterministic text rendering of its entry (what it requires, allows or prohibits; a component's usage rule and tokens; a code-stack entry's constraint), ending with `Correction: <instruction>` when the entry carries one, plus the pinned bundle hash.
+- **`miss`** — one fixed sentence including the asked-for subject verbatim (for example, `the active bundle holds no design token named AccentBorder`), plus the pinned bundle hash.
+
+The matching rule is deterministic and versioned with the tools: the subject competes **casefold** — trimmed, Unicode NFC, lowercased — against the winning Effective Standard set's slot names, in `resolveEffectiveSet`'s order (Module kind, slot kind, normalised slot name, Standard id), first match wins. `code_stack_rule` matches any code-stack category; `design_token` matches token names; `design_import` matches module specifiers; `design_component` first matches the casefolded component name, then the casefolded subject occurring **inside** a component's casefolded `usageRule` (so a usage situation can still hit). The bundle's Project — never the advisory one — is the only Project served.
+
+**Staleness.** A stale service still answers from the active bundle and flags every response: past the bundle's staleness bound and not frozen, `stale` is `true`, the hit content says `bundle stale`, and the miss sentence carries it. A freeze suspends the bound.
+
+**Run line.** The guidance server is one Company-service entry, auth-free inside the Company network (no inbound port beyond this one):
+
+```sh
+SERVICE_TENANT_ID=<tenant uuid> SERVICE_RECORD_DATABASE_URL=postgres://… \
+node --conditions=@domain-harness/source apps/service/src/guidance/server-cli.ts
+```
+
+Start-up is one envelope: the record store is opened and migrated (`SERVICE_RECORD_DATABASE_URL`), then the MCP server binds `SERVICE_GUIDANCE_PORT` (default 8080) and serves the MCP SDK's Streamable HTTP endpoint at `/mcp` (`@modelcontextprotocol/sdk` 1.32.1, the same version the bridge pins). Logs carry ids, routes, statuses and counts — never subject text. Point the bridge at it by setting the Company's Guidance endpoint URL to `http://<service host>:8080/mcp`; the bridge recomputes the identity headers on every HTTP request, so `@domain-harness/mcp-bridge <url>` needs no prior briefing call and caches nothing between turns.
+
 ## Telemetry
 
 Turborepo collects anonymous usage telemetry unless it is turned off. CI sets `TURBO_TELEMETRY_DISABLED=1`. Turn it off locally once per machine:

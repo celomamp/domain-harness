@@ -245,6 +245,24 @@ export {
   isGuidanceIdentityResult,
   REPOSITORY_FINGERPRINT_ALGORITHM_VERSION,
 } from "./guidance-identity.ts";
+export {
+  GUIDANCE_TOOL_NAMES,
+  GUIDANCE_TOOL_SUBJECT_MAX,
+  GUIDANCE_TOOLS,
+  isGuidanceToolName,
+  isGuidanceToolResult,
+  isGuidanceToolSubject,
+} from "./guidance-tools.ts";
+export type {
+  GuidanceToolDescriptor,
+  GuidanceToolHit,
+  GuidanceToolInputSchema,
+  GuidanceToolMiss,
+  GuidanceToolName,
+  GuidanceToolResult,
+  GuidanceToolUnbound,
+  GuidanceToolUnboundReason,
+} from "./guidance-tools.ts";
 export type {
   GuidanceAdvisoryProjectMismatch,
   GuidanceIdentityResult,

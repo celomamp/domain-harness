@@ -82,3 +82,24 @@ export type {
   GuidanceProjectMismatchInput,
   GuidanceProjectMismatchRecord,
 } from "./guidance/store.ts";
+
+// Story 4.4: the serving unit (Document response through the four MCP tools).
+
+export { SERVE_REFUSED_ORIGIN, SERVE_SET_UNREADABLE_ORIGIN, SERVE_UNAVAILABLE_ORIGIN, missSentenceOf, serveGuidanceCall } from "./guidance/serve.ts";
+export type { ServeGuidanceCallInput } from "./guidance/serve.ts";
+
+export {
+  DEFAULT_GUIDANCE_PORT,
+  GuidanceConfigError,
+  guidanceServiceConfigFromEnv,
+} from "./guidance/config.ts";
+export type { GuidanceServiceConfig } from "./guidance/config.ts";
+
+export {
+  GUIDANCE_MCP_PATH,
+  GUIDANCE_SERVER_INFO,
+  createGuidanceMcpHandler,
+  readIdentityHeaders,
+  respondEnvelope,
+} from "./guidance/mcp.ts";
+export type { GuidanceMcpDeps, GuidanceMcpHandler } from "./guidance/mcp.ts";
