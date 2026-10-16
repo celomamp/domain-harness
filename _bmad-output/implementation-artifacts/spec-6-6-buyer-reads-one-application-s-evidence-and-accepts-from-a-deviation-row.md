@@ -2,7 +2,7 @@
 title: 'Story 6.6: Buyer reads one Application''s evidence and accepts from a Deviation row'
 type: 'feature'
 created: '2026-10-16'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'c31f1c6f1a4c580080e4f01b46415b4da75d0fb6'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -92,6 +92,8 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+- 2026-10-16 review (story-6-6-app-evidence @ f21256f, base c31f1c6): four-layer single-pass (blind-hunter, edge-case, verification-gap, intent-alignment). No findings requiring a patch. Tenant isolation (withTenant + tenant filter), session-auth every role, 404 application_not_found/subject applicationId, lockBundle-under-read (listApplications precedent), exact-key guard, prefill-only 5.5 wiring, no PANEL_NAV change, cream-inset tokens-only CSS all verified. Spot re-runs: contract applications 22/22, panel application+accepted-deviation+inventory 46/46, registry server 143/143. Full-suite counts trusted per implementer (contract 392, registry 888, panel 465+1 skip). Verdict: clean, status → done.
 
 ## Auto Run Result
 
