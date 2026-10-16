@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-10-2026 12:00
-last_updated: 15-10-2026 15:32
+last_updated: 16-10-2026 16:00
 project: domain harness
 project_key: NOKEY
 tracking_system: file-system
@@ -82,11 +82,11 @@ development_status:
   epic-6: in-progress
   6-1-publish-the-compilation-catalog-and-gate-sending-on-the-buye: done
   6-2-project-records-into-compilations-through-one-collector-chok: done
-  6-3-deliver-compilations-durably-without-touching-the-builder: backlog
+  6-3-deliver-compilations-durably-without-touching-the-builder: done
   6-4-buyer-sees-bundle-status-collector-health-and-drops: backlog
   6-5-buyer-sees-the-inventory-by-project-and-agent-tool: backlog
   6-6-buyer-reads-one-application-s-evidence-and-accepts-from-a-de: backlog
-  6-7-buyer-controls-who-reads-guidance-records-and-how-long-they: backlog
+  6-7-buyer-controls-who-reads-guidance-records-and-how-long-they: done
   epic-6-retrospective: optional
 
   epic-7: backlog
@@ -101,5 +101,5 @@ development_status:
   epic-8: in-progress
   8-1-load-and-verify-a-bundle-file-offline: done
   8-2-run-the-gate-locally-with-the-same-result-as-ci: done
-  8-3-distribute-the-cli: backlog
+  8-3-distribute-the-cli: done
   epic-8-retrospective: optional
