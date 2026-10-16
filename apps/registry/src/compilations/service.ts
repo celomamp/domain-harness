@@ -1,6 +1,15 @@
-import { and, eq } from "drizzle-orm";
-import { CATALOG_UNREAD, COMPILATION_CATALOG_VERSION, ROLE_DENIED } from "@domain-harness/contract";
+import { and, desc, eq } from "drizzle-orm";
+import {
+  CATALOG_UNREAD,
+  COMPILATION_CATALOG_VERSION,
+  DEFAULT_STALENESS_HOURS,
+  ROLE_DENIED,
+} from "@domain-harness/contract";
 import type {
+  BundleStatusList,
+  BundleStatusView,
+  CollectorHealthList,
+  CollectorHealthView,
   Compilation,
   CompilationCatalogRead,
   CompilationCatalogReadState,
@@ -11,7 +20,7 @@ import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb, RegistryTx } from "../db/client.ts";
 import { isUniqueViolation } from "../db/pg-errors.ts";
-import { compilationCatalogReads, compilations } from "../db/schema.ts";
+import { bundleRecords, compilationCatalogReads, compilations } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { accountNames, accountRef } from "../modules/service.ts";
 import { validateCatalogReadBody, validateCompilationBody } from "./validate.ts";
@@ -208,6 +217,8 @@ export interface CompilationsService {
   recordCatalogRead(session: SessionInfo, body: unknown): Promise<{ record: CompilationCatalogRead; created: boolean }>;
   getCatalogRead(session: SessionInfo): Promise<CompilationCatalogReadState>;
   ingestCompilation(tenantId: UuidV7, body: unknown): Promise<{ compilation: Compilation; replay: boolean }>;
+  listBundleStatus(session: SessionInfo): Promise<BundleStatusList>;
+  listCollectorHealth(session: SessionInfo): Promise<CollectorHealthList>;
 }
 
 export function createCompilationsService(db: RegistryDb): CompilationsService {
@@ -216,5 +227,103 @@ export function createCompilationsService(db: RegistryDb): CompilationsService {
     recordCatalogRead: (session, body) => recordCatalogRead(db, session, body),
     getCatalogRead: (session) => getCatalogRead(db, session),
     ingestCompilation: (tenantId, body) => ingestCompilation(db, tenantId, body),
+    listBundleStatus: (session) => listBundleStatus(db, session),
+    listCollectorHealth: (session) => listCollectorHealth(db, session),
   };
+}
+
+/**
+ * The tenant's bundle-status rows (Story 6.4, read-only): the latest stored
+ * `bundle_status` Compilation per Application, oldest-received order broken
+ * by taking the first row per Application from a `receivedAt` descending
+ * scan. The staleness bound and freeze state are tenant-level facts from the
+ * tenant's latest bundle record (`DEFAULT_STALENESS_HOURS` / `false` when no
+ * bundle exists yet); the panel derives the age and the "stale" word from
+ * `issuedAt`, so this read is clock-free. Open to every role.
+ */
+export async function listBundleStatus(db: RegistryDb, session: SessionInfo): Promise<BundleStatusList> {
+  const { tenantId } = session;
+  return withTenant(db, tenantId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(compilations)
+      .where(and(eq(compilations.tenantId, tenantId), eq(compilations.typeName, "bundle_status")))
+      .orderBy(desc(compilations.receivedAt));
+    const [active] = await tx
+      .select()
+      .from(bundleRecords)
+      .where(eq(bundleRecords.tenantId, tenantId))
+      .orderBy(desc(bundleRecords.sequence))
+      .limit(1);
+    const bundle = (active?.payload ?? {}) as { stalenessHours?: unknown; frozen?: unknown };
+    const stalenessBoundHours =
+      typeof bundle.stalenessHours === "number" &&
+      Number.isInteger(bundle.stalenessHours) &&
+      bundle.stalenessHours >= 1 &&
+      bundle.stalenessHours <= 720
+        ? bundle.stalenessHours
+        : DEFAULT_STALENESS_HOURS;
+    const frozen = bundle.frozen === true;
+    const seen = new Set<string>();
+    const statuses: BundleStatusView[] = [];
+    for (const row of rows) {
+      const compilation = row.payload as {
+        applicationId: UuidV7;
+        agentToolName: string;
+        bundleHash: string;
+        bundleSequence: number;
+        issuedAt: string;
+      };
+      if (seen.has(compilation.applicationId)) continue;
+      seen.add(compilation.applicationId);
+      statuses.push({
+        applicationId: compilation.applicationId,
+        agentToolName: compilation.agentToolName,
+        bundleHash: compilation.bundleHash,
+        bundleSequence: compilation.bundleSequence,
+        issuedAt: compilation.issuedAt,
+        stalenessBoundHours,
+        frozen,
+      });
+    }
+    return { statuses };
+  });
+}
+
+/**
+ * The tenant's Collector-health rows (Story 6.4, read-only): the latest
+ * stored `collector_health` Compilation per Application (same latest-wins
+ * scan as the bundle-status read), carrying the pending count and the
+ * dropped-by-reason counts the drops section announces. Open to every role.
+ */
+export async function listCollectorHealth(db: RegistryDb, session: SessionInfo): Promise<CollectorHealthList> {
+  const { tenantId } = session;
+  return withTenant(db, tenantId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(compilations)
+      .where(and(eq(compilations.tenantId, tenantId), eq(compilations.typeName, "collector_health")))
+      .orderBy(desc(compilations.receivedAt));
+    const seen = new Set<string>();
+    const reports: CollectorHealthView[] = [];
+    for (const row of rows) {
+      const compilation = row.payload as {
+        applicationId: UuidV7;
+        agentToolName: string;
+        occurredAt: string;
+        pendingCount: number;
+        droppedByReason: Readonly<Record<string, number>>;
+      };
+      if (seen.has(compilation.applicationId)) continue;
+      seen.add(compilation.applicationId);
+      reports.push({
+        applicationId: compilation.applicationId,
+        agentToolName: compilation.agentToolName,
+        occurredAt: compilation.occurredAt,
+        pendingCount: compilation.pendingCount,
+        droppedByReason: compilation.droppedByReason,
+      });
+    }
+    return { reports };
+  });
 }

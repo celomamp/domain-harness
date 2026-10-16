@@ -15,12 +15,17 @@ import {
   GUIDANCE_COMPILATION_SCHEMA_VERSION,
   isBindingRefusalCompilation,
   isBundleStatusCompilation,
+  isBundleStatusList,
+  isBundleStatusView,
   isCollectorHealthCompilation,
+  isCollectorHealthList,
+  isCollectorHealthView,
   isCompilation,
   isCompilationCatalogRead,
   isCompilationCatalogReadState,
   isCompilationTypeName,
   isDeviationCompilation,
+  isDroppedByReason,
   isGateRunCompilation,
   isGateRunDeviationSummary,
   isGuidanceCompilation,
@@ -264,6 +269,53 @@ describe("catalog-read shapes", () => {
   });
 });
 
+describe("status-view shapes (Story 6.4)", () => {
+  const status = {
+    applicationId: APP,
+    agentToolName: "claude-code",
+    bundleHash: HASH,
+    bundleSequence: 4,
+    issuedAt: AT,
+    stalenessBoundHours: 24,
+    frozen: false,
+  };
+  const health = {
+    applicationId: APP,
+    agentToolName: "claude-code",
+    occurredAt: AT,
+    pendingCount: 2,
+    droppedByReason: { schema_failed: 1 },
+  };
+
+  it("accepts the bundle-status and Collector-health views and their envelopes", () => {
+    expect(isBundleStatusView(status)).toBe(true);
+    expect(isBundleStatusList({ statuses: [status] })).toBe(true);
+    expect(isBundleStatusList({ statuses: [] })).toBe(true);
+    expect(isCollectorHealthView(health)).toBe(true);
+    expect(isCollectorHealthList({ reports: [health] })).toBe(true);
+    expect(isCollectorHealthList({ reports: [] })).toBe(true);
+    expect(isDroppedByReason({ schema_failed: 1, queue_gap: 0 })).toBe(true);
+  });
+
+  it("rejects views with extra or missing keys, bad hashes, instants, counts or bounds", () => {
+    expect(isBundleStatusView({ ...status, extra: 1 })).toBe(false);
+    expect(isBundleStatusView({ ...status, bundleHash: "not-hex" })).toBe(false);
+    expect(isBundleStatusView({ ...status, bundleSequence: 0 })).toBe(false);
+    expect(isBundleStatusView({ ...status, bundleSequence: 1.5 })).toBe(false);
+    expect(isBundleStatusView({ ...status, issuedAt: "2026-10-15" })).toBe(false);
+    expect(isBundleStatusView({ ...status, stalenessBoundHours: 0 })).toBe(false);
+    expect(isBundleStatusView({ ...status, stalenessBoundHours: 721 })).toBe(false);
+    expect(isBundleStatusView({ ...status, frozen: "no" })).toBe(false);
+    expect(isBundleStatusList({ statuses: [{ ...status, frozen: "no" }] })).toBe(false);
+    expect(isBundleStatusList({})).toBe(false);
+    expect(isCollectorHealthView({ ...health, pendingCount: -1 })).toBe(false);
+    expect(isCollectorHealthView({ ...health, droppedByReason: { schema_failed: 1.5 } })).toBe(false);
+    expect(isCollectorHealthView({ ...health, occurredAt: "tomorrow" })).toBe(false);
+    expect(isCollectorHealthList({ reports: "none" })).toBe(false);
+    expect(isDroppedByReason({ schema_failed: -1 })).toBe(false);
+  });
+});
+
 describe("semver-bump guard", () => {
   it("pins the closed catalog: exactly the six type names at catalog 1.0.0", () => {
     expect(COMPILATION_CATALOG_VERSION).toBe("1.0.0");
@@ -272,6 +324,8 @@ describe("semver-bump guard", () => {
     expect(COMPILATION_API_PATHS).toEqual({
       compilations: "/v1/compilations",
       catalogReads: "/v1/compilation-catalog/reads",
+      bundleStatus: "/v1/compilations/bundle-status",
+      collectorHealth: "/v1/compilations/collector-health",
     });
     expect([...COMPILATION_TYPE_NAMES]).toEqual([
       "guidance",

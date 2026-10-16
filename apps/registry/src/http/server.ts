@@ -168,6 +168,8 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [BUNDLE_LATEST_ROUTE]: ["GET"],
   [COMPILATION_API_PATHS.compilations]: ["POST"],
   [COMPILATION_API_PATHS.catalogReads]: ["GET", "POST"],
+  [COMPILATION_API_PATHS.bundleStatus]: ["GET"],
+  [COMPILATION_API_PATHS.collectorHealth]: ["GET"],
   [GUIDANCE_ACCESS_API_PATHS.access]: ["GET", "POST"],
   [GUIDANCE_ACCESS_API_PATHS.tokens]: ["POST"],
   [GUIDANCE_ACCESS_API_PATHS.retention]: ["GET"],
@@ -658,6 +660,24 @@ async function handle(
       requireBuyer(req, session, assertCompilationBuyer);
       const { record, created } = await services.compilations.recordCatalogRead(session, await readJson(req));
       sendJson(res, created ? 201 : 200, record);
+      return;
+    }
+    case COMPILATION_API_PATHS.bundleStatus: {
+      // Story 6.4, read-only: the tenant's bundle-status rows (the latest
+      // stored `bundle_status` Compilation per Application, with the
+      // staleness bound and freeze state). Every role may read, like the
+      // catalog-read GET above; the panel derives the age and the "stale"
+      // word from the returned `issuedAt`.
+      const session = await service.getSession(bearerToken(req));
+      sendJson(res, 200, await services.compilations.listBundleStatus(session));
+      return;
+    }
+    case COMPILATION_API_PATHS.collectorHealth: {
+      // Story 6.4, read-only: the tenant's Collector-health rows (the latest
+      // stored `collector_health` Compilation per Application, carrying the
+      // pending count and the dropped-by-reason counts). Every role may read.
+      const session = await service.getSession(bearerToken(req));
+      sendJson(res, 200, await services.compilations.listCollectorHealth(session));
       return;
     }
     case GUIDANCE_ACCESS_API_PATHS.access: {
