@@ -198,17 +198,22 @@ export async function runGate(input: RunGateInput): Promise<RunGateOutcome> {
     };
     const appended = await store.appendGateRun(gateRunInput);
     sequence = appended.sequence;
-    await input.collector?.recordGateRun(
-      {
-        applicationId,
-        revision: input.revision,
-        deviations,
-        checked,
-        open,
-        createdAt: appended.createdAt ?? nowIso(),
-      },
-      input.collectorAgentToolName ?? null,
-    );
+    try {
+      await input.collector?.recordGateRun(
+        {
+          applicationId,
+          revision: input.revision,
+          deviations,
+          checked,
+          open,
+          createdAt: appended.createdAt ?? nowIso(),
+        },
+        input.collectorAgentToolName ?? null,
+      );
+    } catch {
+      // Durable delivery never changes the run outcome: the run is already
+      // recorded above, and the CollectorClient itself never throws.
+    }
   } catch {
     return refusal(RUN_DID_NOT_COMPLETE);
   }

@@ -73,6 +73,14 @@ describe("flushOnce", () => {
     await expect(outbox.stats()).resolves.toEqual({ pendingCount: 0, sentCount: 1 });
   });
 
+  it("marks a 200 replay (resent idempotency key) sent without storing a duplicate", async () => {
+    const outbox = new InMemoryCollectorOutbox();
+    await enqueueOne(outbox);
+    const report = await flushOnce({ outbox, push: () => Promise.resolve(sent(200)), baseUrl: "https://panel.test", credential: "cred", now: AT, ledger: new DropLedger() });
+    expect(report).toEqual({ attempted: 1, sent: 1, kept: 0, dropped: 0, resequenced: 0 });
+    await expect(outbox.stats()).resolves.toEqual({ pendingCount: 0, sentCount: 1 });
+  });
+
   it("keeps catalog_unread entries queued without attempt penalty for the read-gate delay", async () => {
     const outbox = new InMemoryCollectorOutbox();
     const { idempotencyKey } = await enqueueOne(outbox);

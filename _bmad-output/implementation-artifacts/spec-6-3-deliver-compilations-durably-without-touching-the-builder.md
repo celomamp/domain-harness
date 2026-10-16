@@ -2,7 +2,7 @@
 title: 'Story 6.3: Deliver Compilations durably without touching the Builder'
 type: 'feature'
 created: '2026-10-16'
-status: 'in-review'
+status: 'done'
 baseline_commit: '2e6e41f52ecf631652f7fd1335732147f718b24c'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -90,6 +90,13 @@ deferred: []
 
 ## Review Triage Log
 
+- review(6.3) blind-hunter MEDIUM patched: `runGate` awaited `collector.recordGateRun` inside the try whose catch returns `RUN_DID_NOT_COMPLETE`, so a throwing collector seam would flip an already-recorded pass into a refusal (new builder failure mode). Isolated the seam in its own try/catch in `apps/service/src/ci-gate/runner.ts`; added a throwing-collector regression test in `runner.test.ts` (pass preserved, record stored). `serve.ts` was safe (catch only reports via `onRecordError`, outcome unchanged).
+- review(6.3) verification-gap LOW patched: 200-replay path through `flushOnce` (resent key answers 200, marked sent) had no direct unit pin — the db HTTP-stub replay branch is never exercised (entry marked sent after first delivery). Added a `sent(200)` case in `packages/collector/src/flush.test.ts`.
+- review(6.3) edge-case INFO rejected (no change): intentionally dropped entries (`invalid` unknown-major via `dropEntry`) leave their allocated sequence missing, so they surface as `queue_gap` alongside `rejected` on health. Matches the spec's watermark-minus-present definition; the gap is truthful (that sequence never reaches the panel) and never silent. Tombstone rows would need a schema change — deferred, not load-bearing.
+- review(6.3) blind-hunter LOW rejected: `hashLock` collisions across Application ids only over-serialize advisory locks, never corrupt allocation (lock is per-transaction scoping, watermark row is per-app). No change.
+- review(6.3) intent-alignment PASS: no `apps/registry` or `packages/contract` changes in diff; collector imports contract + builtins only (`pnpm run boundaries` clean); Guidance/Gate seams optional with unchanged baselines pinned by the panel-stopped db test; serve/runner hot paths await local enqueue only.
+- review(6.3) verification-gap LOW accepted: service DB suite (`collector.db.test.ts`, 6 tests) not re-run here (no `SERVICE_TEST_DATABASE_URL` locally); collector suite re-run green (56), runner suite green (17), boundaries clean. Trust implementer's report for the DB twin parity.
+
 ## Verification
 
 **Commands:**
@@ -97,3 +104,9 @@ deferred: []
 - `pnpm --filter @domain-harness/service test` -- expected: collector outbox + panel-stopped suites green (needs SERVICE_TEST_DATABASE_URL on postgres 18)
 - `pnpm --filter @domain-harness/registry test` -- expected: ingest suites still green (registry untouched; interaction pinned service-side)
 - `pnpm run boundaries` -- expected: no violations (collector gains no new import edges beyond contract + builtins)
+
+**Auto Run Result (review(6.3), 2026-10-16):**
+- `pnpm --filter @domain-harness/collector test` -- 8 files / 56 tests green (includes new 200-replay pin)
+- `pnpm --filter @domain-harness/service exec vitest run src/ci-gate/runner.test.ts` -- 17 tests green (includes new throwing-collector regression pin)
+- `pnpm run boundaries` -- no violations
+- service DB suite (`collector.db.test.ts`) not re-run: no `SERVICE_TEST_DATABASE_URL` in this environment; implementer's DB report trusted (twin parity, panel-stopped, unread-keep, gap, HTTP envelope tests)
