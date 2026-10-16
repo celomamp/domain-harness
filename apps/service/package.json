@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@domain-harness/collector": "workspace:*",
     "@domain-harness/contract": "workspace:*",
     "@domain-harness/core": "workspace:*",
     "@domain-harness/extractor": "workspace:*",

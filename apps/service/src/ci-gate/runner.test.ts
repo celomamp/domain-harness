@@ -612,6 +612,34 @@ describe("runGate (I/O & Edge-Case Matrix)", () => {
     expect(appendFailedOutcome.sentence).toBe(RUN_DID_NOT_COMPLETE);
   });
 
+  it("Throwing collector: a recordGateRun throw never changes the run outcome (6.3 durable-delivery seam)", async () => {
+    const store = createInMemoryGateRecordStore();
+    const snapshot = makeSnapshotFixture();
+
+    const outcome = await runGate({
+      applicationId: FIXTURE_APP_ID,
+      repoFingerprint: FINGERPRINT_A,
+      facts: makeFactsFixture({ dependencies: [{ name: "remeda", version: "2.1.0" }] }),
+      revision: REVISION,
+      now: FIXTURE_NOW,
+      source: async () => {
+        await Promise.resolve();
+        return snapshot;
+      },
+      store,
+      collector: {
+        recordGuidance: () => Promise.resolve(),
+        recordGateRun: () => Promise.reject(new Error("outbox down")),
+      },
+      collectorAgentToolName: "cursor",
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.kind).toBe("pass");
+    expect(outcome.sentence).toBe(PASS);
+    expect(await store.listGateRuns(FIXTURE_APP_ID)).toHaveLength(1);
+  });
+
   it("Step-cannot-run / unreachable store path: refuses without throwing when store.getBinding throws", async () => {
     const brokenStore = createInMemoryGateRecordStore();
     brokenStore.getBinding = () => Promise.reject(new Error("connection refused"));

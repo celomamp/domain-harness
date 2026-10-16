@@ -3,7 +3,7 @@
 // stderr, exit code 1 and nothing on stdout — no database needed; (b) against
 // a real PostgreSQL 18 named by SERVICE_TEST_DATABASE_URL (an admin
 // connection), in the db-suite harness style: a throwaway database, the daemon
-// started, the first cycle log line awaited, both migrations asserted, then a
+// started, the first cycle log line awaited, all migrations asserted, then a
 // SIGTERM and a prompt exit 0.
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -101,7 +101,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("service-cli: start, 
     await admin.end();
   }, 60_000);
 
-  it("starts, applies both migrations and exits promptly on SIGTERM", async () => {
+  it("starts, applies all migrations and exits promptly on SIGTERM", async () => {
     const child = spawn(process.execPath, [CLI_PATH], { env: daemonEnv({ SERVICE_RECORD_DATABASE_URL: dbUrl }) });
     child.stdout.setEncoding("utf8");
     let stdout = "";
@@ -131,7 +131,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("service-cli: start, 
       "0001_ci_gate.sql",
       "0002_standard_bundles.sql",
       "0003_guidance_identity.sql",
-      "0004_guidance_events.sql",
+      "0004_guidance_events.sql", "0005_collector_outbox.sql",
     ]);
     const tables = await owner.query<{ to_regclass: string | null }>(
       "select to_regclass('public.service_bundles')::text as to_regclass",
