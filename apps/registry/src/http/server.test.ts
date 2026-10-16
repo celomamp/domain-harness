@@ -32,6 +32,7 @@ import {
   isEffectiveStandardSet,
   isErrorEnvelope,
   isIdentificationFileRendering,
+  isInventoryEvidence,
   isLockedRuleState,
   isModuleInfo,
   isModuleList,
@@ -63,6 +64,7 @@ import type {
   GuidanceEndpointState,
   GuidanceRoleToken,
   IdentificationFileRendering,
+  InventoryEvidence,
   LockedRuleState,
   ModuleInfo,
   ModuleList,
@@ -635,6 +637,11 @@ class FakeCompilations implements CompilationsService {
         : { catalogVersion: read.catalogVersion, read: true, readBy: read.readBy, readAt: read.readAt },
     );
   }
+  evidence: InventoryEvidence = { applications: [] };
+  getInventoryEvidence(caller: SessionInfo): Promise<InventoryEvidence> {
+    this.calls.push(["inventory", caller.role, caller.tenantId]);
+    return Promise.resolve(this.evidence);
+  }
   ingestCompilation(tenantId: UuidV7, body: unknown): Promise<{ compilation: Compilation; replay: boolean }> {
     this.calls.push(["ingest", tenantId, body]);
     return Promise.resolve().then(() => {
@@ -820,6 +827,7 @@ describe("registry HTTP API", () => {
     compilations.calls = [];
     compilations.reads = [];
     compilations.stored = [];
+    compilations.evidence = { applications: [] };
     guidanceAccess.calls = [];
     guidanceAccess.grants = [];
     guidanceAccess.retentionDays = 90;
@@ -1571,6 +1579,39 @@ describe("registry HTTP API", () => {
       await expect
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
         .toEqual(["/v1/applications"]);
+    });
+  });
+
+  describe("Inventory evidence", () => {
+    const json = { "content-type": "application/json" };
+    const buyerAuth = { ...json, authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { ...json, authorization: `Bearer ${BUILDER_SESSION}` };
+    const path = "/v1/inventory";
+
+    it("serves the Compilation evidence to every role", async () => {
+      compilations.evidence = { applications: [{ applicationId: mintUuidV7(), agentTools: ["cursor"] }] };
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await fetch(`${base}${path}`, { headers });
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        expect(isInventoryEvidence(body)).toBe(true);
+        expect(body).toEqual(compilations.evidence);
+      }
+      expect(compilations.calls).toEqual([
+        ["inventory", "Buyer", tenantId],
+        ["inventory", "Builder", tenantId],
+      ]);
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(await fetch(`${base}${path}`), 401, "session_invalid");
+      expect(compilations.calls).toEqual([]);
+    });
+
+    it("answers 405 with Allow for a wrong method", async () => {
+      const response = await fetch(`${base}${path}`, { method: "POST", headers: buyerAuth });
+      expect(response.headers.get("allow")).toBe("GET");
+      await expectEnvelope(response, 405, "method_not_allowed");
     });
   });
 

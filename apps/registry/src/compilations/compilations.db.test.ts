@@ -13,8 +13,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   COMPILATION_API_PATHS,
   COMPILATION_CATALOG_VERSION,
+  INVENTORY_API_PATHS,
+  isInventoryEvidence,
 } from "@domain-harness/contract";
-import type { Compilation, UuidV7 } from "@domain-harness/contract";
+import type { Compilation, InventoryEvidence, UuidV7 } from "@domain-harness/contract";
 import { createRegistryDb } from "../db/client.ts";
 import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
@@ -548,6 +550,45 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Compilation catalog 
         await expectRefused(await ingest(credentialB, body), 400, "invalid_input", subject);
       }
       expect(await compilationCount(tenantB)).toBe(before);
+    });
+  });
+
+  describe("inventory evidence", () => {
+    it("serves every role the tenant's per-Application agent tools, latest first", async () => {
+      const recorded = await post(COMPILATION_API_PATHS.catalogReads, "bob", {
+        catalogVersion: COMPILATION_CATALOG_VERSION,
+      });
+      expect([201, 200]).toContain(recorded.status);
+      const appC = mintUuidV7();
+      const fresh = mintUuidV7();
+      const first = { ...validCompilation("guidance", appC, 1), agentToolName: "cursor" };
+      const second = { ...validCompilation("gate_run", appC, 2), agentToolName: "claude-code" };
+      expect((await ingest(credentialB, first)).status).toBe(201);
+      expect((await ingest(credentialB, second)).status).toBe(201);
+      for (const who of ["bob", "ola"]) {
+        const res = await get(INVENTORY_API_PATHS.inventory, who);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as InventoryEvidence;
+        expect(isInventoryEvidence(body)).toBe(true);
+        expect(body.applications.find((row) => row.applicationId === appC)).toEqual({
+          applicationId: appC,
+          agentTools: ["claude-code", "cursor"],
+        });
+        expect(body.applications.some((row) => row.applicationId === fresh)).toBe(false);
+      }
+    });
+
+    it("omits Applications with no Compilation and never another tenant's rows", async () => {
+      const res = await get(INVENTORY_API_PATHS.inventory, "bea");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as InventoryEvidence;
+      expect(isInventoryEvidence(body)).toBe(true);
+      const ids = body.applications.map((row) => row.applicationId);
+      expect(ids).not.toContain(appB);
+    });
+
+    it("answers 401 session_invalid without a session", async () => {
+      await expectRefused(await fetch(`${base}${INVENTORY_API_PATHS.inventory}`), 401, "session_invalid");
     });
   });
 

@@ -28,7 +28,11 @@ function renderPanel(url: string) {
         {
           path: "/inventory",
           Component: Inventory,
-          loader: () => ({ applications: Promise.resolve({ kind: "ok", value: { applications: [] } }) }),
+          loader: () => ({
+            applications: Promise.resolve({ kind: "ok", value: { applications: [] } }),
+            projects: Promise.resolve({ kind: "ok", value: { rootId: "r", projects: [], lockedRules: [] } }),
+            evidence: Promise.resolve({ kind: "ok", value: { applications: [] } }),
+          }),
         },
         { path: "/standards", Component: Standards, loader: () => ({ list: { modules: [], standardOwners: [] } }) },
       ],

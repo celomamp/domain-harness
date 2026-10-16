@@ -13,6 +13,7 @@ import {
   DEVIATION_COMPILATION_SCHEMA_VERSION,
   GATE_RUN_COMPILATION_SCHEMA_VERSION,
   GUIDANCE_COMPILATION_SCHEMA_VERSION,
+  INVENTORY_API_PATHS,
   isBindingRefusalCompilation,
   isBundleStatusCompilation,
   isCollectorHealthCompilation,
@@ -25,6 +26,8 @@ import {
   isGateRunDeviationSummary,
   isGuidanceCompilation,
   isGuidanceCompilationSubject,
+  isInventoryApplicationEvidence,
+  isInventoryEvidence,
   isSupportedCompilationSchemaVersion,
 } from "./compilations.ts";
 import type { Compilation } from "./compilations.ts";
@@ -261,6 +264,27 @@ describe("catalog-read shapes", () => {
         readAt: AT,
       }),
     ).toBe(false);
+  });
+});
+
+describe("inventory evidence shapes", () => {
+  it("pins the inventory read path", () => {
+    expect(INVENTORY_API_PATHS).toEqual({ inventory: "/v1/inventory" });
+  });
+
+  it("accepts evidence rows with latest-first agent tools", () => {
+    expect(isInventoryApplicationEvidence({ applicationId: APP, agentTools: ["cursor", "claude-code"] })).toBe(true);
+    expect(isInventoryEvidence({ applications: [{ applicationId: APP, agentTools: ["cursor"] }] })).toBe(true);
+    expect(isInventoryEvidence({ applications: [] })).toBe(true);
+  });
+
+  it("rejects rows with no tool, a blank tool, an extra key or a bad id", () => {
+    expect(isInventoryApplicationEvidence({ applicationId: APP, agentTools: [] })).toBe(false);
+    expect(isInventoryApplicationEvidence({ applicationId: APP, agentTools: ["  "] })).toBe(false);
+    expect(isInventoryApplicationEvidence({ applicationId: APP, agentTools: ["cursor"], extra: 1 })).toBe(false);
+    expect(isInventoryApplicationEvidence({ applicationId: "nope", agentTools: ["cursor"] })).toBe(false);
+    expect(isInventoryEvidence({ applications: [{ applicationId: APP, agentTools: [] }] })).toBe(false);
+    expect(isInventoryEvidence({})).toBe(false);
   });
 });
 

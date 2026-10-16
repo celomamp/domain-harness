@@ -202,7 +202,8 @@
 .acceptance-form input,
 .acceptance-form select,
 .acceptance-form textarea,
-.module-owner-form select {
+.module-owner-form select,
+.project-filter select {
   width: 100%;
   min-height: var(--size-field-min);
   padding: var(--space-2) var(--space-3);
@@ -343,6 +344,23 @@
 
 .module-owner-form .field-error {
   color: var(--color-ink);
+}
+
+/* project-filter: single-select Project filter on Inventory, raised with an ink focus ring. */
+.project-filter {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin-top: var(--space-3);
+}
+
+.project-filter label {
+  color: var(--color-ink-secondary);
+}
+
+/* application-row: raised row with a hairline border; hover uses cream, never gold. */
+.application-row:hover {
+  background: var(--color-surface-base);
 }
 
 /* project-node tree: nested lists, each level indented 16px; the selected node at weight 600, never gold. */
