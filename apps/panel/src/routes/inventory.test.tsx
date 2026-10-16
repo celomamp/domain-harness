@@ -152,6 +152,16 @@ describe("Inventory", () => {
     expect(screen.queryByLabelText("Project")).toBeNull();
   });
 
+  it("links each row to that Application's evidence surface for pointer and keyboard activation", async () => {
+    renderInventory(fullReads());
+    await screen.findByRole("table", { name: "Applications — cursor" });
+    const links = screen.getAllByRole("link");
+    const hrefs = new Map(links.map((link) => [link.textContent, link.getAttribute("href")]));
+    expect(hrefs.get("Checkout service")).toBe(`/applications/${flow.id}`);
+    expect(hrefs.get("Intake form")).toBe(`/applications/${cursorApp.id}`);
+    expect(hrefs.get("Legacy billing")).toBe(`/applications/${registered.id}`);
+  });
+
   it("shows the empty state when there is no Application", async () => {
     renderInventory({ applications: Promise.resolve({ kind: "ok", value: { applications: [] } }) });
     expect((await screen.findByText("No Application yet.")).className).toBe("type-display");

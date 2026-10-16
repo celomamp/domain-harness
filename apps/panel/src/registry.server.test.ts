@@ -20,6 +20,7 @@ import {
   setLockedRule,
   createApplication,
   getApplications,
+  getApplicationEvidence,
   getBuildGrants,
   setBuildGrant,
   generateBoilerplate,
@@ -477,8 +478,32 @@ describe("registry client", () => {
       expect(await createApplication("abc", { description: "x", projectId: WEB })).toEqual({ kind: "refused", error: denied });
     });
 
-    it("registers an existing Application on the registered path, expecting 201", async () => {
+    it("reads one Application's evidence on its path, guarding the envelope", async () => {
       vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
+      const app = {
+        id: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f3",
+        description: "Checkout",
+        project: { id: WEB, name: "Web" },
+        fromFlow: true,
+        agentTool: "cursor",
+        createdAt: AT,
+      };
+      const evidence = { application: app, compilations: [] };
+      const fetch = respond(200, evidence);
+      vi.stubGlobal("fetch", fetch);
+      expect(await getApplicationEvidence("abc", app.id)).toEqual({ kind: "ok", value: evidence });
+      const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`http://registry.test/v1/applications/${app.id}/evidence`);
+      expect(init.method).toBe("GET");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer abc");
+      vi.stubGlobal("fetch", respond(200, { application: app, compilations: [{}] }));
+      expect(await getApplicationEvidence("abc", app.id)).toEqual({ kind: "unavailable" });
+      const missing = { code: "application_not_found", message: "m", subject: "applicationId" };
+      vi.stubGlobal("fetch", respond(404, missing));
+      expect(await getApplicationEvidence("abc", app.id)).toEqual({ kind: "refused", error: missing });
+    });
+
+    it("registers an existing Application on the registered path, expecting 201", async () => {      vi.stubEnv("PANEL_REGISTRY_URL", "http://registry.test");
       const rendering = { fileName: ".domain-harness.json", content: '{"version":"1.0.0"}' };
       const post = respond(201, rendering);
       vi.stubGlobal("fetch", post);

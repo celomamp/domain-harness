@@ -7,6 +7,7 @@ import {
   acceptedDeviationAlertDismissalPath,
   APPLICATION_NOT_FOUND,
   applicationBoilerplatePath,
+  applicationEvidencePath,
   applicationIdentificationFilePath,
   CATALOG_UNREAD,
   COMPILATION_CATALOG_VERSION,
@@ -25,6 +26,7 @@ import {
   IDENTIFICATION_FILE_NAME,
   isApplicationInfo,
   isApplicationList,
+  isApplicationEvidence,
   isBuildGrantList,
   isBuildGrantState,
   isBundleStatusList,
@@ -50,6 +52,7 @@ import {
 import type {
   AcceptedDeviationAlert,
   AcceptedDeviationRecord,
+  ApplicationEvidence,
   ApplicationInfo,
   ApplicationList,
   BoilerplateResult,
@@ -697,6 +700,25 @@ class FakeCompilations implements CompilationsService {
     }
     return Promise.resolve({ reports });
   }
+  getApplicationEvidence(caller: SessionInfo, applicationId: string): Promise<ApplicationEvidence> {
+    this.calls.push(["evidence", caller.role, applicationId]);
+    return Promise.resolve().then(() => {
+      if (!isUuidV7(applicationId)) {
+        throw new EnvelopeError({ code: APPLICATION_NOT_FOUND, message: "m", subject: "applicationId" });
+      }
+      const application = this.evidenceApplications.find((entry) => entry.id === applicationId);
+      if (application === undefined) {
+        throw new EnvelopeError({ code: APPLICATION_NOT_FOUND, message: "m", subject: "applicationId" });
+      }
+      return {
+        application,
+        compilations: this.stored
+          .filter((entry) => entry.applicationId === applicationId)
+          .sort((a, b) => a.sequence - b.sequence),
+      };
+    });
+  }
+  evidenceApplications: ApplicationInfo[] = [];
 }
 
 /** A fake Guidance access service that records calls and uses the real role check and validator. */
@@ -870,6 +892,7 @@ describe("registry HTTP API", () => {
     compilations.reads = [];
     compilations.stored = [];
     compilations.evidence = { applications: [] };
+    compilations.evidenceApplications = [];
     guidanceAccess.calls = [];
     guidanceAccess.grants = [];
     guidanceAccess.retentionDays = 90;
@@ -1760,6 +1783,88 @@ describe("registry HTTP API", () => {
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
         .toEqual(Array(3).fill("/v1/applications/{id}/identification-file"));
       expect(JSON.stringify(events)).not.toContain(applications.knownId);
+    });
+  });
+
+  describe("Application evidence", () => {
+    const buyerAuth = { authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { authorization: `Bearer ${BUILDER_SESSION}` };
+    const known: ApplicationInfo = {
+      id: applications.knownId,
+      description: "Checkout",
+      project: { id: CHILD_ID, name: "Web" },
+      fromFlow: true,
+      agentTool: "claude-code",
+      createdAt: "2026-10-13T09:00:00.000Z",
+    };
+    const envelope = (sequence: number) => ({
+      type: "gate_run",
+      schemaVersion: "1.0.0",
+      catalogVersion: COMPILATION_CATALOG_VERSION,
+      idempotencyKey: mintUuidV7(),
+      applicationId: applications.knownId,
+      agentToolName: "claude-code",
+      occurredAt: "2026-10-15T12:00:00.000Z",
+      sequence,
+      revision: "abc123",
+      verdict: "fail",
+      checkedCount: 2,
+      openCount: 1,
+      deviations: [
+        {
+          standardId: mintUuidV7(),
+          slot: { moduleKind: "code-stack", slotKind: "library", name: "React" },
+          subject: "React",
+          status: "open",
+        },
+      ],
+    });
+
+    beforeEach(() => {
+      compilations.evidenceApplications = [known];
+      compilations.stored = [validateCompilationBody(envelope(2)), validateCompilationBody(envelope(1))];
+    });
+
+    it("serves the Application with its Compilations in sequence order, to every role", async () => {
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await fetch(`${base}${applicationEvidencePath(applications.knownId)}`, { headers });
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        expect(isApplicationEvidence(body)).toBe(true);
+        const evidence = body as ApplicationEvidence;
+        expect(evidence.application).toEqual(known);
+        expect(evidence.compilations.map((entry) => [entry.type, entry.sequence])).toEqual([
+          ["gate_run", 1],
+          ["gate_run", 2],
+        ]);
+      }
+      expect(compilations.calls).toEqual([
+        ["evidence", "Buyer", applications.knownId],
+        ["evidence", "Builder", applications.knownId],
+      ]);
+    });
+
+    it("maps an unknown or malformed id to 404 application_not_found, subject applicationId", async () => {
+      for (const id of [mintUuidV7(), "nope"]) {
+        const response = await fetch(`${base}${applicationEvidencePath(id)}`, { headers: buyerAuth });
+        expect(response.status).toBe(404);
+        expect(await response.json()).toMatchObject({ code: "application_not_found", subject: "applicationId" });
+      }
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(await fetch(`${base}${applicationEvidencePath(applications.knownId)}`), 401, "session_invalid");
+      expect(compilations.calls).toEqual([]);
+    });
+
+    it("answers 405 with Allow GET for other methods", async () => {
+      const response = await fetch(`${base}${applicationEvidencePath(applications.knownId)}`, {
+        method: "POST",
+        headers: buyerAuth,
+      });
+      expect(response.headers.get("allow")).toBe("GET");
+      await expectEnvelope(response, 405, "method_not_allowed");
+      expect(compilations.calls).toEqual([]);
     });
   });
 

@@ -1,5 +1,5 @@
 import { Suspense, useState } from "react";
-import { Await, redirect, useLoaderData } from "react-router";
+import { Await, Link, redirect, useLoaderData } from "react-router";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import type {
   ApplicationInfo,
@@ -258,7 +258,9 @@ function GroupedTables({
               <tbody>
                 {group.applications.map((application) => (
                   <tr key={application.id} className="application-row">
-                    <th scope="row">{application.description}</th>
+                    <th scope="row">
+                      <Link to={`/applications/${encodeURIComponent(application.id)}`}>{application.description}</Link>
+                    </th>
                     <td>{application.project.name}</td>
                     <td>{application.fromFlow ? INVENTORY_COPY.fromFlow : INVENTORY_COPY.registered}</td>
                     <td>{application.createdAt.slice(0, 10)}</td>

@@ -70,12 +70,13 @@ const refused = (error: unknown) => ({ kind: "refused", error });
 
 interface Seed {
   readonly role: Role;
+  readonly entry?: string;
   readonly applications?: Promise<unknown>;
   readonly effective?: Promise<unknown>;
   readonly records?: Promise<unknown>;
 }
 
-function renderPage({ role, applications = Promise.resolve(ok([application])), effective = Promise.resolve(ok(effectiveSet)), records = Promise.resolve(ok([])) }: Seed) {
+function renderPage({ role, entry = "/accepted-deviation", applications = Promise.resolve(ok([application])), effective = Promise.resolve(ok(effectiveSet)), records = Promise.resolve(ok([])) }: Seed) {
   const Layout = () => (
     <>
       <PanelChrome role={role} />
@@ -107,7 +108,7 @@ function renderPage({ role, applications = Promise.resolve(ok([application])), e
       ],
     },
   ]);
-  render(<Stub initialEntries={["/accepted-deviation"]} />);
+  render(<Stub initialEntries={[entry]} />);
 }
 
 const must = (selector: string): Element => {
@@ -495,5 +496,47 @@ describe("submitting the acceptance form", () => {
         "Enter a justification of 1 or more characters. Nothing was recorded.",
       );
     });
+  });
+});
+
+describe("accepting from an Application deviation row", () => {
+  const slotText = "code-stack/library/react";
+  const returnTo = `/applications/${APP}#deviation-row-0`;
+  const entry = `/accepted-deviation?application=${APP}&standardId=${STANDARD}&slot=${encodeURIComponent(slotText)}&subject=lodash&returnTo=${encodeURIComponent(returnTo)}`;
+
+  function renderWithReturn() {
+    const Stub = createRoutesStub([
+      {
+        path: "/accepted-deviation",
+        Component: AcceptedDeviationPage,
+        loader: () => ({
+          applications: Promise.resolve(ok([application])),
+          effective: Promise.resolve(ok(effectiveSet)),
+          records: Promise.resolve(ok([])),
+        }),
+      },
+      { path: "/applications/:applicationId", Component: () => <p>Application evidence marker</p> },
+    ]);
+    render(<Stub initialEntries={[entry]} />);
+  }
+
+  it("pre-fills the Application and the match key from the row", async () => {
+    renderWithReturn();
+    await waitFor(() => {
+      expect((must("#accepted-deviation-applicationId") as HTMLSelectElement).value).toBe(APP);
+    });
+    expect((must("#accepted-deviation-standardId") as HTMLInputElement).value).toBe(STANDARD);
+    expect((must("#accepted-deviation-slot") as HTMLInputElement).value).toBe(slotText);
+    expect((must("#accepted-deviation-subject") as HTMLInputElement).value).toBe("lodash");
+  });
+
+  it("offers the way back, and Esc returns to the row", async () => {
+    renderWithReturn();
+    await waitFor(() => {
+      expect((must("#accepted-deviation-applicationId") as HTMLSelectElement).value).toBe(APP);
+    });
+    expect(screen.getByRole("link", { name: "Back to Application evidence" }).getAttribute("href")).toBe(returnTo);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await screen.findByText("Application evidence marker");
   });
 });

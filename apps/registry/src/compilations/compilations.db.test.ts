@@ -579,7 +579,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Compilation catalog 
     });
 
     it("omits Applications with no Compilation and never another tenant's rows", async () => {
-      const res = await get(INVENTORY_API_PATHS.inventory, "bea");
+      const res = await get(INVENTORY_API_PATHS.inventory, "buyer");
       expect(res.status).toBe(200);
       const body = (await res.json()) as InventoryEvidence;
       expect(isInventoryEvidence(body)).toBe(true);

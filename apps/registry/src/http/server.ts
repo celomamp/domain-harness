@@ -120,6 +120,7 @@ const PROJECT_CHILD_PERMISSIONS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/chil
 const PROJECT_BUILD_GRANTS_ROUTE = `${PROJECT_API_PATHS.projects}/{id}/build-grants`;
 const APPLICATION_IDENTIFICATION_FILE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/identification-file`;
 const APPLICATION_BOILERPLATE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/boilerplate`;
+const APPLICATION_EVIDENCE_ROUTE = `${APPLICATION_API_PATHS.applications}/{id}/evidence`;
 const BUNDLE_LATEST_ROUTE = "/v1/standard-bundles/{id}";
 const ACCEPTED_DEVIATION_ALERT_DISMISSAL_ROUTE = `${ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts}/{id}/dismissal`;
 
@@ -136,6 +137,7 @@ const PARAM_ROUTES: readonly (readonly [string, RegExp])[] = [
   [PROJECT_BUILD_GRANTS_ROUTE, /^\/v1\/projects\/([^/]+)\/build-grants$/],
   [APPLICATION_IDENTIFICATION_FILE_ROUTE, /^\/v1\/applications\/([^/]+)\/identification-file$/],
   [APPLICATION_BOILERPLATE_ROUTE, /^\/v1\/applications\/([^/]+)\/boilerplate$/],
+  [APPLICATION_EVIDENCE_ROUTE, /^\/v1\/applications\/([^/]+)\/evidence$/],
   [BUNDLE_LATEST_ROUTE, /^\/v1\/standard-bundles\/([^/]+)$/],
   [ACCEPTED_DEVIATION_ALERT_DISMISSAL_ROUTE, /^\/v1\/accepted-deviation-alerts\/([^/]+)\/dismissal$/],
 ];
@@ -160,6 +162,7 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [APPLICATION_API_PATHS.registered]: ["POST"],
   [APPLICATION_IDENTIFICATION_FILE_ROUTE]: ["GET"],
   [APPLICATION_BOILERPLATE_ROUTE]: ["POST"],
+  [APPLICATION_EVIDENCE_ROUTE]: ["GET"],
   [GUIDANCE_ENDPOINT_PATH]: ["GET", "POST"],
   [ACCEPTED_DEVIATION_API_PATHS.acceptedDeviations]: ["GET", "POST"],
   [ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts]: ["GET"],
@@ -498,6 +501,14 @@ async function handle(
     case APPLICATION_IDENTIFICATION_FILE_ROUTE: {
       const session = await service.getSession(bearerToken(req));
       sendJson(res, 200, await services.applications.getIdentificationFile(session, match.id));
+      return;
+    }
+    case APPLICATION_EVIDENCE_ROUTE: {
+      // One Application's Compilation evidence, derived from nothing new:
+      // the Application plus its stored Compilations in sequence order. Open
+      // to every role; an unknown id is 404 `application_not_found`.
+      const session = await service.getSession(bearerToken(req));
+      sendJson(res, 200, await services.compilations.getApplicationEvidence(session, match.id));
       return;
     }
     case APPLICATION_API_PATHS.registered: {

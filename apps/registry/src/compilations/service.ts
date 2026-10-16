@@ -1,11 +1,13 @@
-import { and, desc, eq, max } from "drizzle-orm";
+import { and, asc, desc, eq, max } from "drizzle-orm";
 import {
+  APPLICATION_NOT_FOUND,
   CATALOG_UNREAD,
   COMPILATION_CATALOG_VERSION,
   DEFAULT_STALENESS_HOURS,
   ROLE_DENIED,
 } from "@domain-harness/contract";
 import type {
+  ApplicationEvidence,
   BundleStatusList,
   BundleStatusView,
   CollectorHealthList,
@@ -17,13 +19,17 @@ import type {
   SessionInfo,
   UuidV7,
 } from "@domain-harness/contract";
+import { isUuidV7 } from "@domain-harness/contract";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb, RegistryTx } from "../db/client.ts";
 import { isUniqueViolation } from "../db/pg-errors.ts";
-import { bundleRecords, compilationCatalogReads, compilations } from "../db/schema.ts";
+import { applications, bundleRecords, compilationCatalogReads, compilations } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
 import { accountNames, accountRef, toId } from "../modules/service.ts";
+import { currentAgentTools } from "../applications/agent-tool.ts";
+import { currentProjects } from "../projects/current.ts";
+import { lockBundle } from "../standards/service.ts";
 import { validateCatalogReadBody, validateCompilationBody } from "./validate.ts";
 
 /** Throw `role_denied` unless the session is the Buyer's: only the Buyer records reading the catalog. */
@@ -257,6 +263,7 @@ export interface CompilationsService {
   ingestCompilation(tenantId: UuidV7, body: unknown): Promise<{ compilation: Compilation; replay: boolean }>;
   listBundleStatus(session: SessionInfo): Promise<BundleStatusList>;
   listCollectorHealth(session: SessionInfo): Promise<CollectorHealthList>;
+  getApplicationEvidence(session: SessionInfo, applicationId: string): Promise<ApplicationEvidence>;
 }
 
 export function createCompilationsService(db: RegistryDb): CompilationsService {
@@ -268,6 +275,7 @@ export function createCompilationsService(db: RegistryDb): CompilationsService {
     ingestCompilation: (tenantId, body) => ingestCompilation(db, tenantId, body),
     listBundleStatus: (session) => listBundleStatus(db, session),
     listCollectorHealth: (session) => listCollectorHealth(db, session),
+    getApplicationEvidence: (session, applicationId) => getApplicationEvidence(db, session, applicationId),
   };
 }
 
@@ -364,5 +372,56 @@ export async function listCollectorHealth(db: RegistryDb, session: SessionInfo):
       });
     }
     return { reports };
+    });
+}
+
+const evidenceNotFound = (): EnvelopeError =>
+  new EnvelopeError({
+    code: APPLICATION_NOT_FOUND,
+    message: "no such Application in this Company",
+    subject: "applicationId",
+  });
+
+/**
+ * One Application's evidence: the Application itself plus its stored
+ * Compilations in per-Application `sequence` order. Open to every role. A
+ * malformed, unknown or other tenant's id is 404 `application_not_found`,
+ * subject `applicationId` (the identification-file precedent). The rows are
+ * returned as stored — the registry derives nothing new.
+ */
+export async function getApplicationEvidence(
+  db: RegistryDb,
+  session: SessionInfo,
+  applicationId: string,
+): Promise<ApplicationEvidence> {
+  if (!isUuidV7(applicationId)) throw evidenceNotFound();
+  const { tenantId } = session;
+  return withTenant(db, tenantId, async (tx: RegistryTx) => {
+    await lockBundle(tx, tenantId);
+    const [row] = await tx
+      .select()
+      .from(applications)
+      .where(and(eq(applications.tenantId, tenantId), eq(applications.id, applicationId)));
+    if (row === undefined) throw evidenceNotFound();
+    const current = await currentProjects(tx, tenantId);
+    const project = current.get(row.projectId);
+    if (project === undefined) throw new Error("an Application's Project is missing");
+    const agentTools = await currentAgentTools(tx, tenantId);
+    const rows = await tx
+      .select()
+      .from(compilations)
+      .where(and(eq(compilations.tenantId, tenantId), eq(compilations.applicationId, applicationId)))
+      .orderBy(asc(compilations.sequence));
+    return {
+      application: {
+        id: toId(row.id),
+        description: row.description,
+        project: { id: toId(project.row.id), name: project.row.name },
+        fromFlow: row.fromFlow,
+        agentTool: agentTools.get(row.id) ?? null,
+        createdAt: row.createdAt.toISOString(),
+      },
+      compilations: rows.map((entry) => entry.payload),
+    };
   });
 }
