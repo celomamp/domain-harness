@@ -14,6 +14,7 @@ import {
   GUIDANCE_ACCESS_API_PATHS,
   GUIDANCE_ENDPOINT_PATH,
   GUIDANCE_ENDPOINT_UNSET,
+  INVENTORY_API_PATHS,
   isEmailAddress,
   LOCKED_RULE_CONFLICT,
   MODULE_API_PATHS,
@@ -170,6 +171,7 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [COMPILATION_API_PATHS.catalogReads]: ["GET", "POST"],
   [COMPILATION_API_PATHS.bundleStatus]: ["GET"],
   [COMPILATION_API_PATHS.collectorHealth]: ["GET"],
+  [INVENTORY_API_PATHS.inventory]: ["GET"],
   [GUIDANCE_ACCESS_API_PATHS.access]: ["GET", "POST"],
   [GUIDANCE_ACCESS_API_PATHS.tokens]: ["POST"],
   [GUIDANCE_ACCESS_API_PATHS.retention]: ["GET"],
@@ -678,6 +680,14 @@ async function handle(
       // pending count and the dropped-by-reason counts). Every role may read.
       const session = await service.getSession(bearerToken(req));
       sendJson(res, 200, await services.compilations.listCollectorHealth(session));
+      return;
+    }
+    case INVENTORY_API_PATHS.inventory: {
+      // The Inventory's agent-tool groups: every role may read the tenant's
+      // per-Application Compilation evidence. Read-only, so no bundle
+      // rebuild runs and no catalog-read gate applies to the read itself.
+      const session = await service.getSession(bearerToken(req));
+      sendJson(res, 200, await services.compilations.getInventoryEvidence(session));
       return;
     }
     case GUIDANCE_ACCESS_API_PATHS.access: {

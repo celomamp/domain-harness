@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +18,14 @@ const flow = {
   agentTool: "claude-code",
   createdAt: "2026-10-13T23:30:00.000Z",
 };
+const cursorApp = {
+  id: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e603",
+  description: "Intake form",
+  project: { id: WEB, name: "Web" },
+  fromFlow: true,
+  agentTool: "cursor",
+  createdAt: "2026-10-13T23:31:00.000Z",
+};
 const registered = {
   id: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e602",
   description: "Legacy billing",
@@ -27,10 +35,48 @@ const registered = {
   createdAt: "2026-10-14T08:00:00.000Z",
 };
 
-function renderInventory(applications: Promise<unknown>) {
-  const Stub = createRoutesStub([{ path: "/inventory", Component: Inventory, loader: () => ({ applications }) }]);
+const EMPTY = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5fa";
+
+const tree = {
+  rootId: ROOT,
+  projects: [
+    { id: ROOT, name: "Acme", levelName: null, parentId: null, createdAt: "2026-10-13T23:00:00.000Z" },
+    { id: WEB, name: "Web", levelName: "team", parentId: ROOT, createdAt: "2026-10-13T23:01:00.000Z" },
+    { id: EMPTY, name: "Empty", levelName: "team", parentId: ROOT, createdAt: "2026-10-13T23:02:00.000Z" },
+  ],
+  lockedRules: [],
+};
+
+const evidence = {
+  applications: [{ applicationId: flow.id, agentTools: ["cursor", "claude-code"] }],
+};
+
+interface StubReads {
+  readonly applications: Promise<unknown>;
+  readonly projects?: Promise<unknown>;
+  readonly evidence?: Promise<unknown>;
+}
+
+function renderInventory(reads: StubReads) {
+  const Stub = createRoutesStub([
+    {
+      path: "/inventory",
+      Component: Inventory,
+      loader: () => ({
+        applications: reads.applications,
+        projects: reads.projects ?? Promise.resolve({ kind: "ok", value: tree }),
+        evidence: reads.evidence ?? Promise.resolve({ kind: "ok", value: evidence }),
+      }),
+    },
+  ]);
   render(<Stub initialEntries={["/inventory"]} />);
 }
+
+const fullReads = (): StubReads => ({
+  applications: Promise.resolve({ kind: "ok", value: { applications: [flow, cursorApp, registered] } }),
+  projects: Promise.resolve({ kind: "ok", value: tree }),
+  evidence: Promise.resolve({ kind: "ok", value: evidence }),
+});
 
 afterEach(() => {
   cleanup();
@@ -38,32 +84,82 @@ afterEach(() => {
 });
 
 describe("Inventory", () => {
-  it("lists every Application in a table: description, Project, placement and listed date, with no Builder name", async () => {
-    renderInventory(Promise.resolve({ kind: "ok", value: { applications: [flow, registered] } }));
-    const table = await screen.findByRole("table", { name: "Applications" });
-    expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+  it("groups application-rows under the Compilation-observed agent-tool heading, with header cells and no Builder name", async () => {
+    renderInventory(fullReads());
+    // The evidence puts Checkout service under cursor (latest first) even
+    // though its registry Boilerplate target is claude-code.
+    const cursor = await screen.findByRole("table", { name: "Applications — cursor" });
+    expect(within(cursor).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
       "Application",
       "Project",
       "Placement",
       "Listed",
     ]);
-    const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows.map((row) => [...row.children].map((cell) => cell.textContent))).toEqual([
+    expect(within(cursor).getAllByRole("row").slice(1).map((row) => [...row.children].map((cell) => cell.textContent))).toEqual([
       ["Checkout service", "Web", "New-application flow", "2026-10-13"],
-      ["Legacy billing", "Acme", "Registered", "2026-10-14"],
+      ["Intake form", "Web", "New-application flow", "2026-10-13"],
     ]);
+    expect(screen.getByRole("heading", { name: "cursor" })).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "Applications — claude-code" })).toBeNull();
+    const none = screen.getByRole("table", { name: "Applications — No Compilation yet" });
+    expect(within(none).getAllByRole("row").slice(1).map((row) => row.children[0]?.textContent)).toEqual(["Legacy billing"]);
     expect(screen.getByText("Listed before any Gate run. Compilation evidence fills in later.")).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/Builder/);
   });
 
+  it("filters by Project: selecting Web shows only Web's Applications, and an empty Project shows its empty state", async () => {
+    renderInventory(fullReads());
+    await screen.findByRole("table", { name: "Applications — cursor" });
+    const filter = screen.getByLabelText("Project");
+    expect([...filter.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
+      "All Projects",
+      "Acme",
+      "Web",
+      "Empty",
+    ]);
+    fireEvent.change(filter, { target: { value: WEB } });
+    expect(screen.queryByRole("table", { name: "Applications — No Compilation yet" })).toBeNull();
+    expect(screen.getByRole("table", { name: "Applications — cursor" })).toBeTruthy();
+    fireEvent.change(filter, { target: { value: ROOT } });
+    expect(screen.queryByRole("table", { name: "Applications — cursor" })).toBeNull();
+    expect(screen.getByRole("table", { name: "Applications — No Compilation yet" })).toBeTruthy();
+    fireEvent.change(filter, { target: { value: EMPTY } });
+    expect((await screen.findByText("No Application in this Project yet.")).className).toBe("type-display");
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("falls back to the registry Boilerplate target and says so when the Compilation evidence does not arrive", async () => {
+    const reads = fullReads();
+    renderInventory({ ...reads, evidence: Promise.resolve({ kind: "unavailable" }) });
+    expect(
+      await screen.findByText(
+        "The Compilation evidence did not arrive, so the agent-tool groups use the latest Boilerplate target.",
+      ),
+    ).toBeTruthy();
+    // Checkout service groups under its registry target now, and the
+    // structure (filter, tables, rows) stays.
+    expect(screen.getByRole("table", { name: "Applications — claude-code" })).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Applications — cursor" })).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Applications — No Compilation yet" })).toBeTruthy();
+    expect(screen.getByLabelText("Project")).toBeTruthy();
+  });
+
+  it("shows the full list with a note when the Project list is unavailable", async () => {
+    const reads = fullReads();
+    renderInventory({ ...reads, projects: Promise.resolve({ kind: "unavailable" }) });
+    expect(await screen.findByText("The Project list is unavailable right now. The full list is shown.")).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Applications — cursor" })).toBeTruthy();
+    expect(screen.queryByLabelText("Project")).toBeNull();
+  });
+
   it("shows the empty state when there is no Application", async () => {
-    renderInventory(Promise.resolve({ kind: "ok", value: { applications: [] } }));
+    renderInventory({ applications: Promise.resolve({ kind: "ok", value: { applications: [] } }) });
     expect((await screen.findByText("No Application yet.")).className).toBe("type-display");
     expect(screen.queryByRole("table")).toBeNull();
   });
 
   it("is busy while the Applications load, with the heading already there", async () => {
-    renderInventory(new Promise(() => undefined));
+    renderInventory({ applications: new Promise(() => undefined) });
     expect((await screen.findByRole("heading", { level: 1 })).textContent).toBe("Inventory");
     expect(screen.getByText("Loading the Applications…").closest("[aria-busy]")?.getAttribute("aria-busy")).toBe("true");
   });
@@ -80,23 +176,51 @@ describe("Inventory", () => {
       },
     ],
   ])("says the Inventory is unavailable on %s", async (_label, answer: () => Promise<unknown>) => {
-    renderInventory(answer());
+    renderInventory({ applications: answer() });
     expect(await screen.findByText("The Inventory is unavailable right now. Try again in a few minutes.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
 });
 
 describe("/inventory loader", () => {
-  it("defers GET /v1/applications with the session, and redirects to sign-in without a cookie", async () => {
-    const fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ applications: [flow] }), { status: 200 })));
+  it("defers the Applications, the Project tree and the evidence with the session, and redirects to sign-in without a cookie", async () => {
+    const fetch = vi.fn(
+      (url: string) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              url.endsWith("/v1/applications")
+                ? { applications: [flow] }
+                : url.endsWith("/v1/projects")
+                  ? tree
+                  : { applications: [] },
+            ),
+            { status: 200 },
+          ),
+        ),
+    );
     vi.stubGlobal("fetch", fetch);
     const result = loader({ request: new Request("http://x/inventory", { headers: { cookie: COOKIE } }) } as LoaderFunctionArgs);
     if (result instanceof Response) throw new Error("expected data");
     expect(result.applications).toBeInstanceOf(Promise);
+    expect(result.projects).toBeInstanceOf(Promise);
+    expect(result.evidence).toBeInstanceOf(Promise);
     expect(await result.applications).toEqual({ kind: "ok", value: { applications: [flow] } });
-    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toMatch(/\/v1\/applications$/);
-    expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${TENANT}.${"S".repeat(43)}`);
+    expect(await result.projects).toEqual({ kind: "ok", value: tree });
+    expect(await result.evidence).toEqual({ kind: "ok", value: { applications: [] } });
+    const urls = fetch.mock.calls.map((call) => String((call as unknown[])[0]));
+    expect(urls).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/\/v1\/applications$/),
+        expect.stringMatching(/\/v1\/projects$/),
+        expect.stringMatching(/\/v1\/inventory$/),
+      ]),
+    );
+    for (const call of fetch.mock.calls) {
+      expect(new Headers(((call as unknown[])[1] as RequestInit).headers).get("authorization")).toBe(
+        `Bearer ${TENANT}.${"S".repeat(43)}`,
+      );
+    }
     const away = loader({ request: new Request("http://x/inventory") } as LoaderFunctionArgs);
     expect((away as Response).headers.get("location")).toBe("/sign-in");
   });

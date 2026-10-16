@@ -320,6 +320,7 @@ export {
   GATE_RUN_VERDICTS,
   GUIDANCE_COMPILATION_OUTCOMES,
   GUIDANCE_COMPILATION_SCHEMA_VERSION,
+  INVENTORY_API_PATHS,
   isBindingRefusalCompilation,
   isBundleStatusCompilation,
   isBundleStatusList,
@@ -337,6 +338,8 @@ export {
   isGateRunDeviationSummary,
   isGuidanceCompilation,
   isGuidanceCompilationSubject,
+  isInventoryApplicationEvidence,
+  isInventoryEvidence,
   isSupportedCompilationSchemaVersion,
 } from "./compilations.ts";
 export type {
@@ -361,4 +364,6 @@ export type {
   GuidanceCompilation,
   GuidanceCompilationOutcome,
   GuidanceCompilationSubject,
+  InventoryApplicationEvidence,
+  InventoryEvidence,
 } from "./compilations.ts";

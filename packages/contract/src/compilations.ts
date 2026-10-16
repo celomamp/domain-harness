@@ -883,3 +883,64 @@ export function isCollectorHealthList(value: unknown): value is CollectorHealthL
   const reports = value["reports"];
   return Array.isArray(reports) && reports.every(isCollectorHealthView);
 }
+
+// ---------------------------------------------------------------------------
+// The inventory evidence read: per-Application agent tools observed in
+// Compilations, so the panel groups the inventory without naming Builders
+// (Story 6.5, FR-22/FR-20). Not a Compilation type: the closed catalog above
+// is untouched.
+// ---------------------------------------------------------------------------
+
+/** Registry HTTP API paths for the inventory evidence read. */
+export const INVENTORY_API_PATHS = {
+  /** `GET`: 200 {@link InventoryEvidence} (every role). */
+  inventory: "/v1/inventory",
+} as const;
+
+/**
+ * One Application's Compilation evidence: the distinct agent tool names
+ * observed in its Compilations, latest first. A row exists only for an
+ * Application with at least one Compilation, so `agentTools` is never empty.
+ */
+export interface InventoryApplicationEvidence {
+  readonly applicationId: UuidV7;
+  readonly agentTools: readonly string[];
+}
+
+/**
+ * Response of `GET /v1/inventory`: evidence only for Applications with at
+ * least one Compilation, ordered by `applicationId`. An Application with no
+ * Compilation yet has no row; the panel lists it from the Applications read.
+ */
+export interface InventoryEvidence {
+  readonly applications: readonly InventoryApplicationEvidence[];
+}
+
+const INVENTORY_APPLICATION_KEYS = new Set(["applicationId", "agentTools"]);
+
+/** True when `value` is one {@link InventoryApplicationEvidence} row. Never throws. */
+export function isInventoryApplicationEvidence(value: unknown): value is InventoryApplicationEvidence {
+  if (!isRecord(value)) return false;
+  for (const key of Object.keys(value)) {
+    if (!INVENTORY_APPLICATION_KEYS.has(key)) return false;
+  }
+  const agentTools = value["agentTools"];
+  return (
+    isUuidV7(value["applicationId"]) &&
+    Array.isArray(agentTools) &&
+    agentTools.length > 0 &&
+    agentTools.every((tool) => typeof tool === "string" && tool.trim() !== "")
+  );
+}
+
+const INVENTORY_KEYS = new Set(["applications"]);
+
+/** True when `value` is a complete {@link InventoryEvidence}. Never throws. */
+export function isInventoryEvidence(value: unknown): value is InventoryEvidence {
+  if (!isRecord(value)) return false;
+  for (const key of Object.keys(value)) {
+    if (!INVENTORY_KEYS.has(key)) return false;
+  }
+  const applications = value["applications"];
+  return Array.isArray(applications) && applications.every(isInventoryApplicationEvidence);
+}

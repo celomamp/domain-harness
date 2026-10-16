@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, max } from "drizzle-orm";
 import {
   CATALOG_UNREAD,
   COMPILATION_CATALOG_VERSION,
@@ -13,6 +13,7 @@ import type {
   Compilation,
   CompilationCatalogRead,
   CompilationCatalogReadState,
+  InventoryEvidence,
   SessionInfo,
   UuidV7,
 } from "@domain-harness/contract";
@@ -22,7 +23,7 @@ import type { RegistryDb, RegistryTx } from "../db/client.ts";
 import { isUniqueViolation } from "../db/pg-errors.ts";
 import { bundleRecords, compilationCatalogReads, compilations } from "../db/schema.ts";
 import { withTenant } from "../db/tenant-scope.ts";
-import { accountNames, accountRef } from "../modules/service.ts";
+import { accountNames, accountRef, toId } from "../modules/service.ts";
 import { validateCatalogReadBody, validateCompilationBody } from "./validate.ts";
 
 /** Throw `role_denied` unless the session is the Buyer's: only the Buyer records reading the catalog. */
@@ -129,6 +130,42 @@ export async function getCatalogRead(
 }
 
 /**
+ * One Application's Compilation evidence for the Inventory's agent-tool
+ * groups (Story 6.5): the distinct agent tool names observed in its
+ * Compilations, latest first. Open to every role, read-only, under the
+ * tenant's scope: only Applications with at least one Compilation have a
+ * row, ordered by Application id, and the wire never names who created an
+ * Application.
+ */
+export async function getInventoryEvidence(db: RegistryDb, session: SessionInfo): Promise<InventoryEvidence> {
+  const { tenantId } = session;
+  return withTenant(db, tenantId, async (tx) => {
+    const rows = await tx
+      .select({
+        applicationId: compilations.applicationId,
+        agentToolName: compilations.agentToolName,
+        latest: max(compilations.sequence),
+      })
+      .from(compilations)
+      .where(eq(compilations.tenantId, tenantId))
+      .groupBy(compilations.applicationId, compilations.agentToolName);
+    const toolsByApplication = new Map<string, { readonly name: string; readonly latest: number }[]>();
+    for (const row of rows) {
+      const tools = toolsByApplication.get(row.applicationId) ?? [];
+      tools.push({ name: row.agentToolName, latest: row.latest ?? 0 });
+      toolsByApplication.set(row.applicationId, tools);
+    }
+    const applications = [...toolsByApplication.entries()]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([applicationId, tools]) => ({
+        applicationId: toId(applicationId),
+        agentTools: tools.sort((left, right) => right.latest - left.latest).map((tool) => tool.name),
+      }));
+    return { applications };
+  });
+}
+
+/**
  * Throw `catalog_unread` unless the tenant recorded a read of the current
  * catalog version. The HTTP layer calls this between authentication and body
  * parsing, so the gate is the first failure after auth; `ingestCompilation`
@@ -216,6 +253,7 @@ export interface CompilationsService {
   assertCatalogRead(tenantId: UuidV7): Promise<void>;
   recordCatalogRead(session: SessionInfo, body: unknown): Promise<{ record: CompilationCatalogRead; created: boolean }>;
   getCatalogRead(session: SessionInfo): Promise<CompilationCatalogReadState>;
+  getInventoryEvidence(session: SessionInfo): Promise<InventoryEvidence>;
   ingestCompilation(tenantId: UuidV7, body: unknown): Promise<{ compilation: Compilation; replay: boolean }>;
   listBundleStatus(session: SessionInfo): Promise<BundleStatusList>;
   listCollectorHealth(session: SessionInfo): Promise<CollectorHealthList>;
@@ -226,6 +264,7 @@ export function createCompilationsService(db: RegistryDb): CompilationsService {
     assertCatalogRead: (tenantId) => assertCatalogRead(db, tenantId),
     recordCatalogRead: (session, body) => recordCatalogRead(db, session, body),
     getCatalogRead: (session) => getCatalogRead(db, session),
+    getInventoryEvidence: (session) => getInventoryEvidence(db, session),
     ingestCompilation: (tenantId, body) => ingestCompilation(db, tenantId, body),
     listBundleStatus: (session) => listBundleStatus(db, session),
     listCollectorHealth: (session) => listCollectorHealth(db, session),

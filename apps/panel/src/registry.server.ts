@@ -16,6 +16,7 @@ import {
   effectiveStandardsPath,
   GUIDANCE_ENDPOINT_PATH,
   GUIDANCE_ACCESS_API_PATHS,
+  INVENTORY_API_PATHS,
   isAcceptedDeviationAlerts,
   isAcceptedDeviationRecord,
   isAcceptedDeviationRecordList,
@@ -37,6 +38,7 @@ import {
   isGuidanceEndpointState,
   isGuidanceRoleToken,
   isIdentificationFileRendering,
+  isInventoryEvidence,
   isLockedRuleState,
   isModuleInfo,
   isModuleList,
@@ -84,6 +86,7 @@ import type {
   GuidanceEndpointState,
   GuidanceRoleToken,
   IdentificationFileRendering,
+  InventoryEvidence,
   LockedRuleRequest,
   LockedRuleState,
   ModuleInfo,
@@ -333,6 +336,16 @@ export function setBuildGrant(
 /** Every Application of the Company, ordered by creation time (every role may read). */
 export function getApplications(sessionToken: string): Promise<RegistryResult<ApplicationList>> {
   return call(APPLICATION_API_PATHS.applications, getJson(sessionToken), 200, isApplicationList);
+}
+
+/**
+ * The tenant's per-Application Compilation evidence for the Inventory's
+ * agent-tool groups (every role may read). Lists only Applications with at
+ * least one Compilation; the Inventory lists the rest from the Applications
+ * read, so an Application with no Compilation yet still appears.
+ */
+export function getInventoryEvidence(sessionToken: string): Promise<RegistryResult<InventoryEvidence>> {
+  return call(INVENTORY_API_PATHS.inventory, getJson(sessionToken), 200, isInventoryEvidence);
 }
 
 /**
