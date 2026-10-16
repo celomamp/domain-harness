@@ -12,6 +12,8 @@ import { isUuidV7 } from "./ids.ts";
 import type { UuidV7 } from "./ids.ts";
 import { isBoilerplateTarget } from "./boilerplate.ts";
 import type { BoilerplateTarget } from "./boilerplate.ts";
+import { isCompilation } from "./compilations.ts";
+import type { Compilation } from "./compilations.ts";
 import type { ProjectRef } from "./standards.ts";
 
 /** An Application description is trimmed and 1 to this many characters long. */
@@ -85,4 +87,35 @@ export function isApplicationInfo(value: unknown): value is ApplicationInfo {
 /** True when `value` is an {@link ApplicationList}. Never throws. */
 export function isApplicationList(value: unknown): value is ApplicationList {
   return isRecord(value) && Array.isArray(value["applications"]) && value["applications"].every(isApplicationInfo);
+}
+
+/**
+ * One Application's evidence (Story 6.6): the Application itself plus its
+ * stored Compilations in per-Application `sequence` order. The panel derives
+ * Adherence, deviation rows and Guidance consultation from these rows; the
+ * registry derives nothing new.
+ */
+export interface ApplicationEvidence {
+  readonly application: ApplicationInfo;
+  readonly compilations: readonly Compilation[];
+}
+
+const APPLICATION_EVIDENCE_KEYS = new Set(["application", "compilations"]);
+
+/** True when `value` is a complete {@link ApplicationEvidence}. Never throws. */
+export function isApplicationEvidence(value: unknown): value is ApplicationEvidence {
+  if (!isRecord(value)) return false;
+  for (const key of Object.keys(value)) {
+    if (!APPLICATION_EVIDENCE_KEYS.has(key)) return false;
+  }
+  return (
+    isApplicationInfo(value["application"]) &&
+    Array.isArray(value["compilations"]) &&
+    (value["compilations"] as unknown[]).every(isCompilation)
+  );
+}
+
+/** `GET` the evidence of one Application: 200 {@link ApplicationEvidence} (every role). */
+export function applicationEvidencePath(applicationId: string): string {
+  return `/v1/applications/${encodeURIComponent(applicationId)}/evidence`;
 }

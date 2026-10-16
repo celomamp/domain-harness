@@ -10,6 +10,7 @@ import {
   APPLICATION_API_PATHS,
   applicationBoilerplatePath,
   acceptedDeviationAlertDismissalPath,
+  applicationEvidencePath,
   buildGrantsPath,
   childPermissionsPath,
   COMPILATION_API_PATHS,
@@ -20,6 +21,7 @@ import {
   isAcceptedDeviationRecord,
   isAcceptedDeviationRecordList,
   isAlertDismissedResult,
+  isApplicationEvidence,
   isApplicationInfo,
   isApplicationList,
   isBoilerplateResult,
@@ -60,6 +62,7 @@ import type {
   AcceptedDeviationRecord,
   AlertDismissedResult,
   ApplicationCreateRequest,
+  ApplicationEvidence,
   ApplicationInfo,
   ApplicationList,
   BoilerplateRequest,
@@ -329,6 +332,18 @@ export function setBuildGrant(
 /** Every Application of the Company, ordered by creation time (every role may read). */
 export function getApplications(sessionToken: string): Promise<RegistryResult<ApplicationList>> {
   return call(APPLICATION_API_PATHS.applications, getJson(sessionToken), 200, isApplicationList);
+}
+
+/**
+ * One Application's Compilation evidence: the Application plus its stored
+ * Compilations in sequence order (every role may read). The panel derives
+ * Adherence, deviation rows and Guidance consultation from these rows.
+ */
+export function getApplicationEvidence(
+  sessionToken: string,
+  applicationId: string,
+): Promise<RegistryResult<ApplicationEvidence>> {
+  return call(applicationEvidencePath(applicationId), getJson(sessionToken), 200, isApplicationEvidence);
 }
 
 /**

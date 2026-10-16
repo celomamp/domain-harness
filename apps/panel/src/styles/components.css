@@ -527,3 +527,17 @@
   border-radius: var(--radius-md);
   overflow-x: auto;
 }
+
+/* correction-instruction: the Deviation's Correction in its cream inset, with its copy control. */
+.correction-instruction {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3);
+  background: var(--color-surface-base);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.correction-instruction p {
+  margin: 0 0 var(--space-2);
+}

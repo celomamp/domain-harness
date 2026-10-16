@@ -1,5 +1,5 @@
-import { Suspense, useState } from "react";
-import { Await, data, Form, redirect, useActionData, useLoaderData, useNavigate } from "react-router";
+import { Suspense, useEffect, useState } from "react";
+import { Await, Link, data, Form, redirect, useActionData, useLoaderData, useNavigate, useSearchParams } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   APPLICATION_NOT_FOUND,
@@ -93,6 +93,7 @@ export const ACCEPTED_DEVIATION_COPY = {
   planRefusal: "Recording an Accepted deviation is included in Team (first sale). Nothing was changed.",
   applicationNotFound: "That Application was not found. Nothing was recorded.",
   recorded: (subject: string) => `Recorded the Accepted deviation for ${subject}.`,
+  back: "Back to Application evidence",
 } as const;
 
 /** What the record action reports back to the page. */
@@ -410,13 +411,36 @@ function AcceptanceForm({ applications, effective, submitted }: AcceptanceFormPr
   const errors = submitted?.fieldErrors ?? {};
   const values = submitted?.values ?? {};
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // A Deviation row of the Application surface links here with the match key
+  // in the query; a refused submit keeps its own values instead.
+  const prefill = (name: AcceptedDeviationField): string => values[name] ?? searchParams.get(name) ?? "";
+  // `returnTo` carries the Application row the Buyer came from (with its row
+  // anchor): the back link and Esc both go there, returning focus to the row.
+  const returnTo = searchParams.get("returnTo");
+  useEffect(() => {
+    if (returnTo === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        void navigate(returnTo);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [returnTo, navigate]);
   const [paste, setPaste] = useState("");
   const [pasteError, setPasteError] = useState(false);
   // The match key, kept in state so the paste can pre-fill it and a refusal
-  // can keep it (the submitted values seed the state once, on mount).
-  const [standardId, setStandardId] = useState(values.standardId ?? "");
-  const [slot, setSlot] = useState(values.slot ?? "");
-  const [subject, setSubject] = useState(values.subject ?? "");
+  // can keep it (the submitted values — or the row's query prefill — seed the
+  // state once, on mount).
+  const [standardId, setStandardId] = useState(prefill("standardId"));
+  const [slot, setSlot] = useState(prefill("slot"));
+  const [subject, setSubject] = useState(prefill("subject"));
+  // The Application travels as `?application=` (the loader's selection key);
+  // the form field itself is `applicationId`.
+  const applicationValue = values.applicationId ?? searchParams.get("application") ?? "";
 
   const useLine = () => {
     const key = parseDeviationLine(paste);
@@ -433,6 +457,7 @@ function AcceptanceForm({ applications, effective, submitted }: AcceptanceFormPr
   return (
     <Form method="post" className="acceptance-form standard-form" aria-label={ACCEPTED_DEVIATION_COPY.heading} noValidate>
       <input type="hidden" name="intent" value="record" />
+      {returnTo === null ? null : <Link to={returnTo}>{ACCEPTED_DEVIATION_COPY.back}</Link>}
       <div className="standard-form__fields" aria-busy={false}>
         <label htmlFor="accepted-deviation-ci-line" className="type-label">
           {ACCEPTED_DEVIATION_COPY.paste.label}
@@ -490,7 +515,7 @@ function AcceptanceForm({ applications, effective, submitted }: AcceptanceFormPr
                 <select
                   id="accepted-deviation-applicationId"
                   name="applicationId"
-                  defaultValue={values.applicationId ?? ""}
+                  defaultValue={applicationValue}
                   aria-invalid={errors["applicationId"] === undefined ? undefined : true}
                   aria-describedby={errors["applicationId"] === undefined ? undefined : "accepted-deviation-applicationId-error"}
                   onChange={(event) => {

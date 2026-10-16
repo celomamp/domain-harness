@@ -13,6 +13,7 @@ export default [
     file: "routes/panel-layout.tsx",
     children: [
       { path: "inventory", file: "routes/inventory.tsx" },
+      { path: "applications/:applicationId", file: "routes/application.tsx" },
       { path: "standards", file: "routes/standards.tsx" },
       { path: "standards/:moduleId", file: "routes/module-standards.tsx" },
       { path: "projects", file: "routes/project-tree.tsx" },

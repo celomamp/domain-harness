@@ -145,10 +145,12 @@ export type { BuildGrant, BuildGrantList, BuildGrantRequest, BuildGrantState } f
 export {
   APPLICATION_API_PATHS,
   APPLICATION_DESCRIPTION_MAX,
+  applicationEvidencePath,
+  isApplicationEvidence,
   isApplicationInfo,
   isApplicationList,
 } from "./applications.ts";
-export type { ApplicationCreateRequest, ApplicationInfo, ApplicationList } from "./applications.ts";
+export type { ApplicationCreateRequest, ApplicationEvidence, ApplicationInfo, ApplicationList } from "./applications.ts";
 export {
   APPLICATION_NOT_FOUND,
   applicationIdentificationFilePath,

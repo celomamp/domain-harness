@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { APPLICATION_API_PATHS, APPLICATION_DESCRIPTION_MAX, isApplicationInfo, isApplicationList } from "./index.ts";
+import {
+  APPLICATION_API_PATHS,
+  APPLICATION_DESCRIPTION_MAX,
+  applicationEvidencePath,
+  COMPILATION_CATALOG_VERSION,
+  isApplicationEvidence,
+  isApplicationInfo,
+  isApplicationList,
+} from "./index.ts";
 
 const APP = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f7";
 const PROJECT = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
@@ -49,5 +57,44 @@ describe("Application wire contract", () => {
     ["an array", []],
   ])("rejects a list with %s", (_label, value) => {
     expect(isApplicationList(value)).toBe(false);
+  });
+});
+
+const KEY = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e601";
+
+const guidance = {
+  type: "guidance",
+  schemaVersion: "1.0.0",
+  catalogVersion: COMPILATION_CATALOG_VERSION,
+  idempotencyKey: KEY,
+  applicationId: APP,
+  agentToolName: "claude-code",
+  occurredAt: AT,
+  sequence: 1,
+  tool: "code_stack_rule",
+  outcome: "hit",
+  subject: { kind: "slot-token", slotToken: "code-stack/library/React" },
+};
+
+describe("Application evidence wire contract", () => {
+  it("names the evidence path for one Application", () => {
+    expect(applicationEvidencePath(APP)).toBe(`/v1/applications/${APP}/evidence`);
+  });
+
+  it("accepts evidence with the Application and its Compilations", () => {
+    expect(isApplicationEvidence({ application: app, compilations: [guidance] })).toBe(true);
+    expect(isApplicationEvidence({ application: app, compilations: [] })).toBe(true);
+  });
+
+  it.each([
+    ["an extra key", { application: app, compilations: [], extra: 1 }],
+    ["a missing Application", { compilations: [] }],
+    ["a missing list", { application: app }],
+    ["a bad Application", { application: {}, compilations: [] }],
+    ["a non-Compilation entry", { application: app, compilations: [{}] }],
+    ["a non-list", { application: app, compilations: {} }],
+    ["null", null],
+  ])("rejects evidence with %s", (_label, value) => {
+    expect(isApplicationEvidence(value)).toBe(false);
   });
 });
