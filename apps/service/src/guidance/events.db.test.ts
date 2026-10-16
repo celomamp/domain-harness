@@ -61,10 +61,10 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGuidanceEven
 
     const report = await migrate(owner);
     expect(report).toEqual({
-      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql"],
+      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql", "0005_guidance_events_retention_idx.sql"],
       alreadyApplied: 0,
     });
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 4 });
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 5 });
 
     pool = createPool(dbUrl);
     store = createPostgresGuidanceEventStore(pool);
@@ -200,8 +200,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGuidanceEven
     expect(await store.countGuidanceEvents(racingApp)).toBe(N);
   });
 
-  it("needs no store change for pre-4.5 payloads: a missing agentTool key still guards valid and records null", async () => {
-    const oldShape: Record<string, unknown> = { id: appA, projectId: "018f3d2a-7000-7000-8000-000000000112", fromFlow: true };
+  it("needs no store change for pre-4.5 payloads: a missing agentTool key still guards valid and records null", async () => {    const oldShape: Record<string, unknown> = { id: appA, projectId: "018f3d2a-7000-7000-8000-000000000112", fromFlow: true };
     const payload = {
       ...makeBundlePayload({ keyId: "events-db-key", sequence: 1, issuedAt: "2026-10-14T12:00:00.000Z" }),
       applications: [oldShape],
@@ -217,5 +216,32 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGuidanceEven
     });
     expect(recorded.agentTool).toBeNull();
     expect(isGuidanceEvent(recorded)).toBe(true);
+  });
+
+  it("indexes created_at for the retention sweep (migration 0005)", async () => {
+    const { rows } = await owner.query<{ indexname: string }>(
+      "select indexname from pg_indexes where schemaname = 'public' and tablename = 'guidance_events' order by 1",
+    );
+    expect(rows.map((r) => r.indexname)).toContain("guidance_events_created_at_idx");
+  });
+
+  it("deletes rows strictly before the cutoff and keeps the boundary", async () => {
+    const app = "018f3d2a-7000-7000-8000-000000000021" as UuidV7;
+    const cutoff = "2026-09-16T12:00:00.000Z";
+    const at = async (createdAt: string, sequence: number): Promise<void> => {
+      await owner.query(
+        `insert into guidance_events
+           (id, application_id, sequence, tool, subject, outcome, agent_tool, bundle_hash, created_at)
+         values ($1, $2, $3, 'code_stack_rule', 'React', 'miss', null, $4, $5::timestamptz)`,
+        [`018f3d2a-7000-7000-8000-0000000${String(30000 + sequence).padStart(5, "0")}`, app, sequence, HASH, createdAt],
+      );
+    };
+    await at("2026-09-15T12:00:00.000Z", 1);
+    await at(cutoff, 2);
+    await at("2026-09-17T12:00:00.000Z", 3);
+    expect(await store.deleteGuidanceEventsOlderThan(cutoff)).toBe(1);
+    const remaining = await store.listGuidanceEvents(app);
+    expect(remaining.map((event) => event.sequence)).toEqual([2, 3]);
+    expect(await store.deleteGuidanceEventsOlderThan(cutoff)).toBe(0);
   });
 });

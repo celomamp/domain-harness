@@ -54,6 +54,7 @@ import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
 import { createCompilationsService } from "../compilations/service.ts";
+import { createGuidanceAccessService } from "../guidance-access/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
@@ -320,6 +321,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
         acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
         compilations: createCompilationsService(db),
+        guidanceAccess: createGuidanceAccessService(db, signer),
         bundles: wrappedBundles,
       },
       (event) => {

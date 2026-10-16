@@ -11,6 +11,7 @@ import {
   CATALOG_UNREAD,
   CHILD_PERMISSION_DENIED,
   COMPILATION_API_PATHS,
+  GUIDANCE_ACCESS_API_PATHS,
   GUIDANCE_ENDPOINT_PATH,
   GUIDANCE_ENDPOINT_UNSET,
   isEmailAddress,
@@ -52,6 +53,8 @@ import type { BuildGrantService } from "../build-grants/service.ts";
 import type { ChildPermissionService } from "../child-permissions/service.ts";
 import { assertGuidanceEndpointBuyer } from "../guidance-endpoint/service.ts";
 import type { GuidanceEndpointService } from "../guidance-endpoint/service.ts";
+import { assertGuidanceAccessBuyer } from "../guidance-access/service.ts";
+import type { GuidanceAccessService } from "../guidance-access/service.ts";
 import type { LockedRuleService } from "../locked-rules/service.ts";
 import type { ModuleService } from "../modules/service.ts";
 import type { ProjectService } from "../projects/service.ts";
@@ -165,6 +168,9 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [BUNDLE_LATEST_ROUTE]: ["GET"],
   [COMPILATION_API_PATHS.compilations]: ["POST"],
   [COMPILATION_API_PATHS.catalogReads]: ["GET", "POST"],
+  [GUIDANCE_ACCESS_API_PATHS.access]: ["GET", "POST"],
+  [GUIDANCE_ACCESS_API_PATHS.tokens]: ["POST"],
+  [GUIDANCE_ACCESS_API_PATHS.retention]: ["GET"],
 };
 
 interface RouteMatch {
@@ -206,6 +212,7 @@ export interface RegistryServices {
   readonly boilerplate: BoilerplateService;
   readonly bundles?: BundleService;
   readonly compilations: CompilationsService;
+  readonly guidanceAccess: GuidanceAccessService;
 }
 
 class HttpFailure extends Error {
@@ -260,6 +267,14 @@ class HttpFailure extends Error {
  * current catalog version, then validates the body, then stores the
  * Compilation exactly once per idempotency key (a replay answers the stored
  * Compilation).
+ * The tenant's Guidance access state (which roles may read stored Guidance
+ * events, and the retention days) is open to every role, but only the Buyer
+ * may set it (`role_denied` before the body is read); an identical state
+ * answers the current state with nothing written. Any role may mint a
+ * short-lived tenant-scoped role token for its own role (the Buyer always
+ * holds the grant); a role without the grant is refused with `role_denied`.
+ * The service's retention sweep reads the retention days with the tenant's
+ * service credential (the tenant comes from the credential).
  *
  * `POST /v1/sign-in-links` answers 202 `{}` for every well-formed email before
  * any lookup happens, then mints and sends links after the response is
@@ -643,6 +658,42 @@ async function handle(
       requireBuyer(req, session, assertCompilationBuyer);
       const { record, created } = await services.compilations.recordCatalogRead(session, await readJson(req));
       sendJson(res, created ? 201 : 200, record);
+      return;
+    }
+    case GUIDANCE_ACCESS_API_PATHS.access: {
+      const session = await service.getSession(bearerToken(req));
+      if (req.method === "GET") {
+        sendJson(res, 200, await services.guidanceAccess.getGuidanceAccess(session));
+        return;
+      }
+      // The role check happens before the body is read (it is drained, never
+      // parsed for any other role); then the service checks the body and
+      // appends grant and retention rows. An identical state answers 200 with
+      // nothing written. Nothing here enters a bundle, so no rebuild runs.
+      requireBuyer(req, session, assertGuidanceAccessBuyer);
+      sendJson(res, 200, await services.guidanceAccess.setGuidanceAccess(session, await readJson(req)));
+      return;
+    }
+    case GUIDANCE_ACCESS_API_PATHS.tokens: {
+      // Any role may ask, but only for its own role: the service mints when
+      // the caller's role holds the grant (the Buyer always does) and refuses
+      // with `role_denied` otherwise. The body is exactly `{}`.
+      const session = await service.getSession(bearerToken(req));
+      const body = await readJson(req);
+      if (typeof body !== "object" || body === null || Array.isArray(body) || Object.keys(body).length !== 0) {
+        throw new HttpFailure({ code: "invalid_input", message: "the body must be {}", subject: "body" });
+      }
+      sendJson(res, 201, await services.guidanceAccess.mintRoleToken(session));
+      return;
+    }
+    case GUIDANCE_ACCESS_API_PATHS.retention: {
+      // The service's retention sweep reads here with the tenant's service
+      // credential (the tenant comes from the credential, never from the path
+      // or body): authentication runs before anything else, so a bad
+      // credential is 401 `session_invalid`.
+      const bundles = requireBundles(services);
+      const credentialTenant = await bundles.authenticateCredential(bearerToken(req));
+      sendJson(res, 200, await services.guidanceAccess.getRetentionDays(credentialTenant));
       return;
     }
     case STANDARD_LOCKED_RULE_ROUTE: {

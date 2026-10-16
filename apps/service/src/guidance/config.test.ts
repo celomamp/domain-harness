@@ -1,19 +1,26 @@
 // Unit tests for the Guidance server's environment configuration (Stories
-// 4.4 + 4.6): every start-up failure is exactly one envelope
+// 4.4 + 4.6, extended by 6.7): every start-up failure is exactly one envelope
 // (missing_configuration or invalid_configuration) naming the offending
 // variable, checked in the declared-variable order — the bundles daemon's
 // env-suite pattern.
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_GUIDANCE_PORT, GuidanceConfigError, guidanceServiceConfigFromEnv } from "./config.ts";
 
 const TENANT = "018f3d2a-7000-7000-8000-000000000100";
 const INVALID_TENANT = "not-a-uuid";
+const TRUST_KEYS = JSON.stringify({
+  "registry-key-2026-10": generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }),
+});
 
 function baseEnv(): Record<string, string | undefined> {
   return {
     SERVICE_TENANT_ID: TENANT,
     SERVICE_RECORD_DATABASE_URL: "postgres://postgres:postgres@localhost:5432/postgres",
     SERVICE_READ_CREDENTIAL: "read-secret-4-6-opaque",
+    SERVICE_VENDOR_URL: "http://registry.test",
+    SERVICE_TENANT_CREDENTIAL: "tenant-credential",
+    SERVICE_ROLE_TOKEN_TRUST_KEYS: TRUST_KEYS,
   };
 }
 
@@ -34,6 +41,9 @@ describe("guidanceServiceConfigFromEnv", () => {
     expect(config.recordDatabaseUrl).toBe("postgres://postgres:postgres@localhost:5432/postgres");
     expect(config.readCredential).toBe("read-secret-4-6-opaque");
     expect(config.port).toBe(DEFAULT_GUIDANCE_PORT);
+    expect(config.registryUrl).toBe("http://registry.test");
+    expect(config.registryCredential).toBe("tenant-credential");
+    expect([...config.tokenTrustSet.keys()]).toEqual(["registry-key-2026-10"]);
     expect(DEFAULT_GUIDANCE_PORT).toBe(8080);
   });
 
@@ -44,7 +54,14 @@ describe("guidanceServiceConfigFromEnv", () => {
   });
 
   it("requires each variable with one envelope", () => {
-    for (const name of ["SERVICE_TENANT_ID", "SERVICE_RECORD_DATABASE_URL", "SERVICE_READ_CREDENTIAL"]) {
+    for (const name of [
+      "SERVICE_TENANT_ID",
+      "SERVICE_RECORD_DATABASE_URL",
+      "SERVICE_READ_CREDENTIAL",
+      "SERVICE_VENDOR_URL",
+      "SERVICE_TENANT_CREDENTIAL",
+      "SERVICE_ROLE_TOKEN_TRUST_KEYS",
+    ]) {
       const env = baseEnv();
       env[name] = undefined;
       const removed = configErrorOf(() => guidanceServiceConfigFromEnv(env));
@@ -70,6 +87,18 @@ describe("guidanceServiceConfigFromEnv", () => {
     const error = configErrorOf(() => guidanceServiceConfigFromEnv({ ...baseEnv(), SERVICE_TENANT_ID: INVALID_TENANT }));
     expect(error.code).toBe("invalid_configuration");
     expect(error.subject).toBe("SERVICE_TENANT_ID");
+  });
+
+  it("refuses a vendor URL that is not an http(s) URL and trust keys that are not Ed25519 PEMs", () => {
+    for (const raw of ["not-a-url", "ftp://registry.test", ""]) {
+      const url = configErrorOf(() => guidanceServiceConfigFromEnv({ ...baseEnv(), SERVICE_VENDOR_URL: raw }));
+      expect(url.subject).toBe("SERVICE_VENDOR_URL");
+    }
+    for (const raw of ["not-json", "[]", '{"": "x"}', '{"key": "not-a-pem"}']) {
+      const keys = configErrorOf(() => guidanceServiceConfigFromEnv({ ...baseEnv(), SERVICE_ROLE_TOKEN_TRUST_KEYS: raw }));
+      expect(keys.code).toBe("invalid_configuration");
+      expect(keys.subject).toBe("SERVICE_ROLE_TOKEN_TRUST_KEYS");
+    }
   });
 
   it("refuses a port outside 1..65535 or not a number", () => {

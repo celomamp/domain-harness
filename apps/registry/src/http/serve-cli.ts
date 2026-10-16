@@ -23,6 +23,7 @@ import { createBuildGrantService } from "../build-grants/service.ts";
 import { createChildPermissionService } from "../child-permissions/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
 import { createCompilationsService } from "../compilations/service.ts";
+import { createGuidanceAccessService } from "../guidance-access/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { ALERT_TICK_SECONDS, createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { ed25519SignerFromEnv } from "../bundles/sign.ts";
@@ -125,6 +126,7 @@ async function main(): Promise<void> {
       boilerplate: createBoilerplateService(db),
       bundles: createBundleService(db, signer),
       compilations: createCompilationsService(db),
+      guidanceAccess: createGuidanceAccessService(db, signer),
     },
     stdoutLogger,
   );

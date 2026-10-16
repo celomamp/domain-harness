@@ -15,6 +15,7 @@ import {
   COMPILATION_API_PATHS,
   effectiveStandardsPath,
   GUIDANCE_ENDPOINT_PATH,
+  GUIDANCE_ACCESS_API_PATHS,
   isAcceptedDeviationAlerts,
   isAcceptedDeviationRecord,
   isAcceptedDeviationRecordList,
@@ -30,7 +31,9 @@ import {
   isCompilationCatalogReadState,
   isEffectiveStandardSet,
   isErrorEnvelope,
+  isGuidanceAccessState,
   isGuidanceEndpointState,
+  isGuidanceRoleToken,
   isIdentificationFileRendering,
   isLockedRuleState,
   isModuleInfo,
@@ -71,8 +74,11 @@ import type {
   CompilationCatalogReadState,
   EffectiveStandardSet,
   ErrorEnvelope,
+  GrantableRole,
+  GuidanceAccessState,
   GuidanceEndpointRequest,
   GuidanceEndpointState,
+  GuidanceRoleToken,
   IdentificationFileRendering,
   LockedRuleRequest,
   LockedRuleState,
@@ -483,4 +489,26 @@ export function recordCatalogRead(
     [201, 200],
     isCompilationCatalogRead,
   );
+}
+
+/** The tenant's Guidance access state: the grant per grantable role plus the retention days (every role may read). */
+export function getGuidanceAccess(sessionToken: string): Promise<RegistryResult<GuidanceAccessState>> {
+  return call(GUIDANCE_ACCESS_API_PATHS.access, getJson(sessionToken), 200, isGuidanceAccessState);
+}
+
+/**
+ * Set the tenant's Guidance access (the registry allows only the Buyer).
+ * `grants` carries every grantable role; `retentionDays` is 1..3650.
+ */
+export function setGuidanceAccess(
+  sessionToken: string,
+  grants: Record<GrantableRole, boolean>,
+  retentionDays: number,
+): Promise<RegistryResult<GuidanceAccessState>> {
+  return call(GUIDANCE_ACCESS_API_PATHS.access, json({ grants, retentionDays }, bearer(sessionToken)), 200, isGuidanceAccessState);
+}
+
+/** Mint one role token for the caller's own role (the registry refuses ungranted roles with `role_denied`). */
+export function mintRoleToken(sessionToken: string): Promise<RegistryResult<GuidanceRoleToken>> {
+  return call(GUIDANCE_ACCESS_API_PATHS.tokens, json({}, bearer(sessionToken)), 201, isGuidanceRoleToken);
 }

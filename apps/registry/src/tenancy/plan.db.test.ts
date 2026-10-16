@@ -6,8 +6,9 @@
 // real sessions as Bearer tokens. A downgraded tenant is simulated by
 // updating `tenants.plan` as the owner, since the app role has no UPDATE.
 import type { AddressInfo } from "node:net";
+import { ed25519SignerFromEnv } from "../bundles/sign.ts";
 import type { Server } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, generateKeyPairSync } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isLockedRuleState, isProjectInfo, isStandardInfo, PLANS } from "@domain-harness/contract";
@@ -18,6 +19,7 @@ import { migrate } from "../db/migrate.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
 import { createCompilationsService } from "../compilations/service.ts";
+import { createGuidanceAccessService } from "../guidance-access/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
@@ -189,6 +191,12 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("plan refusals agains
     appPool = new pg.Pool({ connectionString: withDatabase(adminUrl ?? "", database, APP_ROLE), max: 8 });
     db = createRegistryDb(appPool);
 
+    const { privateKey: guidanceAccessKey } = generateKeyPairSync("ed25519");
+    const guidanceAccessSigner = ed25519SignerFromEnv({
+      REGISTRY_BUNDLE_SIGNING_KEY: guidanceAccessKey.export({ type: "pkcs8", format: "pem" }) as string,
+      REGISTRY_BUNDLE_SIGNING_KEY_ID: "guidance-access-test-key",
+    });
+
     server = createRegistryServer(
       {
         signIn: createSignInService(db, new MemoryTransport(), PANEL),
@@ -204,6 +212,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("plan refusals agains
         acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
         compilations: createCompilationsService(db),
+        guidanceAccess: createGuidanceAccessService(db, guidanceAccessSigner),
       },
       () => undefined,
     );

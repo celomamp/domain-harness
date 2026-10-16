@@ -114,6 +114,18 @@ export {
 export type { CompilationsService } from "./compilations/service.ts";
 export { validateCatalogReadBody, validateCompilationBody } from "./compilations/validate.ts";
 export {
+  assertGuidanceAccessBuyer,
+  createGuidanceAccessService,
+  getGuidanceAccess,
+  getRetentionDays,
+  mintRoleToken,
+  roleHoldsGuidanceGrant,
+  setGuidanceAccess,
+} from "./guidance-access/service.ts";
+export type { GuidanceAccessService } from "./guidance-access/service.ts";
+export { validateGuidanceAccessBody } from "./guidance-access/validate.ts";
+export type { GuidanceAccessBody } from "./guidance-access/validate.ts";
+export {
   assertAcceptedDeviationBuyer,
   createAcceptedDeviationsService,
   listAcceptances,

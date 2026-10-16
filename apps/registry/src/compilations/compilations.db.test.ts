@@ -40,6 +40,7 @@ import { createBundleService } from "../bundles/service.ts";
 import { ed25519SignerFromEnv } from "../bundles/sign.ts";
 import { mintUuidV7 } from "../ids.ts";
 import { createCompilationsService } from "./service.ts";
+import { createGuidanceAccessService } from "../guidance-access/service.ts";
 
 const ENV = "REGISTRY_TEST_DATABASE_URL";
 const adminUrl = process.env[ENV];
@@ -276,6 +277,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Compilation catalog 
         boilerplate: createBoilerplateService(db),
         bundles: createBundleService(db, signer),
         compilations: createCompilationsService(db),
+        guidanceAccess: createGuidanceAccessService(db, signer),
       },
       () => undefined,
     );

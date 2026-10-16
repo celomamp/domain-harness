@@ -19,6 +19,7 @@ export default [
       { path: "new-application", file: "routes/new-application.tsx" },
       { path: "accepted-deviation", file: "routes/accepted-deviation.tsx" },
       { path: "compilations", file: "routes/compilations.tsx" },
+      { path: "guidance-access", file: "routes/guidance-access.tsx" },
     ],
   },
 ];

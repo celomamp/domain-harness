@@ -690,7 +690,53 @@ export const compilations = pgTable(
   ],
 );
 
-/** The tenant-scoped tables created by migrations 0001 to 0015. */
+/** Migration 0016: the Guidance role-grant and retention changes (Story 6.7), append-only per tenant. */
+export const guidanceRoleGrantChanges = pgTable(
+  "guidance_role_grant_changes",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    role: text("role").notNull(),
+    sequence: integer("sequence").notNull(),
+    granted: boolean("granted").notNull(),
+    changedBy: uuid("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("guidance_role_grant_changes_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    index("guidance_role_grant_changes_role_idx").on(table.tenantId, table.role, table.sequence.desc()),
+    foreignKey({ name: "guidance_role_grant_changes_tenant_fkey", columns: [table.tenantId], foreignColumns: [tenants.id] }),
+    foreignKey({
+      name: "guidance_role_grant_changes_changed_by_fkey",
+      columns: [table.tenantId, table.changedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** Migration 0016: the Guidance retention-setting changes (Story 6.7), append-only per tenant. */
+export const guidanceRetentionChanges = pgTable(
+  "guidance_retention_changes",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    days: integer("days").notNull(),
+    sequence: integer("sequence").notNull(),
+    changedBy: uuid("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("guidance_retention_changes_tenant_id_sequence_key").on(table.tenantId, table.sequence),
+    foreignKey({ name: "guidance_retention_changes_tenant_fkey", columns: [table.tenantId], foreignColumns: [tenants.id] }),
+    foreignKey({
+      name: "guidance_retention_changes_changed_by_fkey",
+      columns: [table.tenantId, table.changedBy],
+      foreignColumns: [accounts.tenantId, accounts.id],
+    }),
+  ],
+);
+
+/** The tenant-scoped tables created by migrations 0001 to 0016. */
 export const TENANT_TABLES = [
   "tenants",
   "accounts",
@@ -716,6 +762,8 @@ export const TENANT_TABLES = [
   "accepted_deviation_alert_dismissals",
   "compilation_catalog_reads",
   "compilations",
+  "guidance_role_grant_changes",
+  "guidance_retention_changes",
 ] as const;
 
 /** The NOLOGIN role that owns the cross-tenant email lookup; no runtime role may be a member. */

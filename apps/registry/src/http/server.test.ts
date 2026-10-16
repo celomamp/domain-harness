@@ -10,13 +10,16 @@ import {
   applicationIdentificationFilePath,
   CATALOG_UNREAD,
   COMPILATION_CATALOG_VERSION,
+  GUIDANCE_ACCESS_API_PATHS,
   GUIDANCE_ENDPOINT_PATH,
   GUIDANCE_ENDPOINT_UNSET,
   isAcceptedDeviationAlerts,
   isAcceptedDeviationRecord,
   isAlertDismissedResult,
   isBoilerplateResult,
+  isGuidanceAccessState,
   isGuidanceEndpointState,
+  isGuidanceRoleToken,
   entrySlotName,
   formatIdentificationFile,
   IDENTIFICATION_FILE_NAME,
@@ -55,7 +58,10 @@ import type {
   CompilationCatalogRead,
   CompilationCatalogReadState,
   EffectiveStandardSet,
+  GrantableRole,
+  GuidanceAccessState,
   GuidanceEndpointState,
+  GuidanceRoleToken,
   IdentificationFileRendering,
   LockedRuleState,
   ModuleInfo,
@@ -64,6 +70,7 @@ import type {
   ProjectTree,
   SessionCreated,
   SessionInfo,
+  SignedStandardBundle,
   StandardInfo,
   StandardList,
   StandardVersionList,
@@ -74,6 +81,7 @@ import { assertApplicationBuyer } from "../applications/service.ts";
 import { validateApplicationBody } from "../applications/validate.ts";
 import { validateBoilerplateBody } from "../boilerplate/service.ts";
 import type { BoilerplateService } from "../boilerplate/service.ts";
+import type { BundleService } from "../bundles/service.ts";
 import { validateBuildGrantBody } from "../build-grants/service.ts";
 import type { BuildGrantService } from "../build-grants/service.ts";
 import { validateChildPermissionBody } from "../child-permissions/service.ts";
@@ -86,6 +94,9 @@ import { assertAcceptedDeviationAlertBuyer } from "../accepted-deviation-alerts/
 import type { AcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { assertGuidanceEndpointBuyer } from "../guidance-endpoint/service.ts";
 import type { GuidanceEndpointService } from "../guidance-endpoint/service.ts";
+import { assertGuidanceAccessBuyer } from "../guidance-access/service.ts";
+import type { GuidanceAccessService } from "../guidance-access/service.ts";
+import { validateGuidanceAccessBody } from "../guidance-access/validate.ts";
 import { validateGuidanceEndpointBody } from "../guidance-endpoint/validate.ts";
 import { assertCompilationBuyer } from "../compilations/service.ts";
 import type { CompilationsService } from "../compilations/service.ts";
@@ -108,6 +119,7 @@ const tenantId = mintUuidV7();
 const session: SessionInfo = { accountId: mintUuidV7(), tenantId, role: "Buyer" };
 const GOOD_LINK = `${tenantId}.${"L".repeat(43)}`;
 const GOOD_SESSION = `${tenantId}.${"S".repeat(43)}`;
+const SERVICE_CREDENTIAL = `${tenantId}.${"C".repeat(43)}`;
 const BUILDER_SESSION = `${tenantId}.${"B".repeat(43)}`;
 const builder: SessionInfo = { accountId: mintUuidV7(), tenantId, role: "Builder" };
 const MODULE_ID = mintUuidV7();
@@ -638,6 +650,68 @@ class FakeCompilations implements CompilationsService {
   }
 }
 
+/** A fake Guidance access service that records calls and uses the real role check and validator. */
+class FakeGuidanceAccess implements GuidanceAccessService {
+  calls: unknown[] = [];
+  grants: GrantableRole[] = [];
+  retentionDays = 90;
+  private state(): GuidanceAccessState {
+    return { grantedRoles: [...this.grants], retentionDays: this.retentionDays, updatedAt: "2026-10-16T12:00:00.000Z" };
+  }
+  getGuidanceAccess(caller: SessionInfo): Promise<GuidanceAccessState> {
+    this.calls.push(["get", caller.role]);
+    return Promise.resolve(this.state());
+  }
+  setGuidanceAccess(caller: SessionInfo, body: unknown): Promise<GuidanceAccessState> {
+    this.calls.push(["set", caller.role, body]);
+    return Promise.resolve().then(() => {
+      assertGuidanceAccessBuyer(caller);
+      const { grants, retentionDays } = validateGuidanceAccessBody(body);
+      this.grants = (Object.keys(grants) as GrantableRole[]).filter((role) => grants[role]);
+      this.retentionDays = retentionDays;
+      return this.state();
+    });
+  }
+  mintRoleToken(caller: SessionInfo): Promise<GuidanceRoleToken> {
+    this.calls.push(["mint", caller.role]);
+    return Promise.resolve().then(() => {
+      if (caller.role !== "Buyer" && !this.grants.includes(caller.role)) {
+        throw new EnvelopeError({ code: "role_denied", message: "m", subject: "role" });
+      }
+      return { token: "fake-role-token", role: caller.role, expiresAt: "2026-10-16T12:05:00.000Z" };
+    });
+  }
+  getRetentionDays(caller: UuidV7): Promise<{ retentionDays: number }> {
+    this.calls.push(["retention", caller]);
+    return Promise.resolve({ retentionDays: this.retentionDays });
+  }
+}
+
+/** A fake bundle service that only authenticates one service credential (builds succeed without writing). */
+class FakeBundleCredential implements BundleService {
+  calls: unknown[] = [];
+  buildAndSign(): Promise<{ hash: string; sequence: number }> {
+    this.calls.push(["build"]);
+    return Promise.resolve({ hash: "f".repeat(64), sequence: 1 });
+  }
+  setStaleness(): Promise<{ stalenessHours: number }> {
+    return Promise.reject(new Error("not wired in this suite"));
+  }
+  setFreeze(): Promise<{ frozen: boolean }> {
+    return Promise.reject(new Error("not wired in this suite"));
+  }
+  latestFor(): Promise<SignedStandardBundle | undefined> {
+    return Promise.resolve(undefined);
+  }
+  authenticateCredential(bearer: string): Promise<UuidV7> {
+    this.calls.push(["credential", bearer]);
+    if (bearer !== SERVICE_CREDENTIAL) {
+      return Promise.reject(new EnvelopeError({ code: "session_invalid", message: "m", subject: "session" }));
+    }
+    return Promise.resolve(tenantId);
+  }
+}
+
 /** A fake Boilerplate service: the known Application, the real body validator, then the endpoint check. */
 class FakeBoilerplate implements BoilerplateService {
   private readonly knownId: string;
@@ -687,6 +761,8 @@ describe("registry HTTP API", () => {
   const acceptedDeviationAlerts = new FakeAcceptedDeviationAlerts();
   const boilerplate = new FakeBoilerplate(applications.knownId, guidanceEndpoint);
   const compilations = new FakeCompilations();
+  const guidanceAccess = new FakeGuidanceAccess();
+  const bundles = new FakeBundleCredential();
   const events: LogEvent[] = [];
   let server: Server;
   let base: string;
@@ -707,6 +783,8 @@ describe("registry HTTP API", () => {
         acceptedDeviationAlerts,
         boilerplate,
         compilations,
+        guidanceAccess,
+        bundles,
       },
       (event) => events.push(event),
     );
@@ -742,6 +820,10 @@ describe("registry HTTP API", () => {
     compilations.calls = [];
     compilations.reads = [];
     compilations.stored = [];
+    guidanceAccess.calls = [];
+    guidanceAccess.grants = [];
+    guidanceAccess.retentionDays = 90;
+    bundles.calls = [];
     events.length = 0;
   });
 
@@ -1859,6 +1941,139 @@ describe("registry HTTP API", () => {
       await expect
         .poll(() => events.filter((e) => e["event"] === "http_request").map((e) => e["route"]))
         .toEqual(Array(3).fill("/v1/applications/{id}/boilerplate"));
+    });
+  });
+
+  describe("Guidance access", () => {
+    const json = { "content-type": "application/json" };
+    const buyerAuth = { ...json, authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { ...json, authorization: `Bearer ${BUILDER_SESSION}` };
+    const access = GUIDANCE_ACCESS_API_PATHS.access;
+    const body = { grants: { "Standard owner": true, Builder: false }, retentionDays: 30 };
+
+    it("serves the access state to every role", async () => {
+      for (const headers of [buyerAuth, builderAuth]) {
+        const response = await fetch(`${base}${access}`, { headers });
+        expect(response.status).toBe(200);
+        expect(isGuidanceAccessState(await response.json())).toBe(true);
+      }
+      expect(guidanceAccess.calls).toEqual([
+        ["get", "Buyer"],
+        ["get", "Builder"],
+      ]);
+    });
+
+    it("sets the grant and retention as the Buyer", async () => {
+      const response = await post(access, body, { headers: buyerAuth });
+      expect(response.status).toBe(200);
+      const state: unknown = await response.json();
+      expect(isGuidanceAccessState(state)).toBe(true);
+      expect(state).toMatchObject({ grantedRoles: ["Standard owner"], retentionDays: 30 });
+    });
+
+    it("refuses a non-Buyer before reading the body and never reaches the service", async () => {
+      await expectEnvelope(await post(access, body, { headers: builderAuth }), 403, "role_denied");
+      expect(guidanceAccess.calls).toEqual([]);
+    });
+
+    it("maps body failures to 400 naming the subject", async () => {
+      const cases: [unknown, Record<string, string>][] = [
+        [{ retentionDays: 30 }, { code: "invalid_input", subject: "grants" }],
+        [{ grants: body.grants }, { code: "invalid_input", subject: "retentionDays" }],
+        [{ grants: { "Standard owner": "yes", Builder: false }, retentionDays: 30 }, { code: "invalid_input", subject: "Standard owner" }],
+        [{ grants: { "Standard owner": true }, retentionDays: 30 }, { code: "invalid_input", subject: "grants" }],
+        [{ grants: { "Standard owner": true, Builder: false, Buyer: true }, retentionDays: 30 }, { code: "invalid_input", subject: "Buyer" }],
+        [{ ...body, retentionDays: 0 }, { code: "invalid_input", subject: "retentionDays" }],
+        [{ ...body, retentionDays: 3651 }, { code: "invalid_input", subject: "retentionDays" }],
+        [{ ...body, retentionDays: 1.5 }, { code: "invalid_input", subject: "retentionDays" }],
+        [{ ...body, note: 1 }, { code: "invalid_input", subject: "note" }],
+      ];
+      for (const [target, expected] of cases) {
+        const response = await post(access, target, { headers: buyerAuth });
+        expect([response.status, await response.json()]).toMatchObject([400, expected]);
+      }
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(await fetch(`${base}${access}`), 401, "session_invalid");
+      await expectEnvelope(await post(access, body), 401, "session_invalid");
+      expect(guidanceAccess.calls).toEqual([]);
+    });
+
+    it("answers 405 with Allow for a wrong method", async () => {
+      const response = await fetch(`${base}${access}`, { method: "PUT", headers: buyerAuth });
+      expect(response.headers.get("allow")).toBe("GET, POST");
+      await expectEnvelope(response, 405, "method_not_allowed");
+    });
+  });
+
+  describe("Guidance role tokens", () => {
+    const json = { "content-type": "application/json" };
+    const buyerAuth = { ...json, authorization: `Bearer ${GOOD_SESSION}` };
+    const builderAuth = { ...json, authorization: `Bearer ${BUILDER_SESSION}` };
+    const tokens = GUIDANCE_ACCESS_API_PATHS.tokens;
+
+    it("mints a token for the Buyer's own role", async () => {
+      const response = await post(tokens, {}, { headers: buyerAuth });
+      expect(response.status).toBe(201);
+      const minted: unknown = await response.json();
+      expect(isGuidanceRoleToken(minted)).toBe(true);
+      expect(minted).toMatchObject({ role: "Buyer" });
+    });
+
+    it("mints for a granted role and refuses an ungranted one with role_denied", async () => {
+      guidanceAccess.grants = ["Builder"];
+      const granted = await post(tokens, {}, { headers: builderAuth });
+      expect(granted.status).toBe(201);
+      expect(isGuidanceRoleToken(await granted.json())).toBe(true);
+      guidanceAccess.grants = [];
+      await expectEnvelope(await post(tokens, {}, { headers: builderAuth }), 403, "role_denied");
+      expect(guidanceAccess.calls).toEqual([
+        ["mint", "Builder"],
+        ["mint", "Builder"],
+      ]);
+    });
+
+    it("refuses a non-empty body with invalid_input", async () => {
+      await expectEnvelope(await post(tokens, { intent: "mint" }, { headers: buyerAuth }), 400, "invalid_input");
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      await expectEnvelope(await post(tokens, {}), 401, "session_invalid");
+      expect(guidanceAccess.calls).toEqual([]);
+    });
+
+    it("answers 405 with Allow for a wrong method", async () => {
+      const response = await fetch(`${base}${tokens}`, { headers: buyerAuth });
+      expect(response.headers.get("allow")).toBe("POST");
+      await expectEnvelope(response, 405, "method_not_allowed");
+    });
+  });
+
+  describe("Guidance retention for the service", () => {
+    const credential = { authorization: `Bearer ${SERVICE_CREDENTIAL}` };
+    const retention = GUIDANCE_ACCESS_API_PATHS.retention;
+
+    it("answers the retention days to the tenant credential", async () => {
+      const response = await fetch(`${base}${retention}`, { headers: credential });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ retentionDays: 90 });
+      expect(bundles.calls).toEqual([["credential", SERVICE_CREDENTIAL]]);
+    });
+
+    it("answers 401 session_invalid for a missing or wrong credential", async () => {
+      await expectEnvelope(await fetch(`${base}${retention}`), 401, "session_invalid");
+      await expectEnvelope(
+        await fetch(`${base}${retention}`, { headers: { authorization: "Bearer wrong" } }),
+        401,
+        "session_invalid",
+      );
+    });
+
+    it("answers 405 with Allow for a wrong method", async () => {
+      const response = await fetch(`${base}${retention}`, { method: "POST", headers: credential });
+      expect(response.headers.get("allow")).toBe("GET");
+      await expectEnvelope(response, 405, "method_not_allowed");
     });
   });
 

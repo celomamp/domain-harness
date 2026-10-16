@@ -98,6 +98,23 @@ export {
 } from "./guidance/events.ts";
 export type { GuidanceEventInput, GuidanceEventStore } from "./guidance/events.ts";
 
+// Story 6.7: token-gated Guidance-event reads and the retention sweep.
+
+export { ROLE_TOKEN_DENIAL_REASONS, ROLE_TOKEN_ISSUED_SKEW_MS, verifyRoleToken } from "./guidance/role-tokens.ts";
+export type { RoleTokenDenialReason, RoleTokenVerdict, VerifyRoleTokenInput } from "./guidance/role-tokens.ts";
+
+export { handleGuidanceEventRead, isGuidanceEventReadPath } from "./guidance/events-read.ts";
+export type { GuidanceEventReadDeps, GuidanceEventReadRouteLabel } from "./guidance/events-read.ts";
+
+export {
+  DAY_MS,
+  RETENTION_FETCH_TIMEOUT_MS,
+  RETENTION_SWEEP_INTERVAL_MS,
+  fetchRetentionDays,
+  sweepGuidanceEvents,
+} from "./guidance/retention.ts";
+export type { FetchRetentionResult, RetentionSweepResult } from "./guidance/retention.ts";
+
 export {
   DEFAULT_GUIDANCE_PORT,
   GuidanceConfigError,

@@ -577,6 +577,7 @@ describe("serveGuidanceCall: recording bound outcomes (Story 4.5)", () => {
       listGuidanceEvents: () => Promise.resolve([]),
       listGuidanceGaps: () => Promise.resolve([]),
       countGuidanceEvents: () => Promise.resolve(0),
+      deleteGuidanceEventsOlderThan: () => Promise.resolve(0),
     };
     const seen: { applicationId: unknown; tool: unknown; error: unknown }[] = [];
     const hit = await call({
