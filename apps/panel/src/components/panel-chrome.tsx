@@ -9,6 +9,7 @@ export const PANEL_NAV = [
   { to: "/new-application", label: "New-application flow" },
   { to: "/accepted-deviation", label: "Accepted deviation" },
   { to: "/compilations", label: "Compilations" },
+  { to: "/guidance-access", label: "Guidance access" },
 ] as const;
 
 /**

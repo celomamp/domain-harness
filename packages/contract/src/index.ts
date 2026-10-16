@@ -275,6 +275,30 @@ export type {
 } from "./guidance-tools.ts";
 export { GUIDANCE_EVENT_RETENTION_DAYS, isGuidanceEvent } from "./guidance-events.ts";
 export type { GuidanceEvent, GuidanceEventOutcome } from "./guidance-events.ts";
+export {
+  decodeRoleTokenBody,
+  defaultGuidanceAccessState,
+  encodeRoleTokenBody,
+  fromBase64Url,
+  GRANTABLE_ROLES,
+  GUIDANCE_ACCESS_API_PATHS,
+  GUIDANCE_EVENT_READ_PATH,
+  GUIDANCE_RETENTION_DAYS_MAX,
+  GUIDANCE_RETENTION_DAYS_MIN,
+  GUIDANCE_ROLE_TOKEN_TTL_MINUTES,
+  isGrantableRole,
+  isGuidanceAccessState,
+  isGuidanceRoleToken,
+  isGuidanceRoleTokenPayload,
+  isRetentionDays,
+  toBase64Url,
+} from "./guidance-access.ts";
+export type {
+  GrantableRole,
+  GuidanceAccessState,
+  GuidanceRoleToken,
+  GuidanceRoleTokenPayload,
+} from "./guidance-access.ts";
 export type {
   GuidanceAdvisoryProjectMismatch,
   GuidanceIdentityResult,

@@ -364,6 +364,7 @@ describe("the Guidance MCP server over Streamable HTTP", () => {
       listGuidanceEvents: () => Promise.resolve([]),
       listGuidanceGaps: () => Promise.resolve([]),
       countGuidanceEvents: () => Promise.resolve(0),
+      deleteGuidanceEventsOlderThan: () => Promise.resolve(0),
     };
     // Without the `onRecordError` forwarding in the MCP handler, the hook
     // would never fire and this case would fail on the length assertion.

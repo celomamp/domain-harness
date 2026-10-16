@@ -38,7 +38,7 @@ function renderPanel(url: string) {
 }
 
 describe("panel-chrome", () => {
-  it("shows the wordmark, the role as text and a nav listing only Inventory, Standards, Project tree, New-application flow, Accepted deviation and Compilations", async () => {
+  it("shows the wordmark, the role as text and a nav listing only Inventory, Standards, Project tree, New-application flow, Accepted deviation, Compilations and Guidance access", async () => {
     renderPanel("/inventory");
     expect(await screen.findByText("Domain Harness")).toBeTruthy();
     expect(screen.getByText("Buyer")).toBeTruthy();
@@ -51,6 +51,7 @@ describe("panel-chrome", () => {
       "New-application flow",
       "Accepted deviation",
       "Compilations",
+      "Guidance access",
     ]);
     expect(links.map((a) => a.getAttribute("href"))).toEqual([
       "/inventory",
@@ -59,6 +60,7 @@ describe("panel-chrome", () => {
       "/new-application",
       "/accepted-deviation",
       "/compilations",
+      "/guidance-access",
     ]);
   });
 
@@ -88,6 +90,7 @@ describe("panel-chrome", () => {
       "New-application flow",
       "Accepted deviation",
       "Compilations",
+      "Guidance access",
     ]);
     expect(document.querySelectorAll("[tabindex]").length).toBe(0);
   });

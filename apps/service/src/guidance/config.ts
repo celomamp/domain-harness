@@ -1,14 +1,21 @@
 /**
- * The Guidance MCP server's configuration (Stories 4.4 + 4.6): it comes only
- * from the environment; every failure throws one envelope-shaped error the
- * entry prints once to stderr before exiting 1 — never a partial start. The
- * `SERVICE_TENANT_ID` and `SERVICE_RECORD_DATABASE_URL` names follow the
- * bundles daemon (`apps/service/src/bundles/env.ts`); the port is optional
- * with the documented default. The Read API credential (Story 4.6) is the one
- * opaque shared secret, required, and never logged.
+ * The Guidance MCP server's configuration (Stories 4.4 + 4.6, extended by
+ * 6.7): it comes only from the environment; every failure throws one
+ * envelope-shaped error the entry prints once to stderr before exiting 1 —
+ * never a partial start. The `SERVICE_TENANT_ID` and
+ * `SERVICE_RECORD_DATABASE_URL` names follow the bundles daemon
+ * (`apps/service/src/bundles/env.ts`); the port is optional with the
+ * documented default. The Read API credential (Story 4.6) is the one opaque
+ * shared secret, required, and never logged. Story 6.7 adds the vendor
+ * registry address plus the tenant credential (the retention sweep's
+ * authenticated fetch; same names as the bundles daemon) and the role-token
+ * trust set (the registry's Ed25519 public keys, same JSON shape as the
+ * bundle trust keys).
  */
 import type { ErrorEnvelope, UuidV7 } from "@domain-harness/contract";
 import { isUuidV7 } from "@domain-harness/contract";
+import { parseTrustKeys } from "../bundles/env.ts";
+import type { BundleTrustSet } from "../bundles/verify.ts";
 
 /** The port the Guidance MCP server listens on when `SERVICE_GUIDANCE_PORT` is not set. */
 export const DEFAULT_GUIDANCE_PORT = 8080;
@@ -36,6 +43,12 @@ export interface GuidanceServiceConfig {
   readonly readCredential: string;
   /** The inbound port; the server is reachable only inside the Company network, with no authentication. */
   readonly port: number;
+  /** Outbound base URL of the vendor registry (http or https, no trailing slash), from required `SERVICE_VENDOR_URL`. */
+  readonly registryUrl: string;
+  /** The tenant's registry service credential (the sweep's authenticated fetch), from required `SERVICE_TENANT_CREDENTIAL`. */
+  readonly registryCredential: string;
+  /** keyId → Ed25519 public key of the vendor registry, from required `SERVICE_ROLE_TOKEN_TRUST_KEYS`. */
+  readonly tokenTrustSet: BundleTrustSet;
 }
 
 function required(env: Record<string, string | undefined>, name: string): string {
@@ -85,5 +98,37 @@ export function guidanceServiceConfigFromEnv(env: Record<string, string | undefi
     recordDatabaseUrl: required(env, "SERVICE_RECORD_DATABASE_URL"),
     readCredential: required(env, "SERVICE_READ_CREDENTIAL"),
     port: port(env),
+    registryUrl: registryUrl(env),
+    registryCredential: required(env, "SERVICE_TENANT_CREDENTIAL"),
+    tokenTrustSet: tokenTrustSet(env),
   };
+}
+
+function registryUrl(env: Record<string, string | undefined>): string {
+  const name = "SERVICE_VENDOR_URL";
+  const raw = required(env, name);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new GuidanceConfigError({ code: "invalid_configuration", message: `${name} must be a URL`, subject: name });
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new GuidanceConfigError({
+      code: "invalid_configuration",
+      message: `${name} must be an http or https URL`,
+      subject: name,
+    });
+  }
+  return raw.replace(/\/+$/, "");
+}
+
+function tokenTrustSet(env: Record<string, string | undefined>): BundleTrustSet {
+  const name = "SERVICE_ROLE_TOKEN_TRUST_KEYS";
+  const raw = required(env, name);
+  return parseTrustKeys(
+    raw,
+    (message) => new GuidanceConfigError({ code: "invalid_configuration", message, subject: name }),
+    name,
+  );
 }

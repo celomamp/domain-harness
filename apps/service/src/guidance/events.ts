@@ -35,6 +35,11 @@ export interface GuidanceEventStore {
   /** The gap list: the `miss` projection, no second write. */
   listGuidanceGaps(applicationId?: UuidV7): Promise<readonly GuidanceEvent[]>;
   countGuidanceEvents(applicationId: UuidV7): Promise<number>;
+  /**
+   * Delete every event recorded strictly before `cutoffIso` (UTC ISO-8601).
+   * The retention sweep's only write; returns the deleted row count.
+   */
+  deleteGuidanceEventsOlderThan(cutoffIso: string): Promise<number>;
 }
 
 function nowIso(): string {
@@ -87,6 +92,15 @@ export class InMemoryGuidanceEventStore implements GuidanceEventStore {
 
   async countGuidanceEvents(applicationId: UuidV7): Promise<number> {
     return (await this.listGuidanceEvents(applicationId)).length;
+  }
+
+  async deleteGuidanceEventsOlderThan(cutoffIso: string): Promise<number> {
+    await Promise.resolve();
+    const before = this.events.length;
+    const kept = this.events.filter((event) => event.createdAt >= cutoffIso);
+    this.events.length = 0;
+    this.events.push(...kept);
+    return before - kept.length;
   }
 }
 
@@ -211,6 +225,13 @@ export class PostgresGuidanceEventStore implements GuidanceEventStore {
 
   async countGuidanceEvents(applicationId: UuidV7): Promise<number> {
     return (await this.listGuidanceEvents(applicationId)).length;
+  }
+
+  async deleteGuidanceEventsOlderThan(cutoffIso: string): Promise<number> {
+    return await this.withClient(async (client) => {
+      const result = await client.query("delete from guidance_events where created_at < $1::timestamptz", [cutoffIso]);
+      return result.rowCount ?? 0;
+    });
   }
 }
 

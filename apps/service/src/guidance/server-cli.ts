@@ -1,10 +1,13 @@
-// The Company Standards service Guidance MCP server (Stories 4.4 + 4.6). Run from
+// The Company Standards service Guidance MCP server (Stories 4.4 + 4.6, extended by 6.7). Run from
 // the repository root with
 // `node --conditions=@domain-harness/source apps/service/src/guidance/server-cli.ts`.
 // Configuration comes only from the environment:
 //   SERVICE_TENANT_ID             this Company's tenant id (UUIDv7)
 //   SERVICE_RECORD_DATABASE_URL   connection string of the record store (shared with the bundles and CI Gate stores)
 //   SERVICE_READ_CREDENTIAL       the Read API's opaque shared secret (required, never logged)
+//   SERVICE_VENDOR_URL            outbound base URL of the vendor registry (the sweep's fetch)
+//   SERVICE_TENANT_CREDENTIAL     the tenant's registry service credential (the sweep's fetch, never logged)
+//   SERVICE_ROLE_TOKEN_TRUST_KEYS keyId → Ed25519 PEM public key of the registry (role-token verification)
 //   SERVICE_GUIDANCE_PORT         optional inbound port; default 8080
 //
 // The server serves the four Guidance tools over Streamable HTTP at `/mcp`,
@@ -13,7 +16,11 @@
 // deployment concern the network edge handles). The same service serves the
 // credentialed, read-only Company Read API (`GET /v1/standards` and
 // `GET /v1/projects/{id}/effective-standards`) from the pinned active bundle
-// through the shared derivation Guidance uses. Start-up is one envelope:
+// through the shared derivation Guidance uses, and the token-gated
+// Guidance-event read (`GET /v1/guidance-events`, short-lived tenant-scoped
+// role token required) from the event store. A daily retention sweep deletes
+// Guidance events older than the Buyer's registry-held setting (90-day
+// default with a logged fallback). Start-up is one envelope:
 // the record store is opened and migrated, then the MCP server binds. Every
 // request is logged as one id-and-code event that never carries subject
 // text; each tool call answers exactly one typed result, with nothing
@@ -24,6 +31,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ErrorEnvelope, UuidV7 } from "@domain-harness/contract";
+import { GUIDANCE_EVENT_RETENTION_DAYS } from "@domain-harness/contract";
 import type { Pool } from "pg";
 import { migrate } from "../db/migrate.ts";
 import { createPool, createPostgresBundleRecordStore } from "../bundles/store.ts";
@@ -35,6 +43,9 @@ import { createPostgresGuidanceEventStore } from "./events.ts";
 import { createGuidanceMcpHandler, GUIDANCE_MCP_PATH } from "./mcp.ts";
 import type { PinnedActiveBundle } from "./identity.ts";
 import { handleReadRequest, readRouteOf } from "../read/server.ts";
+import { handleGuidanceEventRead, isGuidanceEventReadPath } from "./events-read.ts";
+import { fetchRetentionDays, RETENTION_SWEEP_INTERVAL_MS, sweepGuidanceEvents } from "./retention.ts";
+import type { FetchRetentionResult } from "./retention.ts";
 
 const RECORD_DATABASE_URL = "SERVICE_RECORD_DATABASE_URL";
 
@@ -92,13 +103,29 @@ export async function pinnedActiveBundle(
 }
 
 /**
+ * The retention sweep wiring: how the guidance server enforces the Buyer's
+ * setting. `null` (the unit-test default) starts no timer; the deployed
+ * entry passes the registry fetch with the daily tick.
+ */
+export interface RetentionSweep {
+  readonly intervalMs: number;
+  readonly fetchRetentionDays: () => Promise<FetchRetentionResult>;
+}
+
+/**
  * The guidance HTTP server for a started record store: the bundle and
  * guidance identity stores over one pool, the MCP handler at `/mcp`, the
- * credentialed Read API at its two GET routes, and id-and-code logging.
+ * credentialed Read API at its two GET routes, the token-gated Guidance-event
+ * read at its GET route, and id-and-code logging.
  * Every request answers exactly one response; a request that is neither the
- * MCP endpoint nor a Read API path answers 404, never a hang.
+ * MCP endpoint nor a served read path answers 404, never a hang.
  */
-export function createGuidanceHttpServer(config: GuidanceServiceConfig, pool: Pool, log: Logger = stdoutLogger): Server {
+export function createGuidanceHttpServer(
+  config: GuidanceServiceConfig,
+  pool: Pool,
+  log: Logger = stdoutLogger,
+  sweep: RetentionSweep | null = null,
+): Server {
   const bundleStore = createPostgresBundleRecordStore(pool);
   const identityStore = createPostgresGuidanceIdentityStore(pool);
   const eventStore = createPostgresGuidanceEventStore(pool);
@@ -115,7 +142,7 @@ export function createGuidanceHttpServer(config: GuidanceServiceConfig, pool: Po
     getBundledState: (now) => bundledState(bundleStore, config.tenantId, now),
   });
 
-  return createServer((request: IncomingMessage, response: ServerResponse) => {
+  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     const started = performance.now();
     const path = endpointPath(request.url);
     const handled: Promise<void> =
@@ -131,7 +158,15 @@ export function createGuidanceHttpServer(config: GuidanceServiceConfig, pool: Po
             response,
             path,
           ).then((read) => {
-            if (!read) return notFound(response, path);
+            if (read) return;
+            return handleGuidanceEventRead(
+              { tenantId: config.tenantId, trustSet: config.tokenTrustSet, eventStore },
+              request,
+              response,
+              path,
+            ).then((eventRead) => {
+              if (!eventRead) return notFound(response, path);
+            });
           });
     handled.catch(() => {
       // Unexpected failure outside the MCP layer: one envelope, codes only.
@@ -150,12 +185,43 @@ export function createGuidanceHttpServer(config: GuidanceServiceConfig, pool: Po
       log({
         event: "http_request",
         method: request.method ?? "",
-        route: path === GUIDANCE_MCP_PATH ? "guidance_mcp" : (readRouteOf(path) ?? "unmatched"),
+        route: path === GUIDANCE_MCP_PATH ? "guidance_mcp" : (readRouteOf(path) ?? eventRouteOf(path) ?? "unmatched"),
         status: response.statusCode,
         ms: Math.round(performance.now() - started),
       });
     });
   });
+
+  if (sweep !== null) {
+    // The retention sweep runs in this process: one catch-up sweep, then a
+    // plain in-process tick. A failed fetch enforces the 90-day default and a
+    // failed tick is logged and retried next interval; ids and counts only.
+    const runSweep = async (): Promise<void> => {
+      try {
+        const fetched = await sweep.fetchRetentionDays();
+        const retentionDays = fetched.ok ? fetched.days : GUIDANCE_EVENT_RETENTION_DAYS;
+        if (!fetched.ok) log({ event: "retention_fetch_fallback", retentionDays });
+        const { deleted } = await sweepGuidanceEvents({ store: eventStore, retentionDays, now: new Date() });
+        log({ event: "guidance_retention_sweep", retentionDays, deleted });
+      } catch (error) {
+        log({ event: "retention_sweep_failed", code: error instanceof Error ? error.name : "unexpected" });
+      }
+    };
+    void runSweep();
+    const timer = setInterval(() => {
+      void runSweep();
+    }, sweep.intervalMs);
+    server.on("close", () => {
+      clearInterval(timer);
+    });
+  }
+
+  return server;
+}
+
+/** The read route label of a Guidance-event read path, or `null` when it is not one. */
+function eventRouteOf(path: string): "read_guidance_events" | null {
+  return isGuidanceEventReadPath(path) ? "read_guidance_events" : null;
 }
 
 function respondEnvelope(response: ServerResponse, status: number, envelope: ErrorEnvelope): void {
@@ -238,7 +304,11 @@ async function endQuietly(pool: Pool): Promise<void> {
 async function main(): Promise<void> {
   const config = guidanceServiceConfigFromEnv(process.env);
   const pool = await openRecordStore(config);
-  const server = createGuidanceHttpServer(config, pool);
+  const server = createGuidanceHttpServer(config, pool, stdoutLogger, {
+    intervalMs: RETENTION_SWEEP_INTERVAL_MS,
+    fetchRetentionDays: () =>
+      fetchRetentionDays({ baseUrl: config.registryUrl, credential: config.registryCredential }),
+  });
 
   await new Promise<void>((resolve, reject) => {
     server.once("listening", () => {

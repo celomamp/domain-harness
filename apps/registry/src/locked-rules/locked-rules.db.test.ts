@@ -4,8 +4,9 @@
 // and runs every data-access call as dh_registry_app (`-c role=dh_registry_app`).
 // Every matrix row is exercised over HTTP with real sessions as Bearer tokens.
 import type { AddressInfo } from "node:net";
+import { ed25519SignerFromEnv } from "../bundles/sign.ts";
 import type { Server } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, generateKeyPairSync } from "node:crypto";
 import { sql } from "drizzle-orm";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -41,6 +42,7 @@ import { createLockedRuleService } from "./service.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
 import { createCompilationsService } from "../compilations/service.ts";
+import { createGuidanceAccessService } from "../guidance-access/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
@@ -227,6 +229,12 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Locked rules against
     await assignModuleOwner(db, buyer, cs.id, { accountId: aSam.accountId });
     codeStack = cs.id;
 
+    const { privateKey: guidanceAccessKey } = generateKeyPairSync("ed25519");
+    const guidanceAccessSigner = ed25519SignerFromEnv({
+      REGISTRY_BUNDLE_SIGNING_KEY: guidanceAccessKey.export({ type: "pkcs8", format: "pem" }) as string,
+      REGISTRY_BUNDLE_SIGNING_KEY_ID: "guidance-access-test-key",
+    });
+
     server = createRegistryServer(
       {
         signIn: createSignInService(db, new MemoryTransport(), PANEL),
@@ -242,6 +250,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Locked rules against
         acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
         boilerplate: createBoilerplateService(db),
         compilations: createCompilationsService(db),
+        guidanceAccess: createGuidanceAccessService(db, guidanceAccessSigner),
       },
       () => undefined,
     );

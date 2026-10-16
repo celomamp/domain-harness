@@ -8,7 +8,7 @@
 // record failure keeps the typed answer while logging one ids-only
 // `guidance_record_error` line.
 import { execFile } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createPublicKey, randomBytes, sign } from "node:crypto";
 import { createServer } from "node:http";
 import type { Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -19,10 +19,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { canonicalJson, GUIDANCE_IDENTITY_HEADERS } from "@domain-harness/contract";
+import { canonicalJson, encodeRoleTokenBody, GUIDANCE_IDENTITY_HEADERS, toBase64Url } from "@domain-harness/contract";
 import type { GuidanceToolResult, StandardBundlePayload, UuidV7 } from "@domain-harness/contract";
 import { createGuidanceHttpServer } from "./server-cli.ts";
 import type { LogEvent } from "./server-cli.ts";
+import { createPostgresGuidanceEventStore } from "./events.ts";
 import { migrate } from "../db/migrate.ts";
 import { createPool, createPostgresBundleRecordStore } from "../bundles/store.ts";
 import { bundleHashOf } from "../bundles/verify.ts";
@@ -31,6 +32,7 @@ import { makeBundlePayload, makeSigningKey, signPayload } from "../bundles/test-
 const run = promisify(execFile);
 const CLI_PATH = path.resolve(import.meta.dirname, "./server-cli.ts");
 const TENANT = "018f3d2a-7000-7000-8000-000000000100";
+const ROLE_KEY = makeSigningKey("guidance-access-role-key");
 
 function entryEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   return {
@@ -38,6 +40,9 @@ function entryEnv(overrides: Record<string, string | undefined> = {}): NodeJS.Pr
     SERVICE_TENANT_ID: TENANT,
     SERVICE_RECORD_DATABASE_URL: "postgres://postgres:postgres@localhost/dh_never_used",
     SERVICE_READ_CREDENTIAL: "read-secret-4-6-opaque",
+    SERVICE_VENDOR_URL: "http://registry.test",
+    SERVICE_TENANT_CREDENTIAL: "tenant-credential",
+    SERVICE_ROLE_TOKEN_TRUST_KEYS: JSON.stringify({ [ROLE_KEY.keyId]: ROLE_KEY.publicKeyPem }),
     ...overrides,
   };
 }
@@ -233,7 +238,15 @@ describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-
 
     const port = await freePort();
     server = createGuidanceHttpServer(
-      { tenantId: TENANT as UuidV7, recordDatabaseUrl: dbUrl, readCredential: READ_CREDENTIAL, port },
+      {
+        tenantId: TENANT as UuidV7,
+        recordDatabaseUrl: dbUrl,
+        readCredential: READ_CREDENTIAL,
+        port,
+        registryUrl: "http://registry.test",
+        registryCredential: "tenant-credential",
+        tokenTrustSet: new Map([[ROLE_KEY.keyId, createPublicKey(ROLE_KEY.publicKeyPem)]]),
+      },
       pool,
       (event) => {
         logs.push(event);
@@ -287,6 +300,30 @@ describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-
     expect(logs.filter((line) => line["event"] === "guidance_record_error")).toEqual([]);
   });
 
+  it("serves the recorded hit through the token-gated Guidance-event read through the deployed wiring", async () => {
+    const issuedAt = new Date().toISOString();
+    const body = encodeRoleTokenBody({
+      tenantId: TENANT as UuidV7,
+      role: "Buyer",
+      issuedAt,
+      expiresAt: new Date(Date.parse(issuedAt) + 5 * 60 * 1000).toISOString(),
+    });
+    const token = `${ROLE_KEY.keyId}.${body}.${toBase64Url(sign(null, Buffer.from(body, "utf8"), ROLE_KEY.privateKey).toString("base64"))}`;
+    const port = (server.address() as AddressInfo).port;
+    const response = await fetch(`http://127.0.0.1:${String(port)}/v1/guidance-events`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    // The recording case above stored exactly one hit: the trusted token
+    // reads it back, proving the trust set and the store are threaded.
+    expect(response.status).toBe(200);
+    const read = (await response.json()) as { events?: unknown[] };
+    expect(read.events).toHaveLength(1);
+    expect(read.events?.[0]).toMatchObject({ applicationId: APP, tool: "code_stack_rule", subject: "react" });
+    const denied = await fetch(`http://127.0.0.1:${String(port)}/v1/guidance-events`);
+    expect(denied.status).toBe(401);
+    expect(await denied.json()).toEqual({ code: "session_invalid", message: "the role token is not valid", subject: "session" });
+  });
+
   it("keeps the typed answer and logs an ids-only guidance_record_error when the record insert fails", async () => {
     await owner.query("drop table guidance_events");
     logs.length = 0;
@@ -326,5 +363,152 @@ describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-
     const denied = await fetch(`http://127.0.0.1:${String(port)}/v1/projects/${WEB}/effective-standards`);
     expect(denied.status).toBe(401);
     expect(await denied.json()).toEqual({ code: "session_invalid", message: "the service credential is not valid", subject: "session" });
+  });
+});
+
+describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-cli: retention sweep wiring against PostgreSQL", () => {
+  const database = `dh_service_guidance_sweep_test_${randomBytes(6).toString("hex")}`;
+  let admin: pg.Client;
+  let owner: pg.Client;
+  let pool: pg.Pool;
+  let server: HttpServer;
+  const logs: LogEvent[] = [];
+
+  beforeAll(async () => {
+    admin = new pg.Client({ connectionString: dbAdminUrl });
+    await admin.connect();
+    await admin.query(`create database ${database}`);
+    const dbUrl = withDatabase(dbAdminUrl ?? "", database);
+    owner = new pg.Client({ connectionString: dbUrl });
+    await owner.connect();
+    await migrate(owner);
+
+    pool = createPool(dbUrl);
+    await createPostgresGuidanceEventStore(pool).appendGuidanceEvent({
+      applicationId: APP,
+      tool: "code_stack_rule",
+      subject: "react",
+      outcome: { kind: "miss" },
+      agentTool: null,
+      bundleHash: "0".repeat(64),
+    });
+
+    const port = await freePort();
+    server = createGuidanceHttpServer(
+      {
+        tenantId: TENANT as UuidV7,
+        recordDatabaseUrl: dbUrl,
+        readCredential: READ_CREDENTIAL,
+        port,
+        registryUrl: "http://registry.test",
+        registryCredential: "tenant-credential",
+        tokenTrustSet: new Map([[ROLE_KEY.keyId, createPublicKey(ROLE_KEY.publicKeyPem)]]),
+      },
+      pool,
+      (event) => {
+        logs.push(event);
+      },
+      { intervalMs: 50, fetchRetentionDays: () => Promise.resolve({ ok: true, days: 0 }) },
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(port, "127.0.0.1", () => {
+        resolve();
+      });
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    await pool.end();
+    await owner.end();
+    await admin.query(`drop database if exists ${database} with (force)`);
+    await admin.end();
+  }, 60_000);
+
+  it("runs the catch-up sweep on start: a 0-day setting deletes the recorded row and logs the count", async () => {
+    await expect
+      .poll(() => logs.find((line) => line["event"] === "guidance_retention_sweep"), { timeout: 10_000 })
+      .toMatchObject({ retentionDays: 0, deleted: 1 });
+    const { rows } = await owner.query<{ n: number }>("select count(*)::int as n from guidance_events");
+    expect(rows[0]?.n).toBe(0);
+  });
+});
+
+describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-cli: retention fetch fallback against PostgreSQL", () => {
+  const database = `dh_service_guidance_fallback_test_${randomBytes(6).toString("hex")}`;
+  let admin: pg.Client;
+  let owner: pg.Client;
+  let pool: pg.Pool;
+  let server: HttpServer;
+  const logs: LogEvent[] = [];
+
+  beforeAll(async () => {
+    admin = new pg.Client({ connectionString: dbAdminUrl });
+    await admin.connect();
+    await admin.query(`create database ${database}`);
+    const dbUrl = withDatabase(dbAdminUrl ?? "", database);
+    owner = new pg.Client({ connectionString: dbUrl });
+    await owner.connect();
+    await migrate(owner);
+
+    pool = createPool(dbUrl);
+    await createPostgresGuidanceEventStore(pool).appendGuidanceEvent({
+      applicationId: APP,
+      tool: "code_stack_rule",
+      subject: "react",
+      outcome: { kind: "miss" },
+      agentTool: null,
+      bundleHash: "0".repeat(64),
+    });
+
+    const port = await freePort();
+    server = createGuidanceHttpServer(
+      {
+        tenantId: TENANT as UuidV7,
+        recordDatabaseUrl: dbUrl,
+        readCredential: READ_CREDENTIAL,
+        port,
+        registryUrl: "http://registry.test",
+        registryCredential: "tenant-credential",
+        tokenTrustSet: new Map([[ROLE_KEY.keyId, createPublicKey(ROLE_KEY.publicKeyPem)]]),
+      },
+      pool,
+      (event) => {
+        logs.push(event);
+      },
+      { intervalMs: 60_000, fetchRetentionDays: () => Promise.resolve({ ok: false as const }) },
+    );
+    await new Promise<void>((resolve) => {
+      server.listen(port, "127.0.0.1", () => {
+        resolve();
+      });
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    await pool.end();
+    await owner.end();
+    await admin.query(`drop database if exists ${database} with (force)`);
+    await admin.end();
+  }, 60_000);
+
+  it("enforces the 90-day default with a logged fallback when the registry is unreachable", async () => {
+    await expect
+      .poll(() => logs.find((line) => line["event"] === "retention_fetch_fallback"), { timeout: 10_000 })
+      .toMatchObject({ retentionDays: 90 });
+    await expect
+      .poll(() => logs.find((line) => line["event"] === "guidance_retention_sweep"), { timeout: 10_000 })
+      .toMatchObject({ retentionDays: 90, deleted: 0 });
+    const { rows } = await owner.query<{ n: number }>("select count(*)::int as n from guidance_events");
+    expect(rows[0]?.n).toBe(1);
   });
 });

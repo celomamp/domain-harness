@@ -132,6 +132,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("service-cli: start, 
       "0002_standard_bundles.sql",
       "0003_guidance_identity.sql",
       "0004_guidance_events.sql", "0005_collector_outbox.sql",
+      "0006_guidance_events_retention_idx.sql",
     ]);
     const tables = await owner.query<{ to_regclass: string | null }>(
       "select to_regclass('public.service_bundles')::text as to_regclass",

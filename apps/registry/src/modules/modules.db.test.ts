@@ -4,7 +4,8 @@
 // migrates it as the admin (owner) and runs every data-access call as
 // dh_registry_app (`-c role=dh_registry_app`).
 import type { AddressInfo } from "node:net";
-import { randomBytes } from "node:crypto";
+import { ed25519SignerFromEnv } from "../bundles/sign.ts";
+import { randomBytes, generateKeyPairSync } from "node:crypto";
 import { sql } from "drizzle-orm";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -27,6 +28,7 @@ import { createLockedRuleService } from "../locked-rules/service.ts";
 import { createApplicationService } from "../applications/service.ts";
 import { createBoilerplateService } from "../boilerplate/service.ts";
 import { createCompilationsService } from "../compilations/service.ts";
+import { createGuidanceAccessService } from "../guidance-access/service.ts";
 import { createAcceptedDeviationsService } from "../accepted-deviations/service.ts";
 import { createAcceptedDeviationAlertsService } from "../accepted-deviation-alerts/service.ts";
 import { createGuidanceEndpointService } from "../guidance-endpoint/service.ts";
@@ -481,6 +483,12 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Modules against Post
   describe("over HTTP", () => {
     it("lists, creates, assigns and refuses end to end with the session as a Bearer token", async () => {
       const mail = new MemoryTransport();
+      const { privateKey: guidanceAccessKey } = generateKeyPairSync("ed25519");
+      const guidanceAccessSigner = ed25519SignerFromEnv({
+        REGISTRY_BUNDLE_SIGNING_KEY: guidanceAccessKey.export({ type: "pkcs8", format: "pem" }) as string,
+        REGISTRY_BUNDLE_SIGNING_KEY_ID: "guidance-access-test-key",
+      });
+
       const server = createRegistryServer(
         {
           signIn: createSignInService(db, mail, { panelUrl: "http://panel.test" }),
@@ -496,6 +504,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Modules against Post
         acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
           boilerplate: createBoilerplateService(db),
           compilations: createCompilationsService(db),
+          guidanceAccess: createGuidanceAccessService(db, guidanceAccessSigner),
         },
         () => undefined,
       );
