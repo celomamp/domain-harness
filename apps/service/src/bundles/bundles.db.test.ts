@@ -78,10 +78,10 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresBundleRecord
 
     const report = await migrate(owner);
     expect(report).toEqual({
-      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql"],
+      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql", "0005_collector_outbox.sql"],
       alreadyApplied: 0,
     });
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 4 });
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 5 });
 
     pool = createPool(dbUrl);
     store = createPostgresBundleRecordStore(pool);
@@ -94,7 +94,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresBundleRecord
     await admin.end();
   }, 60_000);
 
-  it("creates the four bundle tables beside the gate tables and the guidance mismatch table", async () => {
+  it("creates the four bundle tables beside the gate tables, the guidance mismatch table and the collector outbox", async () => {
     const { rows } = await owner.query<{ table_name: string }>(
       `select table_name from information_schema.tables
        where table_schema = 'public' and table_type = 'BASE TABLE'
@@ -106,6 +106,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresBundleRecord
       "binding_refusals",
       "bundle_refusals",
       "bundle_staleness_observations",
+      "collector_outbox",
+      "collector_sequences",
       "gate_runs",
       "guidance_events",
       "guidance_project_mismatches",

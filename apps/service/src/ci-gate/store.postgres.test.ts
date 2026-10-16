@@ -55,7 +55,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
     await owner.connect();
 
     const firstReport = await migrate(owner);
-    expect(firstReport).toEqual({ applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql"], alreadyApplied: 0 });
+    expect(firstReport).toEqual({ applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql", "0005_collector_outbox.sql"], alreadyApplied: 0 });
 
     pool = createPool(dbUrl);
     store = createPostgresGateRecordStore(pool);
@@ -68,7 +68,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
     await admin.end();
   }, 60_000);
 
-  it("creates the gate tables, the bundle tables and the service_migrations ledger", async () => {
+  it("creates the gate tables, the bundle tables, the collector outbox and the service_migrations ledger", async () => {
     const { rows } = await owner.query<{ table_name: string }>(
       `select table_name from information_schema.tables
        where table_schema = 'public' and table_type = 'BASE TABLE'
@@ -80,6 +80,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
       "binding_refusals",
       "bundle_refusals",
       "bundle_staleness_observations",
+      "collector_outbox",
+      "collector_sequences",
       "gate_runs",
       "guidance_events",
       "guidance_project_mismatches",
@@ -110,8 +112,8 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGateRecordSt
   });
 
   it("migrate and migratePostgres are idempotent once 0001, 0002, 0003 and 0004 are applied", async () => {
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 4 });
-    expect(await migratePostgres(owner)).toEqual({ applied: [], alreadyApplied: 4 });
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 5 });
+    expect(await migratePostgres(owner)).toEqual({ applied: [], alreadyApplied: 5 });
   });
 
   it("enforces TOFU on application_bindings: first bind persists, subsequent bind with a different fingerprint keeps the original", async () => {

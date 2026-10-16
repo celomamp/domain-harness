@@ -24,8 +24,8 @@ import {
 } from "@domain-harness/contract";
 import type { Compilation, CompilationTypeName } from "@domain-harness/contract";
 
-/** The closed drop-reason vocabulary: exactly `schema_failed` (6.3 extends it with transport reasons). */
-export const DROP_REASONS = ["schema_failed"] as const;
+/** The closed drop-reason vocabulary: schema failures, registry refusals retry cannot fix, and derived queue gaps. */
+export const DROP_REASONS = ["schema_failed", "rejected", "queue_gap"] as const;
 
 /** One countable reason a payload was dropped whole. */
 export type DropReason = (typeof DROP_REASONS)[number];

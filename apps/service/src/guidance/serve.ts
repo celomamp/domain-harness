@@ -58,6 +58,7 @@ import { resolveGuidanceIdentity } from "./identity.ts";
 import type { GuidanceIdentityHeaders, PinnedActiveBundle } from "./identity.ts";
 import type { GuidanceIdentityStore } from "./store.ts";
 import type { GuidanceEventStore } from "./events.ts";
+import type { CollectorSubmission } from "../collector/client.ts";
 import type { BundledStateOutcome } from "../bundles/puller.ts";
 import { effectiveSetInputOf } from "../read/effective.ts";
 
@@ -118,6 +119,14 @@ export interface ServeGuidanceCallInput {
    * (never subject text) when the event insert throws. Defaults to a no-op.
    */
   readonly onRecordError?: ((input: { readonly applicationId: UuidV7; readonly tool: GuidanceToolName; readonly error: unknown }) => void) | undefined;
+  /**
+   * The Collector client (Story 6.3): after a successful local append, the
+   * recorded event is projected and enqueued for durable delivery. Optional
+   * — when absent, serving behaves exactly as before. The enqueue is local
+   * only (no network on the hot path) and never throws into the typed
+   * hit/miss answer.
+   */
+  readonly collector?: CollectorSubmission | undefined;
 }
 
 /**
@@ -246,7 +255,7 @@ async function recordGuidanceEvent(
   outcome: { readonly kind: "hit"; readonly standardId: string; readonly version: number } | { readonly kind: "miss" },
 ): Promise<void> {
   try {
-    await input.eventStore.appendGuidanceEvent({
+    const event = await input.eventStore.appendGuidanceEvent({
       applicationId,
       tool: input.tool,
       subject: input.subject,
@@ -254,6 +263,7 @@ async function recordGuidanceEvent(
       agentTool: agentToolOf(pinned.payload, applicationId),
       bundleHash: pinned.hash,
     });
+    await input.collector?.recordGuidance(event, agentToolOf(pinned.payload, applicationId) ?? undefined);
   } catch (error) {
     try {
       input.onRecordError?.({ applicationId, tool: input.tool, error });

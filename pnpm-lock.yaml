@@ -424,6 +424,9 @@ importers:
 
   apps/service:
     dependencies:
+      '@domain-harness/collector':
+        specifier: workspace:*
+        version: link:../../packages/collector
       '@domain-harness/contract':
         specifier: workspace:*
         version: link:../../packages/contract

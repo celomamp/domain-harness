@@ -18,6 +18,7 @@ import {
   BUNDLE_VERIFICATION_FAILED,
 } from "./sentences.ts";
 import type { GateRecordStore, GateRunRecordInput } from "./store.ts";
+import type { CollectorSubmission } from "../collector/client.ts";
 
 export interface RunGateInput {
   readonly applicationId: UuidV7 | string;
@@ -27,6 +28,19 @@ export interface RunGateInput {
   readonly now?: string;
   readonly source: BundleSource;
   readonly store: GateRecordStore;
+  /**
+   * The Collector client (Story 6.3): after a successful local append, the
+   * recorded run is projected and enqueued for durable delivery. Optional —
+   * when absent, the run behaves exactly as before. The enqueue is local
+   * only (no network on the hot path) and never changes the outcome.
+   */
+  readonly collector?: CollectorSubmission | undefined;
+  /**
+   * The agent tool for the run's Compilation (Gate runs carry none of their
+   * own — the 6.2 caller-supplies rule). A missing tool skips the enqueue
+   * loudly through the client's hook, never the run.
+   */
+  readonly collectorAgentToolName?: string | undefined;
 }
 
 export interface RunGateOutcome {
@@ -184,6 +198,17 @@ export async function runGate(input: RunGateInput): Promise<RunGateOutcome> {
     };
     const appended = await store.appendGateRun(gateRunInput);
     sequence = appended.sequence;
+    await input.collector?.recordGateRun(
+      {
+        applicationId,
+        revision: input.revision,
+        deviations,
+        checked,
+        open,
+        createdAt: appended.createdAt ?? nowIso(),
+      },
+      input.collectorAgentToolName ?? null,
+    );
   } catch {
     return refusal(RUN_DID_NOT_COMPLETE);
   }

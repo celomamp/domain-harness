@@ -221,8 +221,8 @@ describe("validateForSend", () => {
     }
   });
 
-  it("keeps the drop-reason vocabulary closed at schema_failed", () => {
-    expect([...DROP_REASONS]).toEqual(["schema_failed"]);
+  it("keeps the drop-reason vocabulary closed at schema_failed, rejected and queue_gap", () => {
+    expect([...DROP_REASONS]).toEqual(["schema_failed", "rejected", "queue_gap"]);
   });
 });
 

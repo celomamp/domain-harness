@@ -61,10 +61,10 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("PostgresGuidanceEven
 
     const report = await migrate(owner);
     expect(report).toEqual({
-      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql"],
+      applied: ["0001_ci_gate.sql", "0002_standard_bundles.sql", "0003_guidance_identity.sql", "0004_guidance_events.sql", "0005_collector_outbox.sql"],
       alreadyApplied: 0,
     });
-    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 4 });
+    expect(await migrate(owner)).toEqual({ applied: [], alreadyApplied: 5 });
 
     pool = createPool(dbUrl);
     store = createPostgresGuidanceEventStore(pool);

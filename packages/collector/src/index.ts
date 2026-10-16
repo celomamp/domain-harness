@@ -30,3 +30,22 @@ export { DROP_REASONS, DropLedger, validateForSend } from "./validate.ts";
 export type { DropReason, ValidateForSendResult } from "./validate.ts";
 export { PUSH_TIMEOUT_MS, pushCompilation } from "./push.ts";
 export type { PushCompilationInput, PushResult } from "./push.ts";
+export { InMemoryCollectorOutbox } from "./queue.ts";
+export type {
+  CollectorOutbox,
+  EnqueueOutcome,
+  OutboxStats,
+  QueueGap,
+  QueuedCompilation,
+} from "./queue.ts";
+export {
+  FLUSH_BACKOFF_BASE_MS,
+  FLUSH_BACKOFF_MAX_MS,
+  FLUSH_BATCH_LIMIT,
+  FLUSH_READ_GATE_RETRY_MS,
+  computeBackoffMs,
+  flushOnce,
+  healthInputOf,
+  isSequenceTakenDetail,
+} from "./flush.ts";
+export type { FlushOnceInput, FlushReport } from "./flush.ts";
