@@ -61,6 +61,10 @@ export const COMPILATION_API_PATHS = {
   compilations: "/v1/compilations",
   /** `GET` (every role) and `POST` (the Buyer only) of the tenant's catalog-read record. */
   catalogReads: "/v1/compilation-catalog/reads",
+  /** `GET` (every role) the latest bundle-status view per Application. */
+  bundleStatus: "/v1/compilations/bundle-status",
+  /** `GET` (every role) the latest Collector-health view per Application. */
+  collectorHealth: "/v1/compilations/collector-health",
 } as const;
 
 /** Ingestion is refused while the tenant recorded no read of the current catalog version (subject `catalog`). */
@@ -525,7 +529,7 @@ export function isBundleStatusCompilation(value: unknown): value is BundleStatus
 }
 
 /** True when every `droppedByReason` entry is a non-negative integer count. Never throws. */
-function isDroppedByReason(value: unknown): value is Readonly<Record<string, number>> {
+export function isDroppedByReason(value: unknown): value is Readonly<Record<string, number>> {
   return isRecord(value) && Object.values(value).every(isNonNegativeInteger);
 }
 
@@ -744,4 +748,138 @@ export function isCompilationCatalogReadState(value: unknown): value is Compilat
   if (typeof read !== "boolean") return false;
   if (read) return isAccountRef(readBy) && isUtcIso(readAt);
   return readBy === null && readAt === null;
+}
+
+// ---------------------------------------------------------------------------
+// The status views (Story 6.4): read-only projections over the stored
+// Compilations the panel renders. The registry derives these from the latest
+// stored Compilation per Application (plus the tenant's latest bundle record
+// for the staleness bound and freeze state); the panel derives the age and
+// the "stale" word from `issuedAt`, so the registry stays clock-free. These
+// views are not Compilation types: the closed catalog above is untouched.
+// ---------------------------------------------------------------------------
+
+/** One service's bundle status: the active bundle facts the Buyer audits (Story 6.4). */
+export interface BundleStatusView {
+  /** The Application this status row is evidence for. */
+  readonly applicationId: UuidV7;
+  /** The agent tool that produced the record. */
+  readonly agentToolName: string;
+  /** SHA-256 hex of the active Standard bundle. */
+  readonly bundleHash: string;
+  /** The per-tenant sequence of the active bundle. */
+  readonly bundleSequence: number;
+  /** UTC ISO-8601: when the active bundle was issued. */
+  readonly issuedAt: string;
+  /** The staleness bound, in hours, the age is read against. */
+  readonly stalenessBoundHours: number;
+  /** The freeze state of the active bundle. */
+  readonly frozen: boolean;
+}
+
+/** The tenant's bundle-status rows: one per Application with a stored `bundle_status` Compilation. */
+export interface BundleStatusList {
+  readonly statuses: readonly BundleStatusView[];
+}
+
+/** One service's Collector health: what is queued and what was dropped, by reason (Story 6.4). */
+export interface CollectorHealthView {
+  /** The Application this health row is evidence for. */
+  readonly applicationId: UuidV7;
+  /** The agent tool that produced the record. */
+  readonly agentToolName: string;
+  /** UTC ISO-8601: when the record occurred. */
+  readonly occurredAt: string;
+  /** Compilations queued but not yet sent. */
+  readonly pendingCount: number;
+  /** Dropped Compilations by reason; a payload is dropped whole, never in part. */
+  readonly droppedByReason: Readonly<Record<string, number>>;
+}
+
+/** The tenant's Collector-health rows: one per Application with a stored `collector_health` Compilation. */
+export interface CollectorHealthList {
+  readonly reports: readonly CollectorHealthView[];
+}
+
+const BUNDLE_STATUS_VIEW_KEYS = new Set([
+  "applicationId",
+  "agentToolName",
+  "bundleHash",
+  "bundleSequence",
+  "issuedAt",
+  "stalenessBoundHours",
+  "frozen",
+]);
+
+/** True when `value` is a complete {@link BundleStatusView}. Never throws. */
+export function isBundleStatusView(value: unknown): value is BundleStatusView {
+  if (!isRecord(value)) return false;
+  for (const key of Object.keys(value)) {
+    if (!BUNDLE_STATUS_VIEW_KEYS.has(key)) return false;
+  }
+  const bundleSequence = value["bundleSequence"];
+  const stalenessBoundHours = value["stalenessBoundHours"];
+  return (
+    isUuidV7(value["applicationId"]) &&
+    typeof value["agentToolName"] === "string" &&
+    value["agentToolName"] !== "" &&
+    isSubjectHash(value["bundleHash"]) &&
+    typeof bundleSequence === "number" &&
+    Number.isInteger(bundleSequence) &&
+    bundleSequence >= 1 &&
+    isUtcIso(value["issuedAt"]) &&
+    typeof stalenessBoundHours === "number" &&
+    Number.isInteger(stalenessBoundHours) &&
+    stalenessBoundHours >= 1 &&
+    stalenessBoundHours <= 720 &&
+    typeof value["frozen"] === "boolean"
+  );
+}
+
+const BUNDLE_STATUS_LIST_KEYS = new Set(["statuses"]);
+
+/** True when `value` is a complete {@link BundleStatusList}. Never throws. */
+export function isBundleStatusList(value: unknown): value is BundleStatusList {
+  if (!isRecord(value)) return false;
+  for (const key of Object.keys(value)) {
+    if (!BUNDLE_STATUS_LIST_KEYS.has(key)) return false;
+  }
+  const statuses = value["statuses"];
+  return Array.isArray(statuses) && statuses.every(isBundleStatusView);
+}
+
+const COLLECTOR_HEALTH_VIEW_KEYS = new Set([
+  "applicationId",
+  "agentToolName",
+  "occurredAt",
+  "pendingCount",
+  "droppedByReason",
+]);
+
+/** True when `value` is a complete {@link CollectorHealthView}. Never throws. */
+export function isCollectorHealthView(value: unknown): value is CollectorHealthView {
+  if (!isRecord(value)) return false;
+  for (const key of Object.keys(value)) {
+    if (!COLLECTOR_HEALTH_VIEW_KEYS.has(key)) return false;
+  }
+  return (
+    isUuidV7(value["applicationId"]) &&
+    typeof value["agentToolName"] === "string" &&
+    value["agentToolName"] !== "" &&
+    isUtcIso(value["occurredAt"]) &&
+    isNonNegativeInteger(value["pendingCount"]) &&
+    isDroppedByReason(value["droppedByReason"])
+  );
+}
+
+const COLLECTOR_HEALTH_LIST_KEYS = new Set(["reports"]);
+
+/** True when `value` is a complete {@link CollectorHealthList}. Never throws. */
+export function isCollectorHealthList(value: unknown): value is CollectorHealthList {
+  if (!isRecord(value)) return false;
+  for (const key of Object.keys(value)) {
+    if (!COLLECTOR_HEALTH_LIST_KEYS.has(key)) return false;
+  }
+  const reports = value["reports"];
+  return Array.isArray(reports) && reports.every(isCollectorHealthView);
 }

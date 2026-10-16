@@ -588,4 +588,116 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Compilation catalog 
       expect(storedB.every((row) => row.tenantId === tenantB)).toBe(true);
     });
   });
+
+  describe("status views (Story 6.4)", () => {
+    const HASH_A = "a".repeat(64);
+    const HASH_B = "b".repeat(64);
+    const ISSUED_A = "2026-10-16T10:00:00.000Z";
+    const ISSUED_B = "2026-10-16T11:00:00.000Z";
+
+    async function statusOf(path: string, who: string): Promise<{ status: number; body: unknown }> {
+      const res = await get(path, who);
+      return { status: res.status, body: await res.json() };
+    }
+
+    it("answers the latest bundle-status row per Application with the bound and freeze from the latest bundle", async () => {
+      await owner.query(
+        `insert into bundle_records (id, tenant_id, sequence, hash, key_id, payload, signature, issued_at)
+         values ($1, $2, 1, $3, 'key-1', $4, 'sig', now())`,
+        [mintUuidV7(), tenantB, HASH_B, JSON.stringify({ stalenessHours: 48, frozen: true })],
+      );
+      const first: Record<string, unknown> = { ...validCompilation("bundle_status", appB, 100), bundleHash: HASH_A, bundleSequence: 41, issuedAt: ISSUED_A };
+      const second: Record<string, unknown> = { ...validCompilation("bundle_status", appB, 101), bundleHash: HASH_B, bundleSequence: 42, issuedAt: ISSUED_B };
+      expect((await ingest(credentialB, first)).status).toBe(201);
+      expect((await ingest(credentialB, second)).status).toBe(201);
+      await owner.query("update compilations set received_at = now() - interval '1 hour' where idempotency_key = $1", [
+        first["idempotencyKey"],
+      ]);
+      const { status, body } = await statusOf(COMPILATION_API_PATHS.bundleStatus, "bob");
+      expect(status).toBe(200);
+      expect(body).toEqual({
+        statuses: [
+          {
+            applicationId: appB,
+            agentToolName: "claude-code",
+            bundleHash: HASH_B,
+            bundleSequence: 42,
+            issuedAt: ISSUED_B,
+            stalenessBoundHours: 48,
+            frozen: true,
+          },
+        ],
+      });
+    });
+
+    it("falls back to the default bound and unfrozen when the tenant has no bundle yet", async () => {
+      const body: Record<string, unknown> = { ...validCompilation("bundle_status", appA, 100), bundleHash: HASH_A, bundleSequence: 7, issuedAt: ISSUED_A };
+      expect((await ingest(credentialA, body)).status).toBe(201);
+      const { status, body: seen } = await statusOf(COMPILATION_API_PATHS.bundleStatus, "buyer");
+      expect(status).toBe(200);
+      expect(seen).toEqual({
+        statuses: [
+          {
+            applicationId: appA,
+            agentToolName: "claude-code",
+            bundleHash: HASH_A,
+            bundleSequence: 7,
+            issuedAt: ISSUED_A,
+            stalenessBoundHours: 24,
+            frozen: false,
+          },
+        ],
+      });
+    });
+
+    it("answers the latest Collector-health row per Application with pending and dropped counts", async () => {
+      const body: Record<string, unknown> = {
+        ...validCompilation("collector_health", appB, 102),
+        pendingCount: 3,
+        droppedByReason: { schema_failed: 2, queue_gap: 1 },
+      };
+      expect((await ingest(credentialB, body)).status).toBe(201);
+      const { status, body: seen } = await statusOf(COMPILATION_API_PATHS.collectorHealth, "bob");
+      expect(status).toBe(200);
+      expect(seen).toEqual({
+        reports: [
+          {
+            applicationId: appB,
+            agentToolName: "claude-code",
+            occurredAt: body["occurredAt"],
+            pendingCount: 3,
+            droppedByReason: { schema_failed: 2, queue_gap: 1 },
+          },
+        ],
+      });
+    });
+
+    it("opens both reads to every role: Builder and Standard owner read tenant A's rows", async () => {
+      for (const who of ["buyer", "sam", "builder"]) {
+        const { status: bundleStatus, body: statuses } = await statusOf(COMPILATION_API_PATHS.bundleStatus, who);
+        expect(bundleStatus).toBe(200);
+        expect(statuses).toMatchObject({ statuses: [{ applicationId: appA }] });
+        const { status: healthStatus, body: reports } = await statusOf(COMPILATION_API_PATHS.collectorHealth, who);
+        expect(healthStatus).toBe(200);
+        expect(reports).toEqual({ reports: [] });
+      }
+    });
+
+    it("isolates tenants: A sees none of B's rows and B sees none of A's", async () => {
+      const { body: seenA } = await statusOf(COMPILATION_API_PATHS.bundleStatus, "buyer");
+      expect(seenA).toMatchObject({ statuses: [{ applicationId: appA }] });
+      expect(JSON.stringify(seenA)).not.toContain(appB);
+      const { body: seenB } = await statusOf(COMPILATION_API_PATHS.bundleStatus, "bob");
+      expect(seenB).toMatchObject({ statuses: [{ applicationId: appB }] });
+      expect(JSON.stringify(seenB)).not.toContain(appA);
+      const { body: healthB } = await statusOf(COMPILATION_API_PATHS.collectorHealth, "bob");
+      expect(JSON.stringify(healthB)).not.toContain(appA);
+    });
+
+    it("answers 401 session_invalid without a session, storing and returning nothing new", async () => {
+      for (const path of [COMPILATION_API_PATHS.bundleStatus, COMPILATION_API_PATHS.collectorHealth]) {
+        await expectRefused(await get(path, "nobody"), 401, "session_invalid", "session");
+      }
+    });
+  });
 });

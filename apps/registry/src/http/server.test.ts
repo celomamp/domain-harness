@@ -27,8 +27,10 @@ import {
   isApplicationList,
   isBuildGrantList,
   isBuildGrantState,
+  isBundleStatusList,
   isChildPermissionList,
   isChildPermissionState,
+  isCollectorHealthList,
   isEffectiveStandardSet,
   isErrorEnvelope,
   isIdentificationFileRendering,
@@ -52,8 +54,12 @@ import type {
   BoilerplateResult,
   BuildGrantList,
   BuildGrantState,
+  BundleStatusList,
+  BundleStatusView,
   ChildPermissionList,
   ChildPermissionState,
+  CollectorHealthList,
+  CollectorHealthView,
   Compilation,
   CompilationCatalogRead,
   CompilationCatalogReadState,
@@ -647,6 +653,42 @@ class FakeCompilations implements CompilationsService {
       this.stored = [...this.stored, compilation];
       return { compilation, replay: false };
     });
+  }
+  listBundleStatus(): Promise<BundleStatusList> {
+    this.calls.push(["bundle-status"]);
+    const seen = new Set<string>();
+    const statuses: BundleStatusView[] = [];
+    for (const entry of [...this.stored].reverse()) {
+      if (entry.type !== "bundle_status" || seen.has(entry.applicationId)) continue;
+      seen.add(entry.applicationId);
+      statuses.push({
+        applicationId: entry.applicationId,
+        agentToolName: entry.agentToolName,
+        bundleHash: entry.bundleHash,
+        bundleSequence: entry.bundleSequence,
+        issuedAt: entry.issuedAt,
+        stalenessBoundHours: 24,
+        frozen: false,
+      });
+    }
+    return Promise.resolve({ statuses });
+  }
+  listCollectorHealth(): Promise<CollectorHealthList> {
+    this.calls.push(["collector-health"]);
+    const seen = new Set<string>();
+    const reports: CollectorHealthView[] = [];
+    for (const entry of [...this.stored].reverse()) {
+      if (entry.type !== "collector_health" || seen.has(entry.applicationId)) continue;
+      seen.add(entry.applicationId);
+      reports.push({
+        applicationId: entry.applicationId,
+        agentToolName: entry.agentToolName,
+        occurredAt: entry.occurredAt,
+        pendingCount: entry.pendingCount,
+        droppedByReason: entry.droppedByReason,
+      });
+    }
+    return Promise.resolve({ reports });
   }
 }
 
@@ -2074,6 +2116,138 @@ describe("registry HTTP API", () => {
       const response = await fetch(`${base}${retention}`, { method: "POST", headers: credential });
       expect(response.headers.get("allow")).toBe("GET");
       await expectEnvelope(response, 405, "method_not_allowed");
+    });
+  });
+
+  describe("Compilation status views (Story 6.4)", () => {
+    const buyer = { authorization: `Bearer ${GOOD_SESSION}` };
+    const bundleStatus = "/v1/compilations/bundle-status";
+    const collectorHealth = "/v1/compilations/collector-health";
+    const appA = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
+    const appB = "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7";
+
+    function seed() {
+      const base = {
+        schemaVersion: "1.0.0",
+        catalogVersion: COMPILATION_CATALOG_VERSION,
+        agentToolName: "claude-code",
+        occurredAt: "2026-10-16T12:00:00.000Z",
+      };
+      const bodies = [
+        {
+          ...base,
+          type: "bundle_status",
+          idempotencyKey: mintUuidV7(),
+          applicationId: appA,
+          sequence: 1,
+          bundleHash: "a".repeat(64),
+          bundleSequence: 4,
+          issuedAt: "2026-10-16T10:00:00.000Z",
+        },
+        {
+          ...base,
+          type: "bundle_status",
+          idempotencyKey: mintUuidV7(),
+          applicationId: appA,
+          sequence: 2,
+          bundleHash: "b".repeat(64),
+          bundleSequence: 5,
+          issuedAt: "2026-10-16T11:00:00.000Z",
+        },
+        {
+          ...base,
+          type: "bundle_status",
+          idempotencyKey: mintUuidV7(),
+          applicationId: appB,
+          sequence: 1,
+          bundleHash: "c".repeat(64),
+          bundleSequence: 5,
+          issuedAt: "2026-10-16T11:30:00.000Z",
+        },
+        {
+          ...base,
+          type: "collector_health",
+          idempotencyKey: mintUuidV7(),
+          applicationId: appA,
+          sequence: 3,
+          pendingCount: 2,
+          droppedByReason: { schema_failed: 1 },
+        },
+      ];
+      compilations.stored = bodies.map((body) => validateCompilationBody(body));
+    }
+
+    it("answers the latest bundle-status row per Application, guarded", async () => {
+      seed();
+      const response = await fetch(`${base}${bundleStatus}`, { headers: buyer });
+      expect(response.status).toBe(200);
+      const body: unknown = await response.json();
+      expect(isBundleStatusList(body)).toBe(true);
+      expect(body).toEqual({
+        statuses: [
+          {
+            applicationId: appB,
+            agentToolName: "claude-code",
+            bundleHash: "c".repeat(64),
+            bundleSequence: 5,
+            issuedAt: "2026-10-16T11:30:00.000Z",
+            stalenessBoundHours: 24,
+            frozen: false,
+          },
+          {
+            applicationId: appA,
+            agentToolName: "claude-code",
+            bundleHash: "b".repeat(64),
+            bundleSequence: 5,
+            issuedAt: "2026-10-16T11:00:00.000Z",
+            stalenessBoundHours: 24,
+            frozen: false,
+          },
+        ],
+      });
+    });
+
+    it("answers the latest Collector-health row per Application, guarded", async () => {
+      seed();
+      const response = await fetch(`${base}${collectorHealth}`, { headers: buyer });
+      expect(response.status).toBe(200);
+      const body: unknown = await response.json();
+      expect(isCollectorHealthList(body)).toBe(true);
+      expect(body).toEqual({
+        reports: [
+          {
+            applicationId: appA,
+            agentToolName: "claude-code",
+            occurredAt: "2026-10-16T12:00:00.000Z",
+            pendingCount: 2,
+            droppedByReason: { schema_failed: 1 },
+          },
+        ],
+      });
+    });
+
+    it("answers empty envelopes when nothing was stored", async () => {
+      for (const path of [bundleStatus, collectorHealth]) {
+        const response = await fetch(`${base}${path}`, { headers: buyer });
+        expect(response.status).toBe(200);
+      }
+      expect(await (await fetch(`${base}${bundleStatus}`, { headers: buyer })).json()).toEqual({ statuses: [] });
+      expect(await (await fetch(`${base}${collectorHealth}`, { headers: buyer })).json()).toEqual({ reports: [] });
+    });
+
+    it("answers 401 session_invalid without a bearer token and calls no service", async () => {
+      for (const path of [bundleStatus, collectorHealth]) {
+        await expectEnvelope(await fetch(`${base}${path}`), 401, "session_invalid");
+      }
+      expect(compilations.calls).toEqual([]);
+    });
+
+    it("answers 405 with Allow: GET for a wrong method", async () => {
+      for (const path of [bundleStatus, collectorHealth]) {
+        const response = await fetch(`${base}${path}`, { method: "POST", headers: buyer });
+        expect(response.headers.get("allow")).toBe("GET");
+        await expectEnvelope(response, 405, "method_not_allowed");
+      }
     });
   });
 

@@ -25,8 +25,10 @@ import {
   isBoilerplateResult,
   isBuildGrantList,
   isBuildGrantState,
+  isBundleStatusList,
   isChildPermissionList,
   isChildPermissionState,
+  isCollectorHealthList,
   isCompilationCatalogRead,
   isCompilationCatalogReadState,
   isEffectiveStandardSet,
@@ -67,9 +69,11 @@ import type {
   BuildGrantList,
   BuildGrantRequest,
   BuildGrantState,
+  BundleStatusView,
   ChildPermissionList,
   ChildPermissionRequest,
   ChildPermissionState,
+  CollectorHealthView,
   CompilationCatalogRead,
   CompilationCatalogReadState,
   EffectiveStandardSet,
@@ -489,6 +493,29 @@ export function recordCatalogRead(
     [201, 200],
     isCompilationCatalogRead,
   );
+}
+
+/**
+ * The tenant's bundle-status rows: the latest stored `bundle_status`
+ * Compilation per Application, with the staleness bound and freeze state
+ * (every role may read). The registry answers the `{ statuses }` envelope
+ * and the guard checks that envelope before the list is mapped out.
+ */
+export async function getBundleStatus(sessionToken: string): Promise<RegistryResult<BundleStatusView[]>> {
+  const result = await call(COMPILATION_API_PATHS.bundleStatus, getJson(sessionToken), 200, isBundleStatusList);
+  return result.kind === "ok" ? { kind: "ok", value: [...result.value.statuses] } : result;
+}
+
+/**
+ * The tenant's Collector-health rows: the latest stored `collector_health`
+ * Compilation per Application, carrying the pending count and the
+ * dropped-by-reason counts (every role may read). The registry answers the
+ * `{ reports }` envelope and the guard checks that envelope before the list
+ * is mapped out.
+ */
+export async function getCollectorHealth(sessionToken: string): Promise<RegistryResult<CollectorHealthView[]>> {
+  const result = await call(COMPILATION_API_PATHS.collectorHealth, getJson(sessionToken), 200, isCollectorHealthList);
+  return result.kind === "ok" ? { kind: "ok", value: [...result.value.reports] } : result;
 }
 
 /** The tenant's Guidance access state: the grant per grantable role plus the retention days (every role may read). */

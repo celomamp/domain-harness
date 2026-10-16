@@ -3,11 +3,19 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import Compilations, { action, COMPILATIONS_COPY, loader } from "./compilations.tsx";
+import Compilations, {
+  action,
+  bundleAgeHours,
+  COMPILATIONS_COPY,
+  dropAnnouncement,
+  isBundleStale,
+  loader,
+} from "./compilations.tsx";
 import type { CompilationsActionData } from "./compilations.tsx";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
 const ACCOUNT = "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7";
+const APP = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
 const SESSION_TOKEN = `${TENANT}.${"S".repeat(43)}`;
 const COOKIE = { cookie: `dh_session=${SESSION_TOKEN}` };
 
@@ -17,8 +25,18 @@ const record = {
   readAt: "2026-10-15T12:00:00.000Z",
 };
 
-function renderCompilations(readState: Promise<unknown>) {
-  const Stub = createRoutesStub([{ path: "/compilations", Component: Compilations, loader: () => ({ readState }) }]);
+function renderCompilations(
+  readState: Promise<unknown>,
+  bundleStatus: Promise<unknown> = Promise.resolve({ kind: "ok", value: [] }),
+  collectorHealth: Promise<unknown> = Promise.resolve({ kind: "ok", value: [] }),
+) {
+  const Stub = createRoutesStub([
+    {
+      path: "/compilations",
+      Component: Compilations,
+      loader: () => ({ readState, bundleStatus, collectorHealth }),
+    },
+  ]);
   render(<Stub initialEntries={["/compilations"]} />);
 }
 
@@ -134,6 +152,38 @@ describe("/compilations loader", () => {
     const away = loader(loaderArgs({}));
     expect((away as Response).headers.get("location")).toBe("/sign-in");
   });
+
+  it("defers the bundle-status and Collector-health reads beside the read state", async () => {
+    const statuses = [
+      {
+        applicationId: APP,
+        agentToolName: "claude-code",
+        bundleHash: "a".repeat(64),
+        bundleSequence: 4,
+        issuedAt: "2026-10-16T10:00:00.000Z",
+        stalenessBoundHours: 24,
+        frozen: false,
+      },
+    ];
+    const reports = [
+      {
+        applicationId: APP,
+        agentToolName: "claude-code",
+        occurredAt: "2026-10-16T12:00:00.000Z",
+        pendingCount: 2,
+        droppedByReason: { schema_failed: 1 },
+      },
+    ];
+    registryAnswers(
+      [200, { catalogVersion: "1.0.0", read: true, readBy: record.readBy, readAt: record.readAt }],
+      [200, { statuses }],
+      [200, { reports }],
+    );
+    const result = loader(loaderArgs());
+    if (result instanceof Response) throw new Error("expected data");
+    expect(await result.bundleStatus).toEqual({ kind: "ok", value: statuses });
+    expect(await result.collectorHealth).toEqual({ kind: "ok", value: reports });
+  });
 });
 
 describe("/compilations action", () => {
@@ -195,5 +245,129 @@ describe("/compilations action", () => {
     expect(result.init).toMatchObject({ status: 400 });
     expect(result.data.status?.tone).toBe("denial");
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("/compilations bundle status (Story 6.4)", () => {
+  const NOW = Date.parse("2026-10-16T12:00:00.000Z");
+  const row = {
+    applicationId: APP,
+    agentToolName: "claude-code",
+    bundleHash: "a".repeat(64),
+    bundleSequence: 4,
+    issuedAt: "2026-10-10T12:00:00.000Z",
+    stalenessBoundHours: 24,
+    frozen: false,
+  };
+
+  function renderStatus(status: unknown, health: unknown = { kind: "ok", value: [] }) {
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+    renderCompilations(
+      Promise.resolve({ kind: "ok", value: { catalogVersion: "1.0.0", read: false, readBy: null, readAt: null } }),
+      Promise.resolve(status),
+      Promise.resolve(health),
+    );
+  }
+
+  it("shows the active hash, sequence, age against the bound, freeze state and the word stale when past the bound", async () => {
+    renderStatus({ kind: "ok", value: [row] });
+    expect(await screen.findByText("a".repeat(64))).toBeTruthy();
+    expect(screen.getByText("Age 144h of 24h bound.")).toBeTruthy();
+    expect(screen.getByText("not frozen")).toBeTruthy();
+    expect(screen.getByText("stale")).toBeTruthy();
+  });
+
+  it("shows no stale word and the frozen state when within the bound", async () => {
+    renderStatus({ kind: "ok", value: [{ ...row, issuedAt: "2026-10-16T11:00:00.000Z", frozen: true }] });
+    expect(await screen.findByText("Age 1h of 24h bound.")).toBeTruthy();
+    expect(screen.getByText("frozen")).toBeTruthy();
+    expect(screen.queryByText("stale")).toBeNull();
+  });
+
+  it("shows the Collector pending and dropped counts by reason", async () => {
+    renderStatus(
+      { kind: "ok", value: [] },
+      {
+        kind: "ok",
+        value: [
+          {
+            applicationId: APP,
+            agentToolName: "claude-code",
+            occurredAt: "2026-10-16T12:00:00.000Z",
+            pendingCount: 2,
+            droppedByReason: { schema_failed: 1, queue_gap: 3 },
+          },
+        ],
+      },
+    );
+    expect(await screen.findByText("Pending 2.")).toBeTruthy();
+    expect(screen.getByText("Dropped schema_failed: 1.")).toBeTruthy();
+    expect(screen.getByText("Dropped queue_gap: 3.")).toBeTruthy();
+  });
+
+  it("announces a drop as status text, stating the schema failed and no partial payload was stored", async () => {
+    renderStatus(
+      { kind: "ok", value: [] },
+      {
+        kind: "ok",
+        value: [
+          {
+            applicationId: APP,
+            agentToolName: "claude-code",
+            occurredAt: "2026-10-16T12:00:00.000Z",
+            pendingCount: 0,
+            droppedByReason: { schema_failed: 2 },
+          },
+        ],
+      },
+    );
+    const announcement = await screen.findByText(/the schema failed and no partial payload was stored/);
+    expect(announcement.textContent).toMatch(/schema_failed/);
+    expect(announcement.textContent).toMatch(/count 2/);
+  });
+
+  it("announces a queue gap without blaming the schema", async () => {
+    renderStatus(
+      { kind: "ok", value: [] },
+      {
+        kind: "ok",
+        value: [
+          {
+            applicationId: APP,
+            agentToolName: "claude-code",
+            occurredAt: "2026-10-16T12:00:00.000Z",
+            pendingCount: 0,
+            droppedByReason: { queue_gap: 1 },
+          },
+        ],
+      },
+    );
+    const announcement = await screen.findByText(/those sequences never arrived/);
+    expect(announcement.textContent).toMatch(/queue_gap/);
+  });
+
+  it("keeps the schema-reader in the empty state, with no-drop text", async () => {
+    renderCompilations(Promise.resolve({ kind: "unavailable" }));
+    expect(await screen.findByText("No bundle status yet. Nothing has arrived from the Collector.")).toBeTruthy();
+    expect(screen.getByText("No Collector health yet. Nothing has arrived from the Collector.")).toBeTruthy();
+    expect(screen.getByText("No compilation drops reported.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Compilation schemas" })).toBeTruthy();
+    expect(document.querySelectorAll(".schema-reader")).toHaveLength(6);
+  });
+
+  it("shows unavailable, never throwing, on a registry outage", async () => {
+    renderStatus({ kind: "unavailable" }, { kind: "unavailable" });
+    expect(await screen.findByText("The bundle status is unavailable right now. Try again in a few minutes.")).toBeTruthy();
+    expect(screen.getByText("The Collector health is unavailable right now. Try again in a few minutes.")).toBeTruthy();
+  });
+
+  it("derives the age in whole hours, clamped at zero, with stale past the bound", () => {
+    expect(bundleAgeHours("2026-10-16T11:00:00.000Z", NOW)).toBe(1);
+    expect(bundleAgeHours("2026-10-16T12:00:00.000Z", NOW)).toBe(0);
+    expect(bundleAgeHours("2026-10-17T12:00:00.000Z", NOW)).toBe(0);
+    expect(isBundleStale(25, 24)).toBe(true);
+    expect(isBundleStale(24, 24)).toBe(false);
+    expect(dropAnnouncement("schema_failed", 1)).toMatch(/the schema failed and no partial payload was stored/);
+    expect(dropAnnouncement("mystery", 2)).toMatch(/no partial payload was stored/);
   });
 });
