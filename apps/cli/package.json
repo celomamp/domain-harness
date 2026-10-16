@@ -1,9 +1,15 @@
 {
   "name": "@domain-harness/cli",
   "version": "0.0.0",
-  "private": true,
   "description": "Offline CLI Gate (Community).",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",

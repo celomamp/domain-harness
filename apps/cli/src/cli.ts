@@ -23,6 +23,7 @@ import { isAbsolute, join } from "node:path";
 import { BUNDLE_VERIFICATION_FAILED, RUN_DID_NOT_COMPLETE } from "@domain-harness/gate";
 import { loadBundleFile } from "./bundle-file.ts";
 import { runGateCommand } from "./gate.ts";
+import { formatHelpLine, formatVersionLine, isHelpArgs, isVersionArgs } from "./version.ts";
 
 export interface VerifyCommandOptions {
   readonly bundlePath: string;
@@ -180,12 +181,20 @@ export interface CliDispatchResult {
 }
 
 /**
- * Dispatch argv words to the verify or gate command. The verify path is
- * untouched (sync, one line); `gate ...` runs the offline Gate and returns
- * its sentence plus one line per open Deviation. Never throws.
+ * Dispatch argv words to the version/help screens or the verify/gate
+ * commands. Exact `--version`/`--help` answer exit 0 with no side effects;
+ * the verify path is untouched (sync, one line); `gate ...` runs the offline
+ * Gate and returns its sentence plus one line per open Deviation. Never
+ * throws.
  */
 export async function runCli(argv: readonly string[]): Promise<CliDispatchResult> {
   try {
+    if (isVersionArgs(argv)) {
+      return { exitCode: 0, lines: [formatVersionLine()] };
+    }
+    if (isHelpArgs(argv)) {
+      return { exitCode: 0, lines: [formatHelpLine()] };
+    }
     if (argv.length >= 1 && argv[0] === "gate") {
       const gate = await runGateCommand(argv);
       return { exitCode: gate.exitCode, lines: [...gate.lines] };

@@ -126,6 +126,22 @@ describe("cli bundle verify", () => {
     expect(existsSync(statePath)).toBe(false);
   });
 
+  it("unknown-major bundle refuses at the command surface with state unchanged", () => {
+    const signer = makeKey("key-1");
+    const dir = mkdtempSync(join(tmpdir(), "dh-cli-"));
+    const payload = makePayload(signer.keyId, 1, FRESH_ISSUED);
+    const future = signPayload({ ...payload, format: { type: BUNDLE_TYPE, version: BUNDLE_FORMAT_VERSION + 1 } }, signer);
+    const bundlePath = join(dir, "bundle.json");
+    const trustPath = join(dir, "trust.json");
+    const statePath = join(dir, "state.json");
+    writeFileSync(bundlePath, JSON.stringify(future));
+    writeFileSync(trustPath, JSON.stringify({ [signer.keyId]: signer.publicPem }));
+    const result = run(["bundle", "verify", "--bundle", bundlePath, "--trust-keys", trustPath, "--tenant", TENANT, "--state", statePath, "--now", FRESH_NOW]);
+    expect(result.exitCode).toBe(1);
+    expect(result.line).toBe("bundle verification failed");
+    expect(existsSync(statePath)).toBe(false);
+  });
+
   it("usage defects fail closed with verification-failed", () => {
     expect(run(["bundle", "verify"]).line).toBe("bundle verification failed");
     expect(run(["bundle", "verify"]).exitCode).toBe(1);

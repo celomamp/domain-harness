@@ -12,5 +12,6 @@ export * from "./bundle-file.ts";
 export * from "./gate-snapshot.ts";
 export * from "./binding-file.ts";
 export * from "./gate.ts";
+export * from "./version.ts";
 export { defaultStatePath, formatSuccessLine, isCliEntryPoint, parseVerifyArgs, run, runCli } from "./cli.ts";
 export type { CliDispatchResult, CliRunResult, VerifyCommandOptions } from "./cli.ts";
