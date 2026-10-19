@@ -164,4 +164,38 @@ describe("sign-in", () => {
     expect(screen.getByLabelText("Email address")).toBeTruthy();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the form visible until a second sign-in request resolves", async () => {
+    let resolveSecond: ((response: Response) => void) | undefined;
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response("{}", { status: 202 }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    renderSignIn();
+    await submit("bea@acme.io");
+    await screen.findByRole("heading", { name: "Check your email" });
+    fireEvent.click(screen.getByRole("button", { name: "Use a different address" }));
+
+    const input = screen.getByLabelText<HTMLInputElement>("Email address");
+    fireEvent.change(input, { target: { value: "new@acme.io" } });
+    fireEvent.click(screen.getByRole("button", { name: "Email me a sign-in link" }));
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    expect(screen.getByLabelText("Email address")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Check your email" })).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Email me a sign-in link" }).hasAttribute("disabled")).toBe(true);
+
+    resolveSecond?.(new Response("{}", { status: 202 }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    expect(screen.getByText("new@acme.io")).toBeTruthy();
+  });
 });

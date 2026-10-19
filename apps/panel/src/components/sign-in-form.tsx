@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Form } from "react-router";
+import { Form, useNavigation } from "react-router";
 import { Button } from "./button.tsx";
 import { Status } from "./status.tsx";
 
@@ -27,9 +27,25 @@ export interface SignInFormProps {
 export function SignInForm({ notice, email }: SignInFormProps) {
   const input = useRef<HTMLInputElement>(null);
   const confirmationHeading = useRef<HTMLHeadingElement>(null);
+  const awaitingActionResult = useRef(false);
+  const actionWasPending = useRef(false);
   const [showForm, setShowForm] = useState(false);
+  const navigation = useNavigation();
+  const pending = navigation.state !== "idle";
   const invalid = notice === "invalid";
   const showConfirmation = notice === "sent" && !showForm;
+
+  useEffect(() => {
+    if (!awaitingActionResult.current) return;
+
+    if (pending) {
+      actionWasPending.current = true;
+    } else if (actionWasPending.current) {
+      awaitingActionResult.current = false;
+      actionWasPending.current = false;
+      setShowForm(false);
+    }
+  }, [pending]);
 
   useEffect(() => {
     if (showConfirmation) {
@@ -90,13 +106,14 @@ export function SignInForm({ notice, email }: SignInFormProps) {
             </section>
           ) : (
             <>
-              <Status tone={status.tone} message={status.message} />
+              <Status tone={status.tone} message={notice === "sent" ? undefined : status.message} />
               <Form
                 method="post"
                 className="standard-form"
                 noValidate
+                aria-busy={pending}
                 onSubmit={() => {
-                  setShowForm(false);
+                  awaitingActionResult.current = true;
                 }}
               >
                 <label htmlFor="email" className="type-label">
@@ -111,6 +128,7 @@ export function SignInForm({ notice, email }: SignInFormProps) {
                   inputMode="email"
                   required
                   defaultValue={email}
+                  disabled={pending}
                   aria-invalid={invalid ? true : undefined}
                   aria-describedby={invalid ? "email-error" : undefined}
                 />
@@ -119,7 +137,7 @@ export function SignInForm({ notice, email }: SignInFormProps) {
                     {SIGN_IN_COPY.fieldError}
                   </p>
                 ) : null}
-                <Button variant="primary" type="submit">
+                <Button variant="primary" type="submit" disabled={pending}>
                   Email me a sign-in link
                 </Button>
               </Form>
