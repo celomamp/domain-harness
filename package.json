@@ -11,7 +11,17 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint": "turbo run lint",
-    "boundaries": "node tooling/boundaries/cli.ts"
+    "boundaries": "node tooling/boundaries/cli.ts",
+    "local:up": "sh tooling/local/local-up.sh",
+    "local:migrate": "sh tooling/local/local-migrate.sh",
+    "local:provision": "sh tooling/local/local-provision.sh",
+    "local:keys": "sh tooling/local/local-keys.sh",
+    "local:test": "sh tooling/local/local-test.sh",
+    "local:serve:registry": "sh tooling/local/local-serve-registry.sh",
+    "local:serve:panel": "sh tooling/local/local-serve-panel.sh",
+    "local:serve": "sh tooling/local/local-serve.sh",
+    "local:guidance": "sh tooling/local/local-serve-guidance.sh",
+    "local:cli:smoke": "sh tooling/local/local-cli-smoke.sh"
   },
   "devDependencies": {
     "turbo": "2.11.7",

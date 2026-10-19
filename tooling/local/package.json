@@ -1,0 +1,20 @@
+{
+  "name": "@domain-harness/local-env",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local development helpers: shared defaults and fail-closed checks for `pnpm local:*`.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@domain-harness/eslint-config": "workspace:*",
+    "@domain-harness/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

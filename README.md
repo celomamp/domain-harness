@@ -44,15 +44,35 @@ pnpm test             # Vitest in every package
 
 CI (`.github/workflows/ci.yml`) runs the same steps on every push, on Node 24 and 26.
 
-## Database (registry)
+## Local development (three commands)
 
-The registry uses PostgreSQL 18. For local work, start the compose service (its password is a local-only development credential, not a secret):
+Prerequisites: Node 24 or later, `pnpm` via corepack, and Docker running. Every `local:*` command carries working local-only defaults (the same values as `.env.local.example`), so a clean clone boots with no exports and no extra terminals. The dev bundle-signing key is generated once outside the repository tree (`$HOME/.domain-harness/`, never committed) the first time it is needed. Those values are local-only development credentials documented as such in that file; no real secret is ever committed. To use them from your own shell or dotenv workflow instead, run `cp .env.local.example .env.local`.
 
 ```sh
-docker compose up -d --wait postgres
+pnpm local:up ./company.json  # postgres on 127.0.0.1:5432 + migrate + provision (omit the file to only boot)
+pnpm local:serve              # registry API on 127.0.0.1:4100 and panel on http://localhost:5173, one terminal
+pnpm local:test               # boots postgres and runs the full suite green, both DB suites included
 ```
 
-Connection strings come only from environment variables:
+`local:up` without a file only boots and migrates; `pnpm local:provision ./company.json` provisions later with the same defaults. `local:serve` is the short path; for separate logs run the split pair instead: `pnpm local:serve:registry` (terminal 1) and `pnpm local:serve:panel` (terminal 2, `panel dev` on :5173). Serve the guidance + Read API with `pnpm local:guidance` (inbound 127.0.0.1:8080 by default; needs the record store, provision output, and trust keys from the service section below). `pnpm local:migrate` re-runs migrations alone, `pnpm local:keys` (re)generates the dev signing key outside the repo and prints the trust-set JSON the service stack needs, and `pnpm local:cli:smoke` runs the offline CLI verify/gate smoke (no network, no database).
+
+Provision one Company from a JSON file. `plan` is optional (`Community`, `Team`, `Business` or `Enterprise`; default `Team`) and each account's `role` is `Buyer`, `Standard owner` or `Builder`:
+
+```json
+{
+  "company": "Acme",
+  "plan": "Team",
+  "accounts": [
+    { "name": "Bea", "email": "bea@acme.example", "role": "Buyer" },
+    { "name": "Sam", "email": "sam@acme.example", "role": "Standard owner" },
+    { "name": "Bo", "email": "bo@acme.example", "role": "Builder" }
+  ]
+}
+```
+
+It prints `{ tenantId, rootProjectId, plan, accounts: [{ id, role }], serviceCredential }` (ids only, no names or emails). Copy `serviceCredential` into `SERVICE_TENANT_CREDENTIAL` for the service stack below. Any error prints one `{ code, message, subject }` envelope to stderr, exits 1 and writes nothing.
+
+Connection strings come only from environment variables (`local:*` already sets the local ones):
 
 | Variable | Used by | Connects as |
 | --- | --- | --- |
@@ -69,74 +89,27 @@ CREATE ROLE registry_runtime LOGIN PASSWORD '<from your secret manager>' IN ROLE
 
 `REGISTRY_DATABASE_URL` then names `registry_runtime`. `provision` refuses to start when the role is unsafe.
 
-Apply migrations (idempotent):
-
-```sh
-export REGISTRY_MIGRATION_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
-pnpm --filter @domain-harness/registry migrate
-```
-
-Provision one Company from a JSON file. `plan` is optional (`Community`, `Team`, `Business` or `Enterprise`; default `Team`) and each account's `role` is `Buyer`, `Standard owner` or `Builder`:
-
-```json
-{
-  "company": "Acme",
-  "plan": "Team",
-  "accounts": [
-    { "name": "Bea", "email": "bea@acme.example", "role": "Buyer" },
-    { "name": "Sam", "email": "sam@acme.example", "role": "Standard owner" },
-    { "name": "Bo", "email": "bo@acme.example", "role": "Builder" }
-  ]
-}
-```
-
-```sh
-# Locally, `options=-c role=dh_registry_app` makes the dev superuser act as the
-# runtime role; in production use a login role that is a member of dh_registry_app.
-export REGISTRY_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?options=-c%20role%3Ddh_registry_app'
-pnpm --filter @domain-harness/registry provision ./company.json
-```
-
-It prints `{ tenantId, rootProjectId, plan, accounts: [{ id, role }] }` (ids only, no names or emails). Any error prints one `{ code, message, subject }` envelope to stderr, exits 1 and writes nothing.
-
-The database test suite (`apps/registry/src/tenancy/tenancy.db.test.ts`) runs when `REGISTRY_TEST_DATABASE_URL` is set, creating and dropping its own throwaway database:
-
-```sh
-REGISTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres pnpm test
-```
-
-Without it, the suite is skipped with a printed reason; when `CI` is set, a missing URL fails the run.
-
-## Sign-in and the management panel
-
-The registry serves a small internal JSON API that the panel calls over HTTP; the panel never touches the database.
+The registry serves a small internal JSON API that the panel calls over HTTP; the panel never touches the database. `local:serve:registry` sets every variable below; only the mail choice is yours:
 
 | Variable | Used by | Meaning |
 | --- | --- | --- |
 | `REGISTRY_DATABASE_URL` | registry `serve` | runtime role, as for `provision` |
 | `REGISTRY_HTTP_HOST`, `REGISTRY_HTTP_PORT` | registry `serve` | listen address, default `127.0.0.1:4100` |
-| `REGISTRY_PANEL_URL` | registry `serve` | the panel's public base URL; emailed links point at `<url>/sign-in/verify` |
+| `REGISTRY_PANEL_URL` | registry `serve` | the panel's public base URL; emailed links point at `<url>/sign-in/verify` (local default `http://localhost:5173`, matching `panel dev`) |
 | `REGISTRY_SMTP_URL` + `REGISTRY_MAIL_FROM` | registry `serve` | real delivery over SMTP (Nodemailer) |
-| `REGISTRY_MAIL_OUTBOX_DIR` | registry `serve` | local delivery: one JSON file per message, mode 0600 |
+| `REGISTRY_MAIL_OUTBOX_DIR` | registry `serve` | local delivery: one JSON file per message, mode 0600 (local default `./.outbox`, gitignored) |
 | `PANEL_REGISTRY_URL` | panel | registry API base URL, default `http://127.0.0.1:4100` |
 | `PORT`, `HOST` | panel `start` | where the panel server (`apps/panel/server.js`) listens (default port 3000, all interfaces) |
 
-Set exactly one of SMTP or the outbox; otherwise `serve` refuses to start. Run both locally and sign in through the outbox (after `migrate` and `provision` above):
+Set exactly one of SMTP or the outbox; otherwise `serve` refuses with one sentence before it listens. Sign in at `http://localhost:5173/sign-in`: enter a provisioned address, then open the link in the newest `.outbox/*.json` file. It works once and expires after 15 minutes; the session lasts 12 hours. Any well-formed address shows the same "Check your email for a sign-in link" text. With the production panel build (`pnpm --filter @domain-harness/panel build` then `start` on :3000), set `REGISTRY_PANEL_URL=http://localhost:3000`.
 
-```sh
-# terminal 1: registry API, mail written to ./.outbox (ignored by git)
-export REGISTRY_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?options=-c%20role%3Ddh_registry_app'
-REGISTRY_PANEL_URL=http://localhost:3000 REGISTRY_MAIL_OUTBOX_DIR="$PWD/.outbox" \
-  pnpm --filter @domain-harness/registry serve
+The database suites (tenancy, sign-in, Modules, Standards, and the rest under `REGISTRY_TEST_DATABASE_URL`) run when that URL is set, each creating and dropping its own throwaway database. `pnpm local:test` exports it (and `SERVICE_TEST_DATABASE_URL`) and always runs them. Without it, plain `pnpm test` skips with a printed reason; when `CI` is set, a missing URL fails the run.
 
-# terminal 2: the panel (production build); `pnpm --filter @domain-harness/panel dev` serves on :5173 instead
-pnpm --filter @domain-harness/panel build
-pnpm --filter @domain-harness/panel start
-```
+### Troubleshooting
 
-Open `http://localhost:3000/sign-in`, enter a provisioned address, then open the link in the newest `.outbox/*.json` file. It works once and expires after 15 minutes; the session lasts 12 hours. Any well-formed address shows the same "Check your email for a sign-in link" text. With `pnpm dev`, set `REGISTRY_PANEL_URL=http://localhost:5173`.
-
-The sign-in database suite (`apps/registry/src/sign-in/sign-in.db.test.ts`) runs with the tenancy suite under `REGISTRY_TEST_DATABASE_URL`.
+- **Docker down:** `local:up` and `local:test` print `Docker is not running; start Docker Desktop (or dockerd) and retry.` and exit 1. Start Docker and retry; nothing was written.
+- **Port busy:** the registry binds `127.0.0.1:4100` and the panel binds `:5173` (`strictPort`). A busy port fails fast with the driver's error before anything listens; stop the other process or free the port and retry.
+- **Missing credential:** the service stack (`apps/service/compose.yaml`) refuses with one sentence when `SERVICE_TENANT_CREDENTIAL` or `SERVICE_BUNDLE_TRUST_KEYS` is unset, so the daemon never starts on a placeholder. Paste the credential from the provision output and the trust keys from your secret manager (local values are in `.env.local.example`), then `docker compose -f apps/service/compose.yaml up -d --wait`.
 
 ## Modules and Standard owners
 
@@ -381,14 +354,14 @@ export SERVICE_BUNDLE_TRUST_KEYS='{"key-1": "-----BEGIN PUBLIC KEY-----\n...\n--
 docker compose -f apps/service/compose.yaml up -d --wait
 ```
 
-The record store publishes `127.0.0.1:5433 → 5432` (distinct from the root compose's 5432); the service container publishes nothing. The store variables:
+Compose refuses with one sentence when either variable is unset, so the daemon never starts on a placeholder. Run `pnpm local:keys` for the trust-set JSON matching your gitignored dev signing key (local only); outside local development both values come from your secret manager. The record store publishes `127.0.0.1:5433 → 5432` (distinct from the root compose's 5432); the service container publishes nothing. The store variables:
 
 | Variable | Used by | Connects as |
 | --- | --- | --- |
 | `SERVICE_RECORD_DATABASE_URL` | the bundle daemon and the CI Gate | the runtime role that owns the plain service tables |
 | `SERVICE_TEST_DATABASE_URL` | `pnpm test` (database suites in `apps/service`) | an admin role that may create and drop databases |
 
-The service database suites (`apps/service/src/ci-gate/store.postgres.test.ts`, `apps/service/src/bundles/bundles.db.test.ts` and `apps/service/src/guidance/guidance.db.test.ts`) run when `SERVICE_TEST_DATABASE_URL` is set, each creating and dropping its own throwaway database.
+The service database suites (`apps/service/src/ci-gate/store.postgres.test.ts`, `apps/service/src/bundles/bundles.db.test.ts` and `apps/service/src/guidance/guidance.db.test.ts`) run when `SERVICE_TEST_DATABASE_URL` is set, each creating and dropping its own throwaway database. `pnpm local:test` exports it (and `REGISTRY_TEST_DATABASE_URL`) and always runs them.
 
 ## Guidance identity
 

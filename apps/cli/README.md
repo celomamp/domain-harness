@@ -33,3 +33,13 @@ domain-harness gate --bundle ./bundle.json --trust-keys ./trust.json --tenant <u
 Both commands run fully offline and never modify the working tree. State
 (last-seen bundle pointer, Application binding) defaults under the user
 cache directory and can be overridden with `--state` / `--binding`.
+
+## Local smoke
+
+From the repository root (no network, no database):
+
+```sh
+pnpm local:cli:smoke
+```
+
+It checks `--version`, `--help`, and that `bundle verify` and `gate` refuse unreadable inputs with their one-line failures.

@@ -22,13 +22,16 @@ services:
       SERVICE_VENDOR_URL: http://host.docker.internal:4100
       # This Company's tenant id (UUIDv7) and its registry service credential.
       SERVICE_TENANT_ID: 018f3d2a-7000-7000-8000-000000000100
-      # Export SERVICE_TENANT_CREDENTIAL and SERVICE_BUNDLE_TRUST_KEYS in your
-      # shell (see README) — the exports win; the placeholders below keep the
-      # file readable but do not start a properly configured daemon.
-      SERVICE_TENANT_CREDENTIAL: ${SERVICE_TENANT_CREDENTIAL:-replace-with-your-tenant-service-credential}
+      # Paste both from your secret manager (see README, "Local development"):
+      # the credential comes from the registry's provision output and the trust
+      # set is the registry's Ed25519 public keys. Compose refuses with one
+      # sentence when either is unset, so the daemon never starts on a
+      # placeholder; an explicitly wrong value still fails with the daemon's
+      # own one-envelope error at start.
+      SERVICE_TENANT_CREDENTIAL: ${SERVICE_TENANT_CREDENTIAL:?set SERVICE_TENANT_CREDENTIAL from the registry's provision output (see README)}
       # Trust set: JSON object of keyId → Ed25519 PEM public key, e.g.
       # {"key-1": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"}.
-      SERVICE_BUNDLE_TRUST_KEYS: ${SERVICE_BUNDLE_TRUST_KEYS:-replace-with-your-json-trust-set}
+      SERVICE_BUNDLE_TRUST_KEYS: ${SERVICE_BUNDLE_TRUST_KEYS:?set SERVICE_BUNDLE_TRUST_KEYS to the registry's Ed25519 public keys (see README)}
       # The record store behind the service below (also the CI Gate store).
       SERVICE_RECORD_DATABASE_URL: postgres://postgres:postgres@record-store:5432/postgres
       # Optional: pull interval in milliseconds (default 60000).
