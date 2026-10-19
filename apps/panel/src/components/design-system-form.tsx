@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
-import { Form, Link, useNavigate } from "react-router";
+import type { ReactNode } from "react";
+import { Form, Link } from "react-router";
 import {
   DESIGN_SYSTEM_ENTRY_FIELDS,
   DESIGN_SYSTEM_ENTRY_KINDS,
@@ -50,6 +50,11 @@ export function splitTokens(text: string): string[] {
     .filter((token) => token !== "");
 }
 
+/** The side-sheet heading of the design-system Standard form. */
+export function designSystemFormHeading(editing: StandardInfo | null): string {
+  return editing === null ? DESIGN_SYSTEM_COPY.publishHeading : STANDARDS_COPY.editHeading(entrySlotName(editing.entry));
+}
+
 const FIELD_IDS: Readonly<Record<DesignSystemEntryField, string>> = {
   kind: "design-system-kind",
   name: "design-system-name",
@@ -79,7 +84,6 @@ function editedValue(editing: StandardInfo | null, field: DesignSystemEntryField
  * under the field.
  */
 export function DesignSystemForm({ action, editing, submitted, projectTree }: StandardFormProps) {
-  const navigate = useNavigate();
   const errors = submitted?.fieldErrors ?? {};
   const submittedKind = submitted?.values.kind;
   const editedKind = editing !== null && isDesignSystemEntry(editing.entry) ? editing.entry.kind : undefined;
@@ -145,26 +149,8 @@ export function DesignSystemForm({ action, editing, submitted, projectTree }: St
     ),
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
-    if (event.key !== "Escape" || editing === null) return;
-    event.preventDefault();
-    void navigate(action, { state: { focusEdit: editing.id }, preventScrollReset: true });
-  };
-
-  const heading =
-    editing === null ? DESIGN_SYSTEM_COPY.publishHeading : STANDARDS_COPY.editHeading(entrySlotName(editing.entry));
   return (
-    <Form
-      method="post"
-      action={action}
-      className="standard-form"
-      aria-labelledby="standard-form-heading"
-      noValidate
-      onKeyDown={onKeyDown}
-    >
-      <h2 id="standard-form-heading" className="type-title-sm">
-        {heading}
-      </h2>
+    <Form method="post" action={action} className="standard-form" noValidate>
       <input type="hidden" name="intent" value="publish" />
       {editing === null ? null : <input type="hidden" name="standardId" value={editing.id} />}
 

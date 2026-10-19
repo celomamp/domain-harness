@@ -1,9 +1,14 @@
-import { Suspense, useEffect } from "react";
-import { Await, data, Link, redirect, useActionData, useLoaderData, useLocation } from "react-router";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import { Await, data, Link, redirect, useActionData, useLoaderData, useLocation, useNavigate } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
+  CODE_STACK_CATEGORIES,
   CODE_STACK_ENTRY_FIELDS,
+  CODE_STACK_STATUSES,
   DESIGN_SYSTEM_ENTRY_FIELDS,
+  DESIGN_SYSTEM_ENTRY_KINDS,
+  DESIGN_SYSTEM_STATUSES,
   entrySlotName,
   isCodeStackEntry,
   isDesignSystemEntry,
@@ -21,15 +26,29 @@ import type {
   DesignSystemEntryField,
   DesignSystemEntryRequest,
   ErrorEnvelope,
+  ModuleKind,
   ProjectTree,
   StandardInfo,
   StandardList,
   StandardPublishRequest,
 } from "@domain-harness/contract";
-import { DESIGN_SYSTEM_COPY, DesignSystemForm, splitTokens } from "../components/design-system-form.tsx";
-import { StandardForm, STANDARDS_COPY } from "../components/standard-form.tsx";
+import { designSystemFormHeading, DESIGN_SYSTEM_COPY, DesignSystemForm, splitTokens } from "../components/design-system-form.tsx";
+import { standardFormHeading, StandardForm, STANDARDS_COPY } from "../components/standard-form.tsx";
 import type { StandardFormActionData, StandardFormField, StandardFormValues } from "../components/standard-form.tsx";
+import { Badge } from "../components/badge.tsx";
+import { Banner } from "../components/banner.tsx";
+import { Breadcrumbs } from "../components/breadcrumbs.tsx";
+import { Button } from "../components/button.tsx";
+import { CopyButton } from "../components/copy-button.tsx";
+import { EmptyState } from "../components/empty-state.tsx";
+import { PageHeader } from "../components/page-header.tsx";
+import { SideSheet } from "../components/side-sheet.tsx";
+import { Stat } from "../components/stat.tsx";
 import { Status } from "../components/status.tsx";
+import { Toolbar } from "../components/toolbar.tsx";
+import type { SortState } from "../components/data-table.tsx";
+import { sortRows } from "../components/data-table.tsx";
+import { formatDateTime } from "../format.ts";
 import {
   getProjectTree,
   getStandardVersions,
@@ -254,6 +273,20 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
   return denial(503, STANDARDS_COPY.actionUnavailable);
 }
 
+/** The summary of a Standard list: how many, across how many Projects, and when last published. */
+export function standardsSummary(list: StandardList): { standards: number; projects: number; lastPublished: string } {
+  const projects = new Set(list.standards.map((standard) => standard.project.id)).size;
+  let latest: string | null = null;
+  for (const standard of list.standards) {
+    if (latest === null || standard.publishedAt > latest) latest = standard.publishedAt;
+  }
+  return {
+    standards: list.standards.length,
+    projects,
+    lastPublished: latest === null ? "—" : formatDateTime(latest),
+  };
+}
+
 /** A Module's Standards: who owns it, its live Standards, and the form for its kind. */
 export default function ModuleStandards() {
   const { moduleId, editParam, standards, tree } = useLoaderData<ModuleStandardsLoaderData>();
@@ -288,40 +321,32 @@ const UNAVAILABLE: RegistryResult<StandardList> = { kind: "unavailable" };
 function ColdLoad() {
   return (
     <>
-      <h1 className="type-title">{STANDARDS_COPY.standardsHeading}</h1>
-      <p>
-        <Link to="/standards">{STANDARDS_COPY.allModules}</Link>
-      </p>
+      <PageHeader title={STANDARDS_COPY.standardsHeading} />
       <Status tone="notice" message={undefined} />
-      <section className="standards" aria-labelledby="standards-heading">
-        <h2 id="standards-heading" className="type-title-sm">
-          {STANDARDS_COPY.standardsHeading}
-        </h2>
-        <div className="table-scroll">
-          <table className="standards-table">
-            <thead>
-              <tr>
-                {COLD_LOAD_HEADERS.map((header) => (
-                  <th key={header} scope="col">
-                    {header}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody aria-busy="true">
-              <tr aria-busy="true">
-                <td colSpan={COLD_LOAD_HEADERS.length}>{STANDARDS_COPY.loading}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <div className="table-scroll">
+        <table className="standards-table">
+          <thead>
+            <tr>
+              {COLD_LOAD_HEADERS.map((header) => (
+                <th key={header} scope="col">
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody aria-busy="true">
+            <tr aria-busy="true">
+              <td colSpan={COLD_LOAD_HEADERS.length}>{STANDARDS_COPY.loading}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }
 
 /** The Module's kind is not known until the list arrives, so the cold-load table shows the header cells both tables share. */
-const COLD_LOAD_HEADERS = ["Standard", "Project scope", "Status", "Version", "Published (UTC)", "Standard id"] as const;
+const COLD_LOAD_HEADERS = ["Standard", "Project scope", "Status", "Version", "Published (UTC)"] as const;
 
 interface LoadedProps {
   readonly moduleId: string;
@@ -334,9 +359,10 @@ interface LoadedProps {
 function Loaded({ moduleId, editParam, result, projectTree }: LoadedProps) {
   const actionData = useActionData<StandardFormActionData>();
   const location = useLocation();
+  const navigate = useNavigate();
   const page = moduleStandardsPage(moduleId);
 
-  // Esc or Cancel edit returns focus to the row's Edit link.
+  // Esc or Cancel edit returns focus to the row's name link.
   const focusEdit = (location.state as { focusEdit?: unknown } | null)?.focusEdit;
   useEffect(() => {
     if (typeof focusEdit === "string") document.getElementById(`edit-${focusEdit}`)?.focus();
@@ -358,22 +384,59 @@ function Loaded({ moduleId, editParam, result, projectTree }: LoadedProps) {
   // A refused edit stays in edit mode: the form posts to the page without `?edit`.
   const kept = refused?.values.standardId;
   const editingId = kept !== undefined && kept !== "" ? kept : editParam;
-  const editing = list?.standards.find((standard) => standard.id === editingId) ?? null;
+  const editing =
+    published === undefined ? (list?.standards.find((standard) => standard.id === editingId) ?? null) : null;
   const module = list?.module;
   const formKey = `${editing?.id ?? "new"}:${published === undefined ? "" : `${published.id}:${String(published.version)}`}`;
 
+  const [publishOpen, setPublishOpen] = useState(false);
+  useEffect(() => {
+    if (published !== undefined) setPublishOpen(false);
+  }, [published]);
+
+  // Closing in edit mode leaves `?edit=`; a new-publish sheet just closes.
+  const closeSheet = useCallback(() => {
+    if (editing !== null) {
+      void navigate(page, { state: { focusEdit: editing.id }, preventScrollReset: true });
+    } else {
+      setPublishOpen(false);
+    }
+  }, [editing, navigate, page]);
+
+  const sheetOpen = publishOpen || editing !== null;
+  const heading =
+    module?.kind === "code-stack" ? standardFormHeading(editing) : designSystemFormHeading(editing);
+
   return (
     <>
-      <h1 className="type-title">{module?.name ?? STANDARDS_COPY.standardsHeading}</h1>
       {module === undefined ? null : (
-        <>
-          <p>Kind: {MODULE_KIND_LABELS[module.kind]}</p>
-          <p>Standard owner: {module.owner?.name ?? STANDARDS_COPY.noOwner}</p>
-        </>
+        <Breadcrumbs
+          items={[{ label: STANDARDS_COPY.standardsHeading, to: "/standards" }, { label: module.name }]}
+        />
       )}
-      <p>
-        <Link to="/standards">{STANDARDS_COPY.allModules}</Link>
-      </p>
+      <PageHeader
+        title={module?.name ?? STANDARDS_COPY.standardsHeading}
+        meta={
+          module === undefined ? null : (
+            <>
+              <Badge tone="neutral">{MODULE_KIND_LABELS[module.kind]}</Badge>
+              <span>Standard owner: {module.owner?.name ?? STANDARDS_COPY.noOwner}</span>
+            </>
+          )
+        }
+        actions={
+          module === undefined ? null : (
+            <Button
+              variant="primary"
+              onClick={() => {
+                setPublishOpen(true);
+              }}
+            >
+              Publish standard
+            </Button>
+          )
+        }
+      />
       <Status tone={status?.tone ?? "notice"} message={status?.message} />
       {sessionEnded ? (
         <p>
@@ -383,19 +446,15 @@ function Loaded({ moduleId, editParam, result, projectTree }: LoadedProps) {
       {published === undefined ? null : <PublishedFacts info={published} />}
       {list === null ? null : (
         <>
-          <section className="standards" aria-labelledby="standards-heading">
-            <h2 id="standards-heading" className="type-title-sm">
-              {STANDARDS_COPY.standardsHeading}
-            </h2>
-            {list.standards.length === 0 ? (
-              <p>{STANDARDS_COPY.empty}</p>
-            ) : list.module.kind === "code-stack" ? (
-              <StandardsTable standards={list.standards} />
-            ) : (
-              <DesignSystemTable standards={list.standards} />
-            )}
-          </section>
-          {list.module.kind === "code-stack" ? (
+          <div className="standards-summary">
+            {summaryStats(list)}
+          </div>
+          <StandardsSection standards={list.standards} moduleKind={list.module.kind} />
+        </>
+      )}
+      {module === undefined ? null : (
+        <SideSheet open={sheetOpen} onClose={closeSheet} title={heading}>
+          {list?.module.kind === "code-stack" ? (
             <StandardForm key={formKey} action={page} editing={editing} submitted={refused} projectTree={projectTree} />
           ) : (
             <DesignSystemForm
@@ -406,133 +465,301 @@ function Loaded({ moduleId, editParam, result, projectTree }: LoadedProps) {
               projectTree={projectTree}
             />
           )}
-        </>
+        </SideSheet>
       )}
     </>
   );
 }
 
-/** The row header cell: the Standard's slot name and its Edit link. */
-function StandardCell({ standard }: { readonly standard: StandardInfo }) {
-  const name = entrySlotName(standard.entry);
+function summaryStats(list: StandardList) {
+  const summary = standardsSummary(list);
   return (
-    <th scope="row">
-      <p>{name}</p>
-      <p className="type-label">
-        <Link id={`edit-${standard.id}`} to={`?edit=${encodeURIComponent(standard.id)}`}>
-          {STANDARDS_COPY.editLink(name)}
-        </Link>
-      </p>
-    </th>
+    <>
+      <Stat label="Standards" value={String(summary.standards)} />
+      <Stat label="Projects scoped" value={String(summary.projects)} />
+      <Stat label="Last published" value={summary.lastPublished} />
+    </>
   );
+}
+
+/** The entry-kind of a Standard: a code-stack category or a design-system entry kind. */
+function entryKind(standard: StandardInfo): string {
+  const entry = standard.entry;
+  return isCodeStackEntry(entry) ? entry.category : entry.kind;
+}
+
+/** The status of a Standard: a component has none. */
+function entryStatus(standard: StandardInfo): string {
+  const entry = standard.entry;
+  if (isCodeStackEntry(entry)) return entry.status;
+  return entry.kind === "component" ? "" : entry.status;
+}
+
+const CODE_STACK_COLUMNS = [
+  "Standard",
+  "Project scope",
+  "Category",
+  "Status",
+  "Version constraint",
+  "Version",
+  "Published (UTC)",
+] as const;
+
+const DESIGN_SYSTEM_COLUMNS = [
+  "Standard",
+  "Project scope",
+  "Entry kind",
+  "Status",
+  "Usage rule",
+  "Tokens",
+  "Version",
+  "Published (UTC)",
+] as const;
+
+type SortOption = "default" | "name-asc" | "name-desc" | "version-desc" | "published-desc";
+
+const SORT_OPTIONS: readonly { readonly value: SortOption; readonly label: string; readonly sort: SortState | null }[] = [
+  { value: "default", label: "Default order", sort: null },
+  { value: "name-asc", label: "Name (A to Z)", sort: { column: "name", direction: "asc" } },
+  { value: "name-desc", label: "Name (Z to A)", sort: { column: "name", direction: "desc" } },
+  { value: "version-desc", label: "Version (newest first)", sort: { column: "version", direction: "desc" } },
+  { value: "published-desc", label: "Published (newest first)", sort: { column: "published", direction: "desc" } },
+];
+
+/** The summary, toolbar and table of a Module's Standards. */
+function StandardsSection({
+  standards,
+  moduleKind,
+}: {
+  readonly standards: readonly StandardInfo[];
+  readonly moduleKind: ModuleKind;
+}) {
+  const [search, setSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortOption>("default");
+
+  const kindOptions = moduleKind === "code-stack" ? CODE_STACK_CATEGORIES : DESIGN_SYSTEM_ENTRY_KINDS;
+  const statusOptions = moduleKind === "code-stack" ? CODE_STACK_STATUSES : DESIGN_SYSTEM_STATUSES;
+  const sort = SORT_OPTIONS.find((option) => option.value === sortKey)?.sort ?? null;
+
+  const visible = standards.filter((standard) => {
+    if (search !== "" && !entrySlotName(standard.entry).toLowerCase().includes(search.toLowerCase())) return false;
+    if (kindFilter !== "all" && entryKind(standard) !== kindFilter) return false;
+    if (statusFilter !== "all" && entryStatus(standard) !== statusFilter) return false;
+    return true;
+  });
+  const sorted = sortRows(visible, sort, (standard, column) => {
+    switch (column) {
+      case "name":
+        return entrySlotName(standard.entry);
+      case "project":
+        return standard.project.name;
+      case "status":
+        return entryStatus(standard);
+      case "version":
+        return standard.version;
+      case "published":
+        return standard.publishedAt;
+      default:
+        return entrySlotName(standard.entry);
+    }
+  });
+
+  return (
+    <>
+      <Toolbar
+        searchLabel="Search standards"
+        searchValue={search}
+        onSearch={setSearch}
+        filters={
+          <>
+            <label className="standards-filter">
+              <span>{moduleKind === "code-stack" ? "Category" : "Entry kind"}</span>
+              <select
+                value={kindFilter}
+                onChange={(event) => {
+                  setKindFilter(event.target.value);
+                }}
+              >
+                <option value="all">All</option>
+                {kindOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="standards-filter">
+              <span>Status</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value);
+                }}
+              >
+                <option value="all">All</option>
+                {statusOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="standards-filter">
+              <span>Sort</span>
+              <select
+                value={sortKey}
+                onChange={(event) => {
+                  setSortKey(event.target.value as SortOption);
+                }}
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        }
+        count={`${String(sorted.length)} of ${String(standards.length)} Standards`}
+      />
+      {standards.length === 0 ? (
+        <EmptyState icon="standards" title={STANDARDS_COPY.empty} />
+      ) : sorted.length === 0 ? (
+        <EmptyState icon="standards" title={STANDARDS_COPY.empty} description="No Standard matches the filters." />
+      ) : (
+        <StandardsTable standards={sorted} moduleKind={moduleKind} />
+      )}
+    </>
+  );
+}
+
+function StandardsTable({
+  standards,
+  moduleKind,
+}: {
+  readonly standards: readonly StandardInfo[];
+  readonly moduleKind: ModuleKind;
+}) {
+  const columns = moduleKind === "code-stack" ? CODE_STACK_COLUMNS : DESIGN_SYSTEM_COLUMNS;
+  return (
+    <div className="table-scroll">
+      <table className="standards-table">
+        <caption className="type-label">{STANDARDS_COPY.standardsHeading}</caption>
+        <thead>
+          <tr>
+            {columns.map((header) => (
+              <th key={header} scope="col">
+                {header}
+              </th>
+            ))}
+            <th scope="col">
+              <span className="visually-hidden">Details</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {standards.map((standard) => (
+            <StandardRow key={standard.id} standard={standard} moduleKind={moduleKind} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StandardRow({ standard, moduleKind }: { readonly standard: StandardInfo; readonly moduleKind: ModuleKind }) {
+  const [open, setOpen] = useState(false);
+  const name = entrySlotName(standard.entry);
+  const columnCount = (moduleKind === "code-stack" ? CODE_STACK_COLUMNS : DESIGN_SYSTEM_COLUMNS).length;
+  const cells =
+    moduleKind === "code-stack"
+      ? codeStackCells(standard)
+      : designSystemCells(standard);
+  return (
+    <>
+      <tr>
+        <th scope="row">
+          <Link className="standard-name" id={`edit-${standard.id}`} to={`?edit=${encodeURIComponent(standard.id)}`}>
+            {name}
+          </Link>
+        </th>
+        {cells.map((cell, index) => (
+          <td key={index}>{cell}</td>
+        ))}
+        <td>
+          <button
+            type="button"
+            className="standard-detail-toggle"
+            aria-expanded={open}
+            aria-controls={`standard-detail-${standard.id}`}
+            onClick={() => {
+              setOpen((expanded) => !expanded);
+            }}
+          >
+            {open ? "Hide details" : "Show details"}
+          </button>
+        </td>
+      </tr>
+      {open ? (
+        <tr id={`standard-detail-${standard.id}`} className="standard-detail">
+          <td colSpan={columnCount + 1}>
+            <span className="type-label">Standard id</span>{" "}
+            <span className="standard-detail__id">{standard.id}</span> <CopyButton value={standard.id} />
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+function codeStackCells(standard: StandardInfo): ReactNode[] {
+  const entry = isCodeStackEntry(standard.entry) ? standard.entry : null;
+  return [
+    standard.project.name,
+    entry?.category ?? STANDARDS_COPY.none,
+    entry?.status ?? STANDARDS_COPY.none,
+    entry?.versionConstraint ?? STANDARDS_COPY.none,
+    String(standard.version),
+    <time dateTime={standard.publishedAt}>{formatDateTime(standard.publishedAt)}</time>,
+  ];
+}
+
+function designSystemCells(standard: StandardInfo): ReactNode[] {
+  const entry = isDesignSystemEntry(standard.entry) ? standard.entry : null;
+  const component = entry?.kind === "component" ? entry : null;
+  const status = entry !== null && entry.kind !== "component" ? entry.status : STANDARDS_COPY.none;
+  const tokens = component === null || component.tokens.length === 0 ? STANDARDS_COPY.none : component.tokens.join(", ");
+  return [
+    standard.project.name,
+    entry?.kind ?? STANDARDS_COPY.none,
+    status,
+    component?.usageRule ?? STANDARDS_COPY.none,
+    tokens,
+    String(standard.version),
+    <time dateTime={standard.publishedAt}>{formatDateTime(standard.publishedAt)}</time>,
+  ];
 }
 
 function PublishedFacts({ info }: { readonly info: StandardInfo }) {
   return (
-    <section className="published" aria-labelledby="published-heading">
-      <h2 id="published-heading" className="type-title-sm">
-        {STANDARDS_COPY.publishedHeading}
-      </h2>
+    <Banner tone="success" title={STANDARDS_COPY.publishedHeading}>
       <dl className="published-facts">
         <dt>Standard id</dt>
-        <dd>{info.id}</dd>
-        <dt>Module</dt>
-        <dd>{info.module.name}</dd>
-        <dt>Project scope</dt>
-        <dd>{info.project.name}</dd>
+        <dd className="published-facts__id">
+          {info.id} <CopyButton value={info.id} />
+        </dd>
         <dt>Version</dt>
         <dd>{info.version}</dd>
+        <dt>Project scope</dt>
+        <dd>{info.project.name}</dd>
         <dt>Published (UTC)</dt>
         <dd>
-          <time dateTime={info.publishedAt}>{info.publishedAt}</time>
+          <time dateTime={info.publishedAt}>{formatDateTime(info.publishedAt)}</time>
         </dd>
       </dl>
-    </section>
-  );
-}
-
-function StandardsTable({ standards }: { readonly standards: readonly StandardInfo[] }) {
-  return (
-    <div className="table-scroll">
-      <table className="standards-table">
-        <thead>
-          <tr>
-            <th scope="col">Standard</th>
-            <th scope="col">Project scope</th>
-            <th scope="col">Category</th>
-            <th scope="col">Status</th>
-            <th scope="col">Version constraint</th>
-            <th scope="col">Version</th>
-            <th scope="col">Published (UTC)</th>
-            <th scope="col">Standard id</th>
-          </tr>
-        </thead>
-        <tbody>
-          {standards.map((standard) => {
-            const entry = isCodeStackEntry(standard.entry) ? standard.entry : null;
-            return (
-              <tr key={standard.id}>
-                <StandardCell standard={standard} />
-                <td>{standard.project.name}</td>
-                <td>{entry?.category ?? STANDARDS_COPY.none}</td>
-                <td>{entry?.status ?? STANDARDS_COPY.none}</td>
-                <td>{entry?.versionConstraint ?? STANDARDS_COPY.none}</td>
-                <td>{standard.version}</td>
-                <td>
-                  <time dateTime={standard.publishedAt}>{standard.publishedAt}</time>
-                </td>
-                <td>{standard.id}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** The design-system Standards: one row per component, token or import. */
-function DesignSystemTable({ standards }: { readonly standards: readonly StandardInfo[] }) {
-  return (
-    <div className="table-scroll">
-      <table className="standards-table">
-        <thead>
-          <tr>
-            <th scope="col">Standard</th>
-            <th scope="col">Project scope</th>
-            <th scope="col">Entry kind</th>
-            <th scope="col">Status</th>
-            <th scope="col">Usage rule</th>
-            <th scope="col">Tokens</th>
-            <th scope="col">Version</th>
-            <th scope="col">Published (UTC)</th>
-            <th scope="col">Standard id</th>
-          </tr>
-        </thead>
-        <tbody>
-          {standards.map((standard) => {
-            const entry = isDesignSystemEntry(standard.entry) ? standard.entry : null;
-            const component = entry?.kind === "component" ? entry : null;
-            const status = entry !== null && entry.kind !== "component" ? entry.status : STANDARDS_COPY.none;
-            const tokens = component === null || component.tokens.length === 0 ? STANDARDS_COPY.none : component.tokens.join(", ");
-            return (
-              <tr key={standard.id}>
-                <StandardCell standard={standard} />
-                <td>{standard.project.name}</td>
-                <td>{entry?.kind ?? STANDARDS_COPY.none}</td>
-                <td>{status}</td>
-                <td>{component?.usageRule ?? STANDARDS_COPY.none}</td>
-                <td>{tokens}</td>
-                <td>{standard.version}</td>
-                <td>
-                  <time dateTime={standard.publishedAt}>{standard.publishedAt}</time>
-                </td>
-                <td>{standard.id}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    </Banner>
   );
 }

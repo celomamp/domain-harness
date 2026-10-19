@@ -1,5 +1,4 @@
-import { Form, Link, useNavigate } from "react-router";
-import type { KeyboardEvent } from "react";
+import { Form, Link } from "react-router";
 import {
   CODE_STACK_CATEGORIES,
   CODE_STACK_STATUSES,
@@ -126,6 +125,11 @@ export interface StandardFormProps {
 
 const PROJECT_FIELD_ID = "standard-project";
 
+/** The side-sheet heading of the code-stack Standard form. */
+export function standardFormHeading(editing: StandardInfo | null): string {
+  return editing === null ? STANDARDS_COPY.publishHeading : STANDARDS_COPY.editHeading(entrySlotName(editing.entry));
+}
+
 /**
  * The Project scope of the Standard. A new Standard gets a picker of every
  * Project in tree order, the root selected by default (or the scope of a
@@ -186,7 +190,6 @@ const FIELD_IDS: Readonly<Record<CodeStackEntryField, string>> = {
  * under the field.
  */
 export function StandardForm({ action, editing, submitted, projectTree }: StandardFormProps) {
-  const navigate = useNavigate();
   const errors = submitted?.fieldErrors ?? {};
   const value = (field: CodeStackEntryField): string => {
     const kept = submitted?.values[field];
@@ -208,26 +211,8 @@ export function StandardForm({ action, editing, submitted, projectTree }: Standa
     </label>
   );
 
-  const onKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
-    if (event.key !== "Escape" || editing === null) return;
-    event.preventDefault();
-    void navigate(action, { state: { focusEdit: editing.id }, preventScrollReset: true });
-  };
-
-  const heading =
-    editing === null ? STANDARDS_COPY.publishHeading : STANDARDS_COPY.editHeading(entrySlotName(editing.entry));
   return (
-    <Form
-      method="post"
-      action={action}
-      className="standard-form"
-      aria-labelledby="standard-form-heading"
-      noValidate
-      onKeyDown={onKeyDown}
-    >
-      <h2 id="standard-form-heading" className="type-title-sm">
-        {heading}
-      </h2>
+    <Form method="post" action={action} className="standard-form" noValidate>
       <input type="hidden" name="intent" value="publish" />
       {editing === null ? null : <input type="hidden" name="standardId" value={editing.id} />}
 

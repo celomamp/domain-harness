@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { data, redirect, useActionData, useLoaderData } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
@@ -7,8 +8,10 @@ import {
   SESSION_INVALID,
 } from "@domain-harness/contract";
 import type { ErrorEnvelope, ModuleList } from "@domain-harness/contract";
-import { MODULES_COPY, ModulesSection } from "../components/modules-section.tsx";
+import { Button } from "../components/button.tsx";
+import { CreateModuleSheet, MODULES_COPY, ModulesSection } from "../components/modules-section.tsx";
 import type { ModulesActionData } from "../components/modules-section.tsx";
+import { PageHeader } from "../components/page-header.tsx";
 import { assignModuleOwner, createModule, listModules } from "../registry.server.ts";
 import { readSessionToken } from "../session.server.ts";
 
@@ -109,11 +112,41 @@ function refusal(intent: "create-module" | "assign-owner", values: ModulesAction
 export default function Standards() {
   const { list } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const [createOpen, setCreateOpen] = useState(false);
+  const createData = actionData?.intent === "create-module" ? actionData : undefined;
+
+  // A successful create closes the sheet; a refusal keeps it open with values.
+  const previousAction = useRef<ModulesActionData | undefined>(undefined);
+  useEffect(() => {
+    if (actionData === previousAction.current) return;
+    previousAction.current = actionData;
+    if (createData?.createdId !== undefined) setCreateOpen(false);
+  }, [actionData, createData]);
+
   return (
     <>
-      <h1 className="type-title">Standards</h1>
-      <p>Open a Module to see and publish its Standards.</p>
+      <PageHeader
+        title="Standards"
+        description="Open a Module to see and publish its Standards."
+        actions={
+          <Button
+            variant="primary"
+            onClick={() => {
+              setCreateOpen(true);
+            }}
+          >
+            Create Module
+          </Button>
+        }
+      />
       <ModulesSection list={list} actionData={actionData} />
+      <CreateModuleSheet
+        open={createOpen}
+        onClose={() => {
+          setCreateOpen(false);
+        }}
+        submitted={createData}
+      />
     </>
   );
 }

@@ -54,30 +54,55 @@ function registry(status: number, body: unknown) {
   return fetch;
 }
 
+/** Open the Create Module sheet and return its dialog. */
+async function openCreateSheet() {
+  fireEvent.click(await screen.findByRole("button", { name: "Create Module" }));
+  return screen.findByRole("dialog", { name: "Create a Module" });
+}
+
+/** Open the owner sheet for a Module and return its dialog. */
+async function openOwnerSheet(actionName: "Change owner" | "Assign owner") {
+  fireEvent.click(await screen.findByRole("button", { name: actionName }));
+  return screen.findByRole("dialog", { name: /Standard owner/ });
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
 describe("Standards: Modules section", () => {
-  it("shows the empty state and a create form whose kind control has exactly code stack and design system", async () => {
+  it("shows a summary of Modules by kind and ownership", async () => {
+    renderStandards("Buyer", {
+      modules: [owned, { ...unowned, id: SUE, name: "Another code stack" }],
+      standardOwners,
+    });
+    expect(await screen.findByText("Modules")).toBeTruthy();
+    expect(screen.getByText("1")).toBeTruthy();
+    expect(screen.getByText("Without an owner")).toBeTruthy();
+  });
+
+  it("shows the empty state and a create sheet whose kind control has exactly code stack and design system", async () => {
     renderStandards("Buyer", { modules: [], standardOwners });
-    expect(await screen.findByRole("heading", { level: 2, name: "Modules" })).toBeTruthy();
-    expect(screen.getByText("No Module yet.")).toBeTruthy();
-    const kind = screen.getByLabelText<HTMLSelectElement>("Kind");
+    expect(await screen.findByText("No Module yet.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create Module" }).className).toBe("button-primary");
+    const dialog = await openCreateSheet();
+    const kind = within(dialog).getByLabelText<HTMLSelectElement>("Kind");
     expect([...kind.options].map((o) => [o.value, o.textContent])).toEqual([
       ["code-stack", "code stack"],
       ["design-system", "design system"],
     ]);
-    expect(screen.getByLabelText("Module name")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Create Module" }).className).toBe("button-primary");
+    expect(within(dialog).getByLabelText("Module name")).toBeTruthy();
   });
 
-  it("lists Modules in a table with header cells and the owner with when and by whom", async () => {
-    renderStandards("Buyer", { modules: [owned, { ...unowned, id: SUE, name: "Design system", kind: "design-system" }], standardOwners });
+  it("lists Modules in a table with header cells, kind badges, owner and assigned date", async () => {
+    renderStandards("Buyer", {
+      modules: [owned, { ...unowned, id: SUE, name: "Design system", kind: "design-system" }],
+      standardOwners,
+    });
     const table = await screen.findByRole("table");
     const headers = within(table).getAllByRole("columnheader").map((th) => th.textContent);
-    expect(headers).toEqual(["Module", "Kind", "Standard owner"]);
+    expect(headers).toEqual(["Module", "Kind", "Standard owner", "Assigned date", "Actions"]);
     const rows = within(table).getAllByRole("row").slice(1);
     expect(within(rows[0] as HTMLElement).getByRole("rowheader").textContent).toBe("Code stack");
     expect(within(rows[0] as HTMLElement).getByRole("link", { name: "Code stack" }).getAttribute("href")).toBe(
@@ -86,55 +111,64 @@ describe("Standards: Modules section", () => {
     expect(screen.getByText("Open a Module to see and publish its Standards.")).toBeTruthy();
     expect(rows[0]?.textContent).toContain("code stack");
     expect(rows[0]?.textContent).toContain("Sam Owner");
-    expect(rows[0]?.textContent).toContain(`assigned ${AT} by Bea Buyer`);
+    expect(rows[0]?.textContent).toContain("11 Oct 2026");
     expect(rows[1]?.textContent).toContain("design system");
     expect(rows[1]?.textContent).toContain("No owner");
+    expect(within(rows[0] as HTMLElement).getByRole("button", { name: "Change owner" })).toBeTruthy();
+    expect(within(rows[1] as HTMLElement).getByRole("button", { name: "Assign owner" })).toBeTruthy();
+  });
 
-    const select = screen.getByLabelText<HTMLSelectElement>("Standard owner for Code stack");
-    expect(select.value).toBe(SAM);
-    expect([...select.options].map((o) => o.textContent)).toEqual(["Choose a Standard owner", "Sam Owner", "Sue Owner"]);
-    const assign = screen.getAllByRole("button", { name: "Assign Standard owner" });
-    expect(assign).toHaveLength(2);
-    expect(assign.every((b) => b.className === "button-inverse")).toBe(true);
+  it("opens the owner side sheet from a row action and keeps focus inside it", async () => {
+    renderStandards("Buyer", { modules: [owned], standardOwners });
+    fireEvent.click(await screen.findByRole("button", { name: "Change owner" }));
+    expect(screen.getByRole("dialog", { name: /Standard owner/ })).toBeTruthy();
+    expect(document.activeElement?.textContent).toContain("Standard owner");
   });
 
   it("shows every control to a Builder and announces the registry's denial as a status, table unchanged", async () => {
     const fetch = registry(403, { code: "role_denied", message: "m", subject: "role" });
     renderStandards("Builder", { modules: [unowned], standardOwners });
-    const select = await screen.findByLabelText<HTMLSelectElement>("Standard owner for Code stack");
-    expect(screen.getByRole("button", { name: "Create Module" })).toBeTruthy();
-    expect(screen.getByLabelText("Module name")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Create Module" })).toBeTruthy();
 
+    const ownerDialog = await openOwnerSheet("Assign owner");
+    const select = within(ownerDialog).getByLabelText<HTMLSelectElement>("Standard owner for Code stack");
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Choose a Standard owner", "Sam Owner", "Sue Owner"]);
     fireEvent.change(select, { target: { value: SAM } });
-    fireEvent.click(screen.getByRole("button", { name: "Assign Standard owner" }));
+    fireEvent.click(within(ownerDialog).getByRole("button", { name: "Assign Standard owner" }));
     await waitFor(() => {
       expect(screen.getByRole("status").textContent).toBe(DENIAL);
     });
     expect(screen.getByRole("status").querySelector(".denial")).not.toBeNull();
     expect(screen.getByRole("table").textContent).toContain("No owner");
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
 
-    fireEvent.change(screen.getByLabelText("Module name"), { target: { value: "Code stack 2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Module" }));
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledTimes(2);
-    });
+  it("shows every control to a Builder in the create sheet and announces the denial", async () => {
+    const fetch = registry(403, { code: "role_denied", message: "m", subject: "role" });
+    renderStandards("Builder", { modules: [unowned], standardOwners });
+    const dialog = await openCreateSheet();
+    fireEvent.change(within(dialog).getByLabelText("Module name"), { target: { value: "Code stack 2" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Module" }));
     await waitFor(() => {
       expect(screen.getByRole("status").textContent).toBe(DENIAL);
     });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    // The refusal keeps the sheet open with the submitted name.
+    expect(within(dialog).getByLabelText<HTMLInputElement>("Module name").value).toBe("Code stack 2");
   });
 
   it("keeps the values and adds ink text under the field on an invalid submit", async () => {
     registry(409, { code: "module_name_taken", message: "m", subject: "name" });
     renderStandards("Buyer", { modules: [unowned], standardOwners });
-    fireEvent.change(await screen.findByLabelText("Module name"), { target: { value: "code STACK" } });
-    fireEvent.change(screen.getByLabelText("Kind"), { target: { value: "design-system" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Module" }));
+    const dialog = await openCreateSheet();
+    fireEvent.change(within(dialog).getByLabelText("Module name"), { target: { value: "code STACK" } });
+    fireEvent.change(within(dialog).getByLabelText("Kind"), { target: { value: "design-system" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Module" }));
 
-    const error = await screen.findByText(/Another Module already has this name/);
-    const input = screen.getByLabelText<HTMLInputElement>("Module name");
+    const error = await within(dialog).findByText(/Another Module already has this name/);
+    const input = within(dialog).getByLabelText<HTMLInputElement>("Module name");
     expect(input.value).toBe("code STACK");
-    expect(screen.getByLabelText<HTMLSelectElement>("Kind").value).toBe("design-system");
+    expect(within(dialog).getByLabelText<HTMLSelectElement>("Kind").value).toBe("design-system");
     expect(input.getAttribute("aria-invalid")).toBe("true");
     expect(input.getAttribute("aria-describedby")).toBe(error.id);
     expect(error.className).toBe("field-error");
@@ -144,12 +178,13 @@ describe("Standards: Modules section", () => {
   it("adds ink text under the owner select for an ineligible account and keeps the choice", async () => {
     const fetch = registry(400, { code: "invalid_input", message: "m", subject: "accountId" });
     renderStandards("Buyer", { modules: [owned], standardOwners });
-    const before = await screen.findByLabelText<HTMLSelectElement>("Standard owner for Code stack");
+    const dialog = await openOwnerSheet("Change owner");
+    const before = within(dialog).getByLabelText<HTMLSelectElement>("Standard owner for Code stack");
     expect(before.value).toBe(SAM);
     fireEvent.change(before, { target: { value: SUE } });
-    fireEvent.click(screen.getByRole("button", { name: "Assign Standard owner" }));
-    const error = await screen.findByText("Choose a Standard owner account.");
-    const select = screen.getByLabelText<HTMLSelectElement>("Standard owner for Code stack");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Assign Standard owner" }));
+    const error = await within(dialog).findByText("Choose a Standard owner account.");
+    const select = within(dialog).getByLabelText<HTMLSelectElement>("Standard owner for Code stack");
     expect(select.value).toBe(SUE);
     expect(select.getAttribute("aria-invalid")).toBe("true");
     expect(select.getAttribute("aria-describedby")).toBe(error.id);
@@ -157,21 +192,23 @@ describe("Standards: Modules section", () => {
     expect(init.body).toBe(JSON.stringify({ accountId: SUE }));
   });
 
-  it("announces a created Module as a status", async () => {
+  it("announces a created Module as a status and closes the sheet", async () => {
     registry(201, { ...unowned, id: SUE, name: "Code stack" });
     renderStandards("Buyer", { modules: [], standardOwners });
-    fireEvent.change(await screen.findByLabelText("Module name"), { target: { value: " Code stack " }, });
-    fireEvent.click(screen.getByRole("button", { name: "Create Module" }));
+    const dialog = await openCreateSheet();
+    fireEvent.change(within(dialog).getByLabelText("Module name"), { target: { value: " Code stack " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Module" }));
     await waitFor(() => {
       expect(screen.getByRole("status").textContent).toBe("Module created: Code stack.");
     });
-    expect(screen.getByLabelText<HTMLInputElement>("Module name").value).toBe("");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Create a Module" })).toBeNull();
+    });
   });
 
   it("keeps the structure and says Modules are unavailable when the registry is down", async () => {
     renderStandards("Buyer", null);
-    expect(await screen.findByRole("heading", { level: 2, name: "Modules" })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toMatch(/Modules are unavailable right now/);
+    expect(await screen.findByText("Modules are unavailable right now. Try again in a few minutes.")).toBeTruthy();
     expect(screen.getByRole("status").querySelector(".denial")).not.toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.getByRole("button", { name: "Create Module" })).toBeTruthy();
@@ -181,14 +218,12 @@ describe("Standards: Modules section", () => {
     renderStandards("Buyer", { modules: [unowned], standardOwners });
     await screen.findByRole("table");
     expect(document.querySelectorAll("[tabindex]").length).toBe(0);
-    const focusables = [...document.querySelectorAll<HTMLElement>("main a[href], main button, main input:not([type=hidden]), main select")];
-    expect(focusables.map((el) => el.getAttribute("name") ?? el.textContent)).toEqual([
-      "Code stack",
-      "accountId",
-      "Assign Standard owner",
-      "name",
-      "kind",
-      "Create Module",
-    ]);
+    const focusables = [
+      ...document.querySelectorAll<HTMLElement>("main a[href], main button, main input:not([type=hidden]), main select"),
+    ];
+    const labels = focusables.map((el) => el.getAttribute("name") ?? el.textContent);
+    expect(labels[0]).toBe("Create Module");
+    expect(labels).toContain("Code stack");
+    expect(labels.at(-1)).toBe("Assign owner");
   });
 });
