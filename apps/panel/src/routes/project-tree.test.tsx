@@ -65,12 +65,9 @@ function renderPage(
   buildsFor: PermissionsFor = noGrantsFor,
 ) {
   const Layout = () => (
-    <>
-      <PanelChrome role={role} />
-      <main>
-        <Outlet />
-      </main>
-    </>
+    <PanelChrome role={role}>
+      <Outlet />
+    </PanelChrome>
   );
   const loader = ({ request }: LoaderFunctionArgs) => {
     const projectParam = new URL(request.url).searchParams.get("project");
@@ -310,7 +307,7 @@ describe("Project tree page", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Project tree");
     const region = screen.getByRole("region", { name: "Project tree" });
     expect(region.getAttribute("aria-busy")).toBe("true");
-    expect(document.querySelectorAll("form")).toHaveLength(0);
+    expect(document.querySelectorAll("main form")).toHaveLength(0);
     expect(screen.queryByRole("tree")).toBeNull();
   });
 

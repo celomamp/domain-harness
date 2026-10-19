@@ -33,12 +33,9 @@ const URL_A = "https://g.acme.example/v1";
 
 function renderPage(role: Role, treeResult: Promise<unknown>, endpointResult: Promise<unknown> = Promise.resolve(ok(UNSET))) {
   const Layout = () => (
-    <>
-      <PanelChrome role={role} />
-      <main>
-        <Outlet />
-      </main>
-    </>
+    <PanelChrome role={role}>
+      <Outlet />
+    </PanelChrome>
   );
   const Stub = createRoutesStub([
     {

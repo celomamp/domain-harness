@@ -35,12 +35,9 @@ async function actionWithCookie(args: ActionFunctionArgs) {
 
 function renderStandards(role: Role, list: unknown) {
   const Layout = () => (
-    <>
-      <PanelChrome role={role} />
-      <main>
-        <Outlet />
-      </main>
-    </>
+    <PanelChrome role={role}>
+      <Outlet />
+    </PanelChrome>
   );
   const Stub = createRoutesStub([
     {

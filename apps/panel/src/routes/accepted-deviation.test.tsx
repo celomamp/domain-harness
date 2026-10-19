@@ -78,12 +78,9 @@ interface Seed {
 
 function renderPage({ role, entry = "/accepted-deviation", applications = Promise.resolve(ok([application])), effective = Promise.resolve(ok(effectiveSet)), records = Promise.resolve(ok([])) }: Seed) {
   const Layout = () => (
-    <>
-      <PanelChrome role={role} />
-      <main>
-        <Outlet />
-      </main>
-    </>
+    <PanelChrome role={role}>
+      <Outlet />
+    </PanelChrome>
   );
   const Stub = createRoutesStub([
     {

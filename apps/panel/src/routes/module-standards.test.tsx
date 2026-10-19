@@ -82,12 +82,9 @@ function renderPage(
   tree: Promise<unknown> = Promise.resolve({ kind: "ok", value: TREE }),
 ) {
   const Layout = () => (
-    <>
-      <PanelChrome role={role} />
-      <main>
-        <Outlet />
-      </main>
-    </>
+    <PanelChrome role={role}>
+      <Outlet />
+    </PanelChrome>
   );
   const loader = ({ request, params }: LoaderFunctionArgs) => ({
     moduleId: params["moduleId"] ?? "",
@@ -472,7 +469,7 @@ describe("Module Standards page: design system", () => {
     renderPage("Standard owner", { module: designModule, standards: [] });
     expect(await screen.findByText("No Standard is published in this Module yet.")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Publish a design-system Standard" })).toBeTruthy();
-    expect(document.querySelectorAll("form")).toHaveLength(1);
+    expect(document.querySelectorAll("form.standard-form")).toHaveLength(1);
     expect(labels()).toEqual([
       "Project scope",
       "Entry kind",

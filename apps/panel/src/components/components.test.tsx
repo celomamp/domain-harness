@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createRoutesStub, Outlet } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import Inventory from "../routes/inventory.tsx";
@@ -14,12 +14,9 @@ afterEach(() => {
 
 function renderPanel(url: string) {
   const Layout = () => (
-    <>
-      <PanelChrome role="Buyer" />
-      <main>
-        <Outlet />
-      </main>
-    </>
+    <PanelChrome role="Buyer">
+      <Outlet />
+    </PanelChrome>
   );
   const Stub = createRoutesStub([
     {
@@ -42,30 +39,51 @@ function renderPanel(url: string) {
 }
 
 describe("panel-chrome", () => {
-  it("shows the wordmark, the role as text and a nav listing only Inventory, Standards, Project tree, New-application flow, Accepted deviation, Compilations and Guidance access", async () => {
+  it("shows the wordmark and the signed-in role as text, grouped under Monitor, Govern and Operate", async () => {
     renderPanel("/inventory");
-    expect(await screen.findByText("Domain Harness")).toBeTruthy();
+    expect((await screen.findAllByText("Domain Harness")).length).toBeGreaterThan(0);
     expect(screen.getByText("Buyer")).toBeTruthy();
     const nav = screen.getByRole("navigation", { name: "Management panel" });
-    const links = [...nav.querySelectorAll("a")];
-    expect(links.map((a) => a.textContent)).toEqual([
-      "Inventory",
-      "Standards",
-      "Project tree",
-      "New-application flow",
-      "Accepted deviation",
-      "Compilations",
-      "Guidance access",
+    expect(nav.textContent).toContain("Monitor");
+    expect(nav.textContent).toContain("Govern");
+    expect(nav.textContent).toContain("Operate");
+  });
+
+  it("groups the seven destinations and marks the current page", async () => {
+    renderPanel("/inventory");
+    const nav = await screen.findByRole("navigation", { name: "Management panel" });
+    expect(nav.textContent).toContain("Monitor");
+    expect(nav.textContent).toContain("Govern");
+    expect(nav.textContent).toContain("Operate");
+    expect([...nav.querySelectorAll("a")].map((a) => a.textContent)).toEqual([
+      "Inventory", "Compilations", "Standards", "Project tree", "Guidance access",
+      "New-application flow", "Accepted deviation",
     ]);
-    expect(links.map((a) => a.getAttribute("href"))).toEqual([
-      "/inventory",
-      "/standards",
-      "/projects",
-      "/new-application",
-      "/accepted-deviation",
-      "/compilations",
-      "/guidance-access",
-    ]);
+    expect(screen.getByRole("link", { current: "page" }).textContent).toBe("Inventory");
+  });
+
+  it("offers a sign-out form in the account block", async () => {
+    renderPanel("/inventory");
+    const signOut = await screen.findByRole("button", { name: "Sign out" });
+    expect(signOut.closest("form")?.getAttribute("action")).toBe("/sign-out");
+    expect(signOut.closest("form")?.getAttribute("method")).toBe("post");
+  });
+
+  it("opens and closes the mobile drawer with the keyboard", async () => {
+    renderPanel("/inventory");
+    const menu = await screen.findByRole("button", { name: "Menu" });
+    fireEvent.click(menu);
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(menu);
+  });
+
+  it("offers a skip link to the content", async () => {
+    renderPanel("/inventory");
+    const skip = await screen.findByRole("link", { name: "Skip to content" });
+    expect(skip.getAttribute("href")).toBe("#main");
+    expect(document.querySelector("#main")).not.toBeNull();
   });
 
   it("marks Inventory as the current destination on /inventory, with the empty state", async () => {
@@ -88,15 +106,18 @@ describe("panel-chrome", () => {
     await screen.findByRole("navigation");
     const focusables = [...document.querySelectorAll<HTMLElement>("a[href], button, input")];
     expect(focusables.map((el) => el.textContent)).toEqual([
+      "Skip to content",
       "Inventory",
+      "Compilations",
       "Standards",
       "Project tree",
+      "Guidance access",
       "New-application flow",
       "Accepted deviation",
-      "Compilations",
-      "Guidance access",
+      "Sign out",
+      "Menu",
     ]);
-    expect(document.querySelectorAll("[tabindex]").length).toBe(0);
+    expect(document.querySelectorAll(".shell__rail [tabindex]").length).toBe(0);
   });
 });
 

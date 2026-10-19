@@ -50,12 +50,9 @@ export async function loader({
 export default function PanelLayout() {
   const { role, alerts } = useLoaderData<typeof loader>();
   return (
-    <>
-      <PanelChrome role={role} />
+    <PanelChrome role={role}>
       <AcceptedDeviationAlertBand role={role} alerts={alerts} />
-      <main className="panel-main">
-        <Outlet />
-      </main>
-    </>
+      <Outlet />
+    </PanelChrome>
   );
 }
