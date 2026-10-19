@@ -1,1 +1,113 @@
 /* inventory.css — the Inventory page. Owned by Task 7. */
+
+/* The four summary stats: one per row on narrow screens, two from 48rem,
+   four from 80rem (the content measure). */
+.inventory-summary {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+
+@media (min-width: 48rem) {
+  .inventory-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 80rem) {
+  .inventory-summary {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* The grouped section cards, stacked with a breathing gap. */
+.inventory-groups {
+  display: grid;
+  gap: var(--space-5);
+}
+
+/* A labelled toolbar control (Project filter, Group by, Sort). */
+.inventory-control {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  color: var(--color-ink-secondary);
+  font-family: var(--type-body-sm-family);
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-line-height);
+}
+
+.inventory-control select {
+  box-sizing: border-box;
+  min-height: var(--size-field-min);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--type-body-family);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line-height);
+}
+
+/* The grouped table scrolls sideways when narrow. */
+.inventory-table-scroll {
+  overflow-x: auto;
+}
+
+.inventory-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+}
+
+.inventory-table caption {
+  padding-bottom: var(--space-3);
+  text-align: start;
+  font-weight: var(--type-label-strong-weight);
+}
+
+.inventory-table th,
+.inventory-table td {
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  vertical-align: top;
+  border-bottom: var(--size-hairline) solid var(--color-border);
+}
+
+.inventory-table thead th {
+  color: var(--color-ink-secondary);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-strong-weight);
+}
+
+/* The row header reads as a cell, not a bold column header. */
+.inventory-table th[scope="row"] {
+  font-weight: var(--type-body-weight);
+}
+
+/* Row hover uses cream, never gold. */
+.inventory-table tbody tr:hover {
+  background: var(--color-surface-base);
+}
+
+/* The Application link: long descriptions wrap anywhere, never overflow. */
+.application-name {
+  display: inline-block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The secondary lines under the Application name: Project and placement origin. */
+.application-project,
+.application-origin {
+  display: block;
+  color: var(--color-ink-muted);
+  font-family: var(--type-body-sm-family);
+  font-size: var(--type-body-sm-size);
+  font-weight: var(--type-body-sm-weight);
+  line-height: var(--type-body-sm-line-height);
+  overflow-wrap: anywhere;
+}

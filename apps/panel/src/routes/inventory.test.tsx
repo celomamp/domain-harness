@@ -92,18 +92,19 @@ describe("Inventory", () => {
     expect(within(cursor).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
       "Application",
       "Project",
-      "Placement",
-      "Listed",
+      "Agent tool",
+      "Status",
+      "Added",
     ]);
-    expect(within(cursor).getAllByRole("row").slice(1).map((row) => [...row.children].map((cell) => cell.textContent))).toEqual([
-      ["Checkout service", "Web", "New-application flow", "2026-10-13"],
-      ["Intake form", "Web", "New-application flow", "2026-10-13"],
-    ]);
-    expect(screen.getByRole("heading", { name: "cursor" })).toBeTruthy();
+    expect(within(cursor).getByRole("link", { name: "Checkout service" })).toBeTruthy();
+    expect(within(cursor).getByRole("link", { name: "Intake form" })).toBeTruthy();
+    // Status is read-presence: Checkout service has evidence, Intake form does not.
+    expect(within(cursor).getByText("Evidence received")).toBeTruthy();
+    expect(within(cursor).getByText("No Compilation yet")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /cursor/ })).toBeTruthy();
     expect(screen.queryByRole("table", { name: "Applications — claude-code" })).toBeNull();
     const none = screen.getByRole("table", { name: "Applications — No Compilation yet" });
-    expect(within(none).getAllByRole("row").slice(1).map((row) => row.children[0]?.textContent)).toEqual(["Legacy billing"]);
-    expect(screen.getByText("Listed before any Gate run. Compilation evidence fills in later.")).toBeTruthy();
+    expect(within(none).getByRole("link", { name: "Legacy billing" })).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/Builder/);
   });
 
@@ -124,7 +125,8 @@ describe("Inventory", () => {
     expect(screen.queryByRole("table", { name: "Applications — cursor" })).toBeNull();
     expect(screen.getByRole("table", { name: "Applications — No Compilation yet" })).toBeTruthy();
     fireEvent.change(filter, { target: { value: EMPTY } });
-    expect((await screen.findByText("No Application in this Project yet.")).className).toBe("type-display");
+    expect(await screen.findByText("No Application in this Project yet.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clear filter" })).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
 
@@ -164,14 +166,15 @@ describe("Inventory", () => {
 
   it("shows the empty state when there is no Application", async () => {
     renderInventory({ applications: Promise.resolve({ kind: "ok", value: { applications: [] } }) });
-    expect((await screen.findByText("No Application yet.")).className).toBe("type-display");
+    expect(await screen.findByText("No Application yet.")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "New application" }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("table")).toBeNull();
   });
 
   it("is busy while the Applications load, with the heading already there", async () => {
     renderInventory({ applications: new Promise(() => undefined) });
     expect((await screen.findByRole("heading", { level: 1 })).textContent).toBe("Inventory");
-    expect(screen.getByText("Loading the Applications…").closest("[aria-busy]")?.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByRole("region", { name: "Applications" }).getAttribute("aria-busy")).toBe("true");
   });
 
   it.each([
@@ -189,6 +192,42 @@ describe("Inventory", () => {
     renderInventory({ applications: answer() });
     expect(await screen.findByText("The Inventory is unavailable right now. Try again in a few minutes.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("shows a summary derived from the reads", async () => {
+    renderInventory(fullReads());
+    const applications = await screen.findByRole("group", { name: "Applications" });
+    expect(within(applications).getByText("3")).toBeTruthy();
+    const projects = screen.getByRole("group", { name: "Projects" });
+    expect(within(projects).getByText("3")).toBeTruthy();
+    const agentTools = screen.getByRole("group", { name: "Agent tools" });
+    expect(within(agentTools).getByText("1")).toBeTruthy();
+    const notCompiled = screen.getByRole("group", { name: "Not yet compiled" });
+    expect(within(notCompiled).getByText("2")).toBeTruthy();
+  });
+
+  it("searches by description or Project and reports the result count", async () => {
+    renderInventory(fullReads());
+    await screen.findByRole("table", { name: "Applications — cursor" });
+    fireEvent.change(screen.getByLabelText("Search applications"), { target: { value: "intake" } });
+    expect(screen.getByText("Intake form")).toBeTruthy();
+    expect(screen.queryByText("Checkout service")).toBeNull();
+    expect(screen.getByText("1 Application")).toBeTruthy();
+  });
+
+  it("handles 60 applications without dropping rows", async () => {
+    const many = Array.from({ length: 60 }, (_, index) => ({ ...flow, id: `${flow.id}-${String(index)}`, description: `Application ${String(index)}` }));
+    renderInventory({ applications: Promise.resolve({ kind: "ok", value: { applications: many } }) });
+    await screen.findByRole("table", { name: /Applications/ });
+    expect(screen.getAllByRole("row")).toHaveLength(61);
+    expect(screen.getByText("60 Applications")).toBeTruthy();
+  });
+
+  it("keeps a 500-character description visible and wrapped", async () => {
+    const long = { ...flow, description: "A".repeat(500) };
+    renderInventory({ applications: Promise.resolve({ kind: "ok", value: { applications: [long] } }) });
+    const link = await screen.findByRole("link", { name: "A".repeat(500) });
+    expect(link.className).toContain("application-name");
   });
 });
 

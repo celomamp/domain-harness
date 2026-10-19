@@ -8,6 +8,15 @@ import type {
   ProjectInfo,
   ProjectTree,
 } from "@domain-harness/contract";
+import { Badge } from "../components/badge.tsx";
+import { Banner } from "../components/banner.tsx";
+import { EmptyState } from "../components/empty-state.tsx";
+import { PageHeader } from "../components/page-header.tsx";
+import { SectionCard } from "../components/section-card.tsx";
+import { Skeleton } from "../components/skeleton.tsx";
+import { Stat } from "../components/stat.tsx";
+import { Toolbar } from "../components/toolbar.tsx";
+import { formatDate } from "../format.ts";
 import { getApplications, getInventoryEvidence, getProjectTree } from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
 import { readSessionToken } from "../session.server.ts";
@@ -15,14 +24,18 @@ import { readSessionToken } from "../session.server.ts";
 export const meta: MetaFunction = () => [{ title: "Inventory | Domain Harness" }];
 
 export const INVENTORY_COPY = {
+  eyebrow: "Monitor",
   heading: "Inventory",
+  description: "Every Application the Company has placed, grouped by agent tool.",
+  newApplication: "New application",
   caption: "Applications",
-  headers: ["Application", "Project", "Placement", "Listed"],
+  headers: ["Application", "Project", "Agent tool", "Status", "Added"],
   fromFlow: "New-application flow",
   registered: "Registered",
   evidence: "Listed before any Gate run. Compilation evidence fills in later.",
   empty: "No Application yet.",
   emptyProject: "No Application in this Project yet.",
+  emptySearch: "No Application matches this search.",
   loading: "Loading the Applications…",
   unavailable: "The Inventory is unavailable right now. Try again in a few minutes.",
   filterLabel: "Project",
@@ -32,6 +45,29 @@ export const INVENTORY_COPY = {
   groupNone: "No Compilation yet",
   evidenceUnavailable:
     "The Compilation evidence did not arrive, so the agent-tool groups use the latest Boilerplate target.",
+  searchLabel: "Search applications",
+  clearFilter: "Clear filter",
+  summary: {
+    applications: "Applications",
+    projects: "Projects",
+    agentTools: "Agent tools",
+    notCompiled: "Not yet compiled",
+  },
+  status: {
+    none: "No Compilation yet",
+    received: "Evidence received",
+  },
+  groupBy: {
+    label: "Group by",
+    agentTool: "Agent tool",
+    project: "Project",
+  },
+  sort: {
+    label: "Sort",
+    newest: "Newest",
+    name: "Name",
+  },
+  count: (count: number) => `${String(count)} ${count === 1 ? "Application" : "Applications"}`,
 } as const;
 
 export interface InventoryLoaderData {
@@ -95,6 +131,92 @@ export function evidenceMap(evidence: InventoryEvidence): Map<string, readonly s
   return new Map(evidence.applications.map((row) => [row.applicationId, row.agentTools]));
 }
 
+/** The Inventory summary: totals plus the evidence-derived counts. */
+export interface InventorySummary {
+  readonly applications: number;
+  readonly projects: number;
+  readonly agentTools: number;
+  readonly notCompiled: number;
+}
+
+/**
+ * The summary numbers derived from the reads. `projects` is the Company's
+ * total Projects from the Project-tree read (it is passed in, not derivable
+ * from the Applications alone). `agentTools` counts the distinct non-empty
+ * group keys; `notCompiled` counts Applications with no evidence row.
+ */
+export function inventorySummary(
+  applications: readonly ApplicationInfo[],
+  evidence: ReadonlyMap<string, readonly string[]>,
+  projects: number,
+): InventorySummary {
+  const tools = new Set<string>();
+  let notCompiled = 0;
+  for (const application of applications) {
+    const observed = evidence.get(application.id);
+    if (observed === undefined) notCompiled += 1;
+    const key = (observed?.[0] ?? application.agentTool ?? "").trim();
+    if (key !== "") tools.add(key);
+  }
+  return { applications: applications.length, projects, agentTools: tools.size, notCompiled };
+}
+
+/** The sort choices the toolbar offers. */
+export type InventorySort = "newest" | "name";
+
+/** A sorted copy (newest first, or by description), leaving the caller's order untouched. */
+export function sortApplications(
+  applications: readonly ApplicationInfo[],
+  sort: InventorySort,
+): ApplicationInfo[] {
+  const copy = [...applications];
+  if (sort === "name") {
+    return copy.sort(
+      (left, right) => left.description.localeCompare(right.description) || left.id.localeCompare(right.id),
+    );
+  }
+  return copy.sort((left, right) => {
+    const newest = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+    return newest !== 0 ? newest : right.id.localeCompare(left.id);
+  });
+}
+
+/** The Project filter's "all" sentinel. */
+const ALL_PROJECTS = "all";
+
+/** The Applications matching the search (description or Project) and the Project filter. */
+export function filterApplications(
+  applications: readonly ApplicationInfo[],
+  query: string,
+  projectId: string,
+): ApplicationInfo[] {
+  const needle = query.trim().toLowerCase();
+  return applications.filter((application) => {
+    if (projectId !== ALL_PROJECTS && application.project.id !== projectId) return false;
+    if (needle === "") return true;
+    return (
+      application.description.toLowerCase().includes(needle) ||
+      application.project.name.toLowerCase().includes(needle)
+    );
+  });
+}
+
+/** Group Applications under their Project name (the group-by "Project" choice). */
+export function groupByProject(applications: readonly ApplicationInfo[]): ApplicationGroup[] {
+  const groups: { key: string; heading: string; applications: ApplicationInfo[] }[] = [];
+  const byKey = new Map<string, (typeof groups)[number]>();
+  for (const application of applications) {
+    let group = byKey.get(application.project.id);
+    if (group === undefined) {
+      group = { key: application.project.id, heading: application.project.name, applications: [] };
+      byKey.set(application.project.id, group);
+      groups.push(group);
+    }
+    group.applications.push(application);
+  }
+  return groups;
+}
+
 /**
  * Inventory: every Application of the Company, grouped under an agent-tool
  * heading and filterable by Project. The structure (heading, Applications)
@@ -104,14 +226,23 @@ export function evidenceMap(evidence: InventoryEvidence): Map<string, readonly s
  */
 export default function Inventory() {
   const { applications, projects, evidence } = useLoaderData<InventoryLoaderData>();
-  const unavailable = <p>{INVENTORY_COPY.unavailable}</p>;
+  const unavailable = <Banner tone="notice">{INVENTORY_COPY.unavailable}</Banner>;
   return (
     <>
-      <h1 className="type-title">{INVENTORY_COPY.heading}</h1>
+      <PageHeader
+        eyebrow={INVENTORY_COPY.eyebrow}
+        title={INVENTORY_COPY.heading}
+        description={INVENTORY_COPY.description}
+        actions={
+          <Link className="button-primary" to="/new-application">
+            {INVENTORY_COPY.newApplication}
+          </Link>
+        }
+      />
       <Suspense
         fallback={
           <section aria-label={INVENTORY_COPY.caption} aria-busy="true">
-            <p>{INVENTORY_COPY.loading}</p>
+            <Skeleton lines={6} />
           </section>
         }
       >
@@ -120,9 +251,21 @@ export default function Inventory() {
             result.kind !== "ok" ? (
               unavailable
             ) : result.value.applications.length === 0 ? (
-              <p className="type-display">{INVENTORY_COPY.empty}</p>
+              <EmptyState
+                icon="inventory"
+                title={INVENTORY_COPY.empty}
+                action={
+                  <Link className="button-primary" to="/new-application">
+                    {INVENTORY_COPY.newApplication}
+                  </Link>
+                }
+              />
             ) : (
-              <FilteredInventory applications={result.value.applications} projects={projects} evidence={evidence} />
+              <LoadedInventory
+                applications={result.value.applications}
+                projects={projects}
+                evidence={evidence}
+              />
             )
           }
         </Await>
@@ -131,28 +274,23 @@ export default function Inventory() {
   );
 }
 
-interface FilteredInventoryProps {
+interface LoadedInventoryProps {
   readonly applications: readonly ApplicationInfo[];
   readonly projects: Promise<RegistryResult<ProjectTree>>;
   readonly evidence: Promise<RegistryResult<InventoryEvidence>>;
 }
 
-/** The Project filter around the evidence groups: tree failure keeps the full list with a note. */
-function FilteredInventory({ applications, projects, evidence }: FilteredInventoryProps) {
-  const withoutFilter = (
-    <>
-      <p>{INVENTORY_COPY.filterUnavailable}</p>
-      <EvidenceGroups applications={applications} evidence={evidence} />
-    </>
-  );
+/** The Applications are in: resolve the Project tree, then the evidence. */
+function LoadedInventory({ applications, projects, evidence }: LoadedInventoryProps) {
+  const withoutProjects = <EvidenceLayer applications={applications} projects={null} evidence={evidence} />;
   return (
-    <Suspense fallback={<p>{INVENTORY_COPY.filterLoading}</p>}>
-      <Await resolve={projects} errorElement={withoutFilter}>
+    <Suspense fallback={<LoadingLayer applications={applications} />}>
+      <Await resolve={projects} errorElement={withoutProjects}>
         {(result: RegistryResult<ProjectTree>) =>
-          result.kind !== "ok" ? (
-            withoutFilter
+          result.kind === "ok" ? (
+            <EvidenceLayer applications={applications} projects={result.value.projects} evidence={evidence} />
           ) : (
-            <ProjectFilter applications={applications} projects={result.value.projects} evidence={evidence} />
+            withoutProjects
           )
         }
       </Await>
@@ -160,118 +298,300 @@ function FilteredInventory({ applications, projects, evidence }: FilteredInvento
   );
 }
 
-interface ProjectFilterProps {
-  readonly applications: readonly ApplicationInfo[];
-  readonly projects: readonly ProjectInfo[];
-  readonly evidence: Promise<RegistryResult<InventoryEvidence>>;
-}
-
-const ALL_PROJECTS = "all";
-
-/** Single-select Project filter (exact Project only): the list shows that Project's Applications. */
-function ProjectFilter({ applications, projects, evidence }: ProjectFilterProps) {
-  const [selected, setSelected] = useState<string>(ALL_PROJECTS);
-  const visible = selected === ALL_PROJECTS ? applications : applications.filter((app) => app.project.id === selected);
+/** While the Project tree loads: the known Applications count, honest placeholders, and skeleton rows. */
+function LoadingLayer({ applications }: { readonly applications: readonly ApplicationInfo[] }) {
   return (
     <>
-      <div className="project-filter">
-        <label htmlFor="project-filter">{INVENTORY_COPY.filterLabel}</label>
-        <select id="project-filter" value={selected} onChange={(event) => { setSelected(event.target.value); }}>
-          <option value={ALL_PROJECTS}>{INVENTORY_COPY.filterAll}</option>
-          {projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      {visible.length === 0 ? (
-        <p className="type-display">{INVENTORY_COPY.emptyProject}</p>
-      ) : (
-        <EvidenceGroups applications={visible} evidence={evidence} />
-      )}
+      <Summary applications={applications.length} projects="—" agentTools="—" notCompiled="—" />
+      <section aria-label={INVENTORY_COPY.caption} aria-busy="true">
+        <Skeleton lines={6} />
+      </section>
     </>
   );
 }
 
-interface EvidenceGroupsProps {
+interface EvidenceLayerProps {
   readonly applications: readonly ApplicationInfo[];
+  readonly projects: readonly ProjectInfo[] | null;
   readonly evidence: Promise<RegistryResult<InventoryEvidence>>;
 }
 
-/**
- * The Compilation evidence around the grouped tables: while it loads the
- * groups fall back to the registry tool, and when it never arrives the
- * structure stays with a note saying so.
- */
-function EvidenceGroups({ applications, evidence }: EvidenceGroupsProps) {
-  const fallbackGroups = <GroupedTables applications={applications} evidence={new Map()} />;
+/** Resolve the evidence; a miss degrades the grouping with a non-live notice. */
+function EvidenceLayer({ applications, projects, evidence }: EvidenceLayerProps) {
   const withoutEvidence = (
     <>
-      <p>{INVENTORY_COPY.evidenceUnavailable}</p>
-      {fallbackGroups}
+      <Banner tone="notice">{INVENTORY_COPY.evidenceUnavailable}</Banner>
+      <InventoryView applications={applications} projects={projects} evidence={null} />
     </>
   );
   return (
-    <Suspense
-      fallback={
-        <section aria-label={INVENTORY_COPY.caption} aria-busy="true">
-          {fallbackGroups}
-        </section>
-      }
-    >
+    <Suspense fallback={<InventoryView applications={applications} projects={projects} evidence={null} />}>
       <Await resolve={evidence} errorElement={withoutEvidence}>
         {(result: RegistryResult<InventoryEvidence>) =>
-          result.kind !== "ok" ? withoutEvidence : <GroupedTables applications={applications} evidence={evidenceMap(result.value)} />
+          result.kind === "ok" ? (
+            <InventoryView
+              applications={applications}
+              projects={projects}
+              evidence={evidenceMap(result.value)}
+            />
+          ) : (
+            withoutEvidence
+          )
         }
       </Await>
     </Suspense>
   );
 }
 
-function GroupedTables({
+/** The four summary stats. */
+function Summary({
   applications,
+  projects,
+  agentTools,
+  notCompiled,
+}: {
+  readonly applications: number;
+  readonly projects: string;
+  readonly agentTools: string;
+  readonly notCompiled: string;
+}) {
+  return (
+    <div className="inventory-summary">
+      <Stat label={INVENTORY_COPY.summary.applications} value={String(applications)} />
+      <Stat label={INVENTORY_COPY.summary.projects} value={projects} />
+      <Stat label={INVENTORY_COPY.summary.agentTools} value={agentTools} />
+      <Stat label={INVENTORY_COPY.summary.notCompiled} value={notCompiled} />
+    </div>
+  );
+}
+
+interface InventoryViewProps {
+  readonly applications: readonly ApplicationInfo[];
+  readonly projects: readonly ProjectInfo[] | null;
+  readonly evidence: ReadonlyMap<string, readonly string[]> | null;
+}
+
+/** The interactive surface: the summary, the toolbar, and the grouped tables. */
+function InventoryView({ applications, projects, evidence }: InventoryViewProps) {
+  const [query, setQuery] = useState("");
+  const [projectId, setProjectId] = useState(ALL_PROJECTS);
+  const [groupBy, setGroupBy] = useState<"agentTool" | "project">("agentTool");
+  const [sort, setSort] = useState<InventorySort>("newest");
+
+  const evidenceMap = evidence ?? new Map<string, readonly string[]>();
+  const summary = inventorySummary(applications, evidenceMap, projects?.length ?? 0);
+
+  const filtered = filterApplications(applications, query, projectId);
+  const sorted = sortApplications(filtered, sort);
+  const groups = groupBy === "project" ? groupByProject(sorted) : groupApplications(sorted, evidenceMap);
+
+  const projectsText = projects === null ? "—" : String(summary.projects);
+  const agentToolsText = evidence === null ? "—" : String(summary.agentTools);
+  const notCompiledText = evidence === null ? "—" : String(summary.notCompiled);
+
+  const clearFilter = () => {
+    setQuery("");
+    setProjectId(ALL_PROJECTS);
+  };
+
+  const emptyTitle = projectId !== ALL_PROJECTS ? INVENTORY_COPY.emptyProject : INVENTORY_COPY.emptySearch;
+
+  return (
+    <>
+      <Summary
+        applications={summary.applications}
+        projects={projectsText}
+        agentTools={agentToolsText}
+        notCompiled={notCompiledText}
+      />
+      {projects === null ? <Banner tone="notice">{INVENTORY_COPY.filterUnavailable}</Banner> : null}
+      {filtered.length === 0 ? (
+        <EmptyState
+          icon="inventory"
+          title={emptyTitle}
+          action={
+            <button type="button" className="button-secondary" onClick={clearFilter}>
+              {INVENTORY_COPY.clearFilter}
+            </button>
+          }
+        />
+      ) : (
+        <>
+          <Toolbar
+            searchLabel={INVENTORY_COPY.searchLabel}
+            searchValue={query}
+            onSearch={setQuery}
+            filters={
+              <>
+                {projects === null ? null : (
+                  <ProjectFilter projects={projects} value={projectId} onChange={setProjectId} />
+                )}
+                <GroupBySelect value={groupBy} onChange={setGroupBy} />
+                <SortSelect value={sort} onChange={setSort} />
+              </>
+            }
+            count={INVENTORY_COPY.count(filtered.length)}
+          />
+          <div className="inventory-groups">
+            {groups.map((group) => (
+              <SectionCard key={group.key} title={`${group.heading} · ${String(group.applications.length)}`}>
+                <ApplicationTable group={group} evidence={evidenceMap} />
+              </SectionCard>
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+/** The single-select Project filter, labelled for the toolbar. */
+function ProjectFilter({
+  projects,
+  value,
+  onChange,
+}: {
+  readonly projects: readonly ProjectInfo[];
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  return (
+    <label className="inventory-control">
+      <span>{INVENTORY_COPY.filterLabel}</span>
+      <select
+        value={value}
+        onChange={(event) => {
+          onChange(event.currentTarget.value);
+        }}
+      >
+        <option value={ALL_PROJECTS}>{INVENTORY_COPY.filterAll}</option>
+        {projects.map((project) => (
+          <option key={project.id} value={project.id}>
+            {project.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** The group-by control: Agent tool or Project. */
+function GroupBySelect({
+  value,
+  onChange,
+}: {
+  readonly value: "agentTool" | "project";
+  readonly onChange: (value: "agentTool" | "project") => void;
+}) {
+  return (
+    <label className="inventory-control">
+      <span>{INVENTORY_COPY.groupBy.label}</span>
+      <select
+        value={value}
+        onChange={(event) => {
+          onChange(event.currentTarget.value as "agentTool" | "project");
+        }}
+      >
+        <option value="agentTool">{INVENTORY_COPY.groupBy.agentTool}</option>
+        <option value="project">{INVENTORY_COPY.groupBy.project}</option>
+      </select>
+    </label>
+  );
+}
+
+/** The sort control: Newest or Name. */
+function SortSelect({
+  value,
+  onChange,
+}: {
+  readonly value: InventorySort;
+  readonly onChange: (value: InventorySort) => void;
+}) {
+  return (
+    <label className="inventory-control">
+      <span>{INVENTORY_COPY.sort.label}</span>
+      <select
+        value={value}
+        onChange={(event) => {
+          onChange(event.currentTarget.value as InventorySort);
+        }}
+      >
+        <option value="newest">{INVENTORY_COPY.sort.newest}</option>
+        <option value="name">{INVENTORY_COPY.sort.name}</option>
+      </select>
+    </label>
+  );
+}
+
+/** One group's table: Application (link + project), Project, Agent tool, Status, Added. */
+function ApplicationTable({
+  group,
   evidence,
 }: {
-  readonly applications: readonly ApplicationInfo[];
+  readonly group: ApplicationGroup;
   readonly evidence: ReadonlyMap<string, readonly string[]>;
 }) {
   return (
-    <>
-      {groupApplications(applications, evidence).map((group) => (
-        <section key={group.key} aria-label={`${INVENTORY_COPY.caption} — ${group.heading}`}>
-          <h2 className="type-title-sm">{group.heading}</h2>
-          <div className="table-scroll">
-            <table className="standards-table">
-              <caption className="type-title-sm">
-                {INVENTORY_COPY.caption} — {group.heading}
-              </caption>
-              <thead>
-                <tr>
-                  {INVENTORY_COPY.headers.map((header) => (
-                    <th key={header} scope="col">
-                      {header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {group.applications.map((application) => (
-                  <tr key={application.id} className="application-row">
-                    <th scope="row">
-                      <Link to={`/applications/${encodeURIComponent(application.id)}`}>{application.description}</Link>
-                    </th>
-                    <td>{application.project.name}</td>
-                    <td>{application.fromFlow ? INVENTORY_COPY.fromFlow : INVENTORY_COPY.registered}</td>
-                    <td>{application.createdAt.slice(0, 10)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ))}
-      <p>{INVENTORY_COPY.evidence}</p>
-    </>
+    <div className="inventory-table-scroll" tabIndex={0}>
+      <table className="inventory-table">
+        <caption>{`${INVENTORY_COPY.caption} — ${group.heading}`}</caption>
+        <thead>
+          <tr>
+            {INVENTORY_COPY.headers.map((header) => (
+              <th key={header} scope="col">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {group.applications.map((application) => (
+            <ApplicationRow key={application.id} application={application} evidence={evidence} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The per-row agent tool: observed tool first, the registry target second, otherwise "". */
+function agentToolOf(
+  application: ApplicationInfo,
+  evidence: ReadonlyMap<string, readonly string[]>,
+): string {
+  const observed = evidence.get(application.id);
+  return (observed?.[0] ?? application.agentTool ?? "").trim();
+}
+
+/** One Application row. Status is read-presence, never a Gate verdict. */
+function ApplicationRow({
+  application,
+  evidence,
+}: {
+  readonly application: ApplicationInfo;
+  readonly evidence: ReadonlyMap<string, readonly string[]>;
+}) {
+  const hasEvidence = evidence.has(application.id);
+  const agentTool = agentToolOf(application, evidence);
+  return (
+    <tr>
+      <th scope="row">
+        <Link className="application-name" to={`/applications/${encodeURIComponent(application.id)}`}>
+          {application.description}
+        </Link>
+        <span className="application-project">{application.project.name}</span>
+        <span className="application-origin">
+          {application.fromFlow ? INVENTORY_COPY.fromFlow : INVENTORY_COPY.registered}
+        </span>
+      </th>
+      <td>{application.project.name}</td>
+      <td>{agentTool === "" ? "—" : agentTool}</td>
+      <td>
+        <Badge tone={hasEvidence ? "outline" : "neutral"} icon={hasEvidence ? "check" : "dot"}>
+          {hasEvidence ? INVENTORY_COPY.status.received : INVENTORY_COPY.status.none}
+        </Badge>
+      </td>
+      <td>{formatDate(application.createdAt)}</td>
+    </tr>
   );
 }
