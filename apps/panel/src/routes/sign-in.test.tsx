@@ -141,4 +141,27 @@ describe("sign-in", () => {
     expect(button.className).toBe("button-primary");
     expect(button.getAttribute("type")).toBe("submit");
   });
+
+  it("shows a split brand panel and a single gold action", async () => {
+    renderSignIn();
+    expect(await screen.findByText("Domain Harness")).toBeTruthy();
+    expect(screen.getByText(/software-construction Standards/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Email me a sign-in link" }).className).toBe("button-primary");
+  });
+
+  it("replaces the form with a confirmation panel after sending", async () => {
+    const fetch = registry(202, {});
+    renderSignIn();
+    await submit("bea@acme.io");
+
+    const heading = await screen.findByRole("heading", { name: "Check your email" });
+    expect(document.activeElement).toBe(heading);
+    expect(screen.getByText("bea@acme.io")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe(SENT);
+    expect(screen.queryByLabelText("Email address")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use a different address" }));
+    expect(screen.getByLabelText("Email address")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });

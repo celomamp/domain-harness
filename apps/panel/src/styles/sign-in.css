@@ -1,1 +1,120 @@
-/* sign-in.css — the split sign-in layout and confirmation state. Owned by Task 6. */
+/* The sign-in surface splits the product story from the one-action form. */
+.sign-in-shell {
+  display: grid;
+  min-height: 100vh;
+  background: var(--color-surface-base);
+  color: var(--color-ink);
+}
+
+.sign-in-brand {
+  display: grid;
+  align-content: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-sidebar);
+  color: var(--color-sidebar-ink);
+}
+
+.sign-in-brand__wordmark {
+  font-family: var(--type-title-sm-family);
+  font-size: var(--type-title-sm-size);
+  font-weight: var(--type-title-sm-weight);
+  line-height: var(--type-title-sm-line-height);
+}
+
+.sign-in-brand__statement,
+.sign-in-brand__evidence,
+.sign-in-brand__rule {
+  display: none;
+}
+
+.sign-in-panel {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  padding: var(--space-6) var(--space-4);
+  background: var(--color-surface-base);
+}
+
+.sign-in-panel__content {
+  display: grid;
+  gap: var(--space-5);
+  width: 100%;
+  max-width: var(--size-form-measure);
+  margin-inline: auto;
+}
+
+.sign-in-panel__content > .type-display,
+.sign-in-panel__content > .type-body-light {
+  overflow-wrap: anywhere;
+}
+
+.sign-in-panel .standard-form {
+  width: 100%;
+}
+
+.sign-in-confirmation {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-form);
+}
+
+.sign-in-confirmation__email {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-weight: var(--type-label-strong-weight);
+}
+
+.sign-in-confirmation .page-status {
+  width: 100%;
+}
+
+@media (min-width: 56.25rem) {
+  .sign-in-shell {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  }
+
+  .sign-in-brand {
+    align-content: center;
+    justify-items: start;
+    gap: var(--space-5);
+    min-height: 100vh;
+    padding: var(--space-8);
+  }
+
+  .sign-in-brand__statement {
+    display: block;
+    max-width: 100%;
+    font-family: var(--type-body-family);
+    font-size: var(--type-body-size);
+    font-weight: var(--type-label-strong-weight);
+    line-height: var(--type-body-line-height);
+    white-space: nowrap;
+  }
+
+  .sign-in-brand__evidence {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    color: var(--color-sidebar-muted);
+    list-style: none;
+  }
+
+  .sign-in-brand__rule {
+    display: block;
+    width: 100%;
+    border-top: var(--size-hairline) solid var(--color-surface-base);
+  }
+
+  .sign-in-panel {
+    min-height: 100vh;
+    padding: var(--space-8) var(--space-5);
+  }
+}
