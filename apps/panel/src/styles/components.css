@@ -52,6 +52,7 @@
   min-height: var(--size-target-min);
   min-width: var(--size-target-min);
   padding: var(--space-2) var(--size-button-padding-inline);
+  border: 0;
   border-radius: var(--radius-sm);
   font-family: var(--type-label-strong-family);
   font-size: var(--type-label-strong-size);
