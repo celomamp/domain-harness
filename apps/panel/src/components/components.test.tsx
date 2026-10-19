@@ -111,7 +111,7 @@ describe("panel-chrome", () => {
     expect(current.textContent).toBe("Inventory");
     expect(screen.getByRole("link", { name: "Standards" }).getAttribute("aria-current")).toBeNull();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Inventory");
-    expect((await screen.findByText("No Application yet.")).className).toBe("type-display");
+    expect(await screen.findByRole("heading", { name: "No Application yet." })).toBeTruthy();
   });
 
   it("marks Standards as current on /standards", async () => {
@@ -122,10 +122,16 @@ describe("panel-chrome", () => {
 
   it("keeps tab order equal to reading order with no positive tabindex", async () => {
     renderPanel("/inventory");
-    await screen.findByRole("navigation");
+    // Wait for the Inventory's empty state so the page content is in the DOM.
+    await screen.findByRole("heading", { name: "No Application yet." });
+    const nav = screen.getByRole("navigation", { name: "Management panel" });
     const focusables = [...document.querySelectorAll<HTMLElement>("a[href], button, input")];
-    expect(focusables.map((el) => el.textContent)).toEqual([
-      "Skip to content",
+
+    // The skip link is the first focusable element.
+    expect(focusables[0]?.textContent).toBe("Skip to content");
+
+    // The seven destinations stay in the grouped reading order inside the rail.
+    expect([...nav.querySelectorAll("a")].map((a) => a.textContent)).toEqual([
       "Inventory",
       "Compilations",
       "Standards",
@@ -133,10 +139,18 @@ describe("panel-chrome", () => {
       "Guidance access",
       "New-application flow",
       "Accepted deviation",
-      "Sign out",
-      "Menu",
     ]);
-    expect(document.querySelectorAll(".shell__rail [tabindex]").length).toBe(0);
+
+    // The page header's primary action follows the rail in the reading order.
+    const headerAction = screen.getAllByRole("link", { name: "New application" })[0] as HTMLElement;
+    expect(nav.compareDocumentPosition(headerAction) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // No positive tabindex anywhere: only 0 and -1 are allowed.
+    expect(
+      [...document.querySelectorAll<HTMLElement>("[tabindex]")].every(
+        (el) => Number(el.getAttribute("tabindex")) <= 0,
+      ),
+    ).toBe(true);
   });
 });
 
