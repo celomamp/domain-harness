@@ -145,7 +145,7 @@ New shared components under `apps/panel/src/components/`:
 - **`empty-state.tsx`** — icon, title, explanation, action.
 - **`skeleton.tsx`** — static blocks with `aria-hidden` and a parent `aria-busy`. A slow, subtle pulse is allowed outside the alert band; `prefers-reduced-motion` removes it.
 - **`copy-button.tsx`** — copies text, announces "Copied", resets after a short delay. Extends the existing Correction copy behavior.
-- **`banner.tsx`** — replaces the plain status line with an icon, text, and optional recovery action. The existing live region (`role="status"`, `aria-live="polite"`) stays.
+- **`banner.tsx`** — a notice with an icon, text, and optional recovery action. It is presentational by default so a page never has two live regions; the existing `Status` remains the one live region for action results. A loader error renders a non-live banner.
 - **`side-sheet.tsx`** — a modal surface with `role="dialog"`, `aria-modal="true"`, a labelled title, focus trap, Esc to close, and focus return to the opener. Used for short commits only (create Module, assign owner, create Project, change parent, publish/edit Standard). Long forms stay on the page.
 - **Button variants:** `primary` (gold), `secondary` (white surface, hairline, ink), `ghost` (transparent, ink, hover surface), `inverse` (existing dark chip). A page uses at most one primary action.
 

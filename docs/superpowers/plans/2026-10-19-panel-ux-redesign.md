@@ -328,7 +328,7 @@ git commit -m "feat(panel): add display primitives"
 - `EmptyState({ icon, title, description, action }: { icon: IconName; title: string; description?: string; action?: ReactNode })`
 - `Skeleton({ lines = 3, className }: { lines?: number; className?: string })`
 - `CopyButton({ value, label = "Copy", copiedLabel = "Copied" }: { value: string; label?: string; copiedLabel?: string })`
-- `Banner({ tone, title, children, action }: { tone: "notice" | "denial" | "success"; title?: string; children: ReactNode; action?: ReactNode })`
+- `Banner({ tone, title, children, action, live = false }: { tone: "notice" | "denial" | "success"; title?: string; children: ReactNode; action?: ReactNode; live?: boolean })`
 - `Tabs({ label, tabs, value, onChange }: { label: string; tabs: readonly { id: string; label: string; panelId: string }[]; value: string; onChange: (id: string) => void })`
 - `SideSheet({ open, onClose, title, description, children }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode })`
 
@@ -363,10 +363,12 @@ describe("feedback primitives", () => {
     expect(writeText).toHaveBeenCalledWith("01928c7e");
     expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
   });
-  it("Banner is a live status region", () => {
-    render(<Banner tone="denial" title="Refused">Nothing was changed.</Banner>);
+  it("Banner is presentational by default and a live region only when asked", () => {
+    const { rerender, container } = render(<Banner tone="denial" title="Refused">Nothing was changed.</Banner>);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(container.textContent).toContain("Refused");
+    rerender(<Banner tone="denial" title="Refused" live>Nothing was changed.</Banner>);
     expect(screen.getByRole("status").textContent).toContain("Refused");
-    expect(screen.getByRole("status").textContent).toContain("Nothing was changed.");
   });
   it("Tabs move with the arrow keys and expose aria-selected", () => {
     const onChange = vi.fn();
@@ -397,7 +399,7 @@ Expected: FAIL because the components do not exist.
 
 - [ ] **Step 3: Implement the components**
 
-`Banner` renders `<div className="banner banner--{tone}" role="status" aria-live="polite">`. `CopyButton` uses `navigator.clipboard.writeText`, sets `copied` for 2000ms, and renders an `Icon` plus the label. `Tabs` renders `role="tablist"`, each tab with `role="tab"`, `aria-selected`, `aria-controls`, `tabIndex` 0 for selected and -1 for others; ArrowLeft/ArrowRight/Home/End call `onChange`. `SideSheet` renders a `<div className="side-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>` overlay; when open, it focuses the title (`tabIndex={-1}`), traps Tab inside the sheet, closes on Escape, and returns focus to the previously focused element on close. `EmptyState` and `Skeleton` are presentational.
+`Banner` renders `<div className="banner banner--{tone}">`; when `live` is true it adds `role="status"` and `aria-live="polite"`. `Status` remains the one live region for action results. `CopyButton` uses `navigator.clipboard.writeText`, sets `copied` for 2000ms, and renders an `Icon` plus the label. `Tabs` renders `role="tablist"`, each tab with `role="tab"`, `aria-selected`, `aria-controls`, `tabIndex` 0 for selected and -1 for others; ArrowLeft/ArrowRight/Home/End call `onChange`. `SideSheet` renders a `<div className="side-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>` overlay; when open, it focuses the title (`tabIndex={-1}`), traps Tab inside the sheet, closes on Escape, and returns focus to the previously focused element on close. `EmptyState` and `Skeleton` are presentational.
 
 - [ ] **Step 4: Add the CSS**
 
