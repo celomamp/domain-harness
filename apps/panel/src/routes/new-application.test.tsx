@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRoutesStub, Outlet } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Role } from "@domain-harness/contract";
+import type { Role, UuidV7 } from "@domain-harness/contract";
 import { PanelChrome } from "../components/panel-chrome.tsx";
-import NewApplicationPage, { action, loader } from "./new-application.tsx";
+import NewApplicationPage, { action, loader, newApplicationStep } from "./new-application.tsx";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
 const ROOT = "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7";
@@ -39,7 +39,9 @@ function renderPage(role: Role, treeResult: Promise<unknown>, endpointResult: Pr
   );
   const Stub = createRoutesStub([
     {
+      id: "routes/panel-layout",
       Component: Layout,
+      loader: () => ({ role }),
       children: [
         {
           path: "/new-application",
@@ -96,6 +98,13 @@ const mounted = (selector: string): Promise<void> =>
     expect(document.querySelector(selector)).not.toBeNull();
   });
 
+async function activateTab(label: string): Promise<void> {
+  fireEvent.click(await screen.findByRole("tab", { name: label }));
+}
+
+const currentRailStep = (): string | undefined =>
+  document.querySelector(".flow-step[aria-current='step'] span:last-child")?.textContent ?? undefined;
+
 async function submit(text: string, projectId: string): Promise<void> {
   await mounted("#new-application-description");
   fireEvent.change(description(), { target: { value: text } });
@@ -128,13 +137,65 @@ describe("New-application flow page", () => {
     expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
   });
 
+  it("shows the Place → Generate → Result rail with the current step", async () => {
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    await webOption(project);
+    const rail = screen.getByRole("list", { name: "Application flow progress" });
+    expect(within(rail).getAllByRole("listitem").map((item) => item.querySelector("span:last-child")?.textContent)).toEqual([
+      "Place",
+      "Generate",
+      "Result",
+    ]);
+    expect(currentRailStep()).toBe("Place");
+  });
+
+  it("puts Register existing in its own tab, not on the progress rail", async () => {
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    expect(await screen.findByRole("tab", { name: "Place an application" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Generate Boilerplate" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Register existing" })).toBeTruthy();
+    const rail = screen.getByRole("list", { name: "Application flow progress" });
+    expect(rail.textContent).not.toContain("Register existing");
+  });
+
+  it("describes the flow for the signed-in role", async () => {
+    renderPage("Buyer", Promise.resolve(ok(tree)));
+    await screen.findByRole("heading", { name: "New-application flow" });
+    expect(screen.getByText(/Buyers can place an Application/)).toBeTruthy();
+    cleanup();
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    await screen.findByRole("heading", { name: "New-application flow" });
+    expect(screen.getByText(/Builders place an Application/)).toBeTruthy();
+  });
+
+  it("maps action results to the explanatory progress step", () => {
+    expect(newApplicationStep(undefined)).toBe("place");
+    expect(
+      newApplicationStep({ intent: "place", status: { tone: "notice", message: "Placed" }, fieldErrors: {}, values: {}, placedId: APP }),
+    ).toBe("boilerplate");
+    expect(
+      newApplicationStep({
+        intent: "boilerplate",
+        status: { tone: "notice", message: "Ready" },
+        fieldErrors: {},
+        values: {},
+        placedId: APP,
+        boilerplate: {
+          applicationId: APP as UuidV7,
+          target: "claude-code",
+          archiveName: "boilerplate.tar.gz",
+          archiveBase64: "",
+          artifacts: [],
+        },
+      }),
+    ).toBe("result");
+  });
+
   it("keeps the form structure busy while the Projects load", async () => {
     renderPage("Builder", new Promise(() => undefined));
-    // Both forms' Project fields stream the same busy fallback.
-    await waitFor(() => {
-      expect(screen.getAllByText("Loading the Projects…")).toHaveLength(2);
-    });
+    expect(await screen.findAllByText("Loading the Projects…")).toHaveLength(2);
     expect(project().closest("[aria-busy]")?.getAttribute("aria-busy")).toBe("true");
+    expect(document.querySelectorAll(".standard-form__fields[aria-busy='true']")).toHaveLength(3);
     expect(description()).toBeTruthy();
     expect([...project().options].map((o) => o.textContent)).toEqual(["Choose a Project"]);
     expect(screen.getByRole("button", { name: "Place the Application" })).toBeTruthy();
@@ -152,11 +213,9 @@ describe("New-application flow page", () => {
     ],
   ])("says the Projects are unavailable on %s, keeping the form structure", async (_label, result: () => Promise<unknown>) => {
     renderPage("Builder", result());
-    await waitFor(() => {
-      expect(
-        screen.getAllByText("The Projects are unavailable right now. Try again in a few minutes."),
-      ).toHaveLength(2);
-    });
+    expect((await screen.findAllByText("The Projects are unavailable right now. Try again in a few minutes.")).length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(document.querySelectorAll(".banner").length).toBeGreaterThan(0);
     expect(description()).toBeTruthy();
     expect(project()).toBeTruthy();
     expect(screen.getByRole("button", { name: "Place the Application" })).toBeTruthy();
@@ -180,6 +239,7 @@ describe("New-application flow page", () => {
       expect(description().value).toBe("");
     });
     expect(project().value).toBe("");
+    expect(currentRailStep()).toBe("Generate");
   });
 
   it("names the Project field when no Project is chosen, keeping the description", async () => {
@@ -235,6 +295,7 @@ describe("Registering an existing Application", () => {
   const registerProject = (): HTMLSelectElement => must("#register-application-projectId") as HTMLSelectElement;
 
   async function submitRegister(text: string, projectId: string): Promise<void> {
+    await activateTab("Register existing");
     await mounted("#register-application-description");
     fireEvent.change(registerDescription(), { target: { value: text } });
     await webOption(registerProject);
@@ -244,6 +305,7 @@ describe("Registering an existing Application", () => {
 
   it("shows the register form to every role, with a secondary button and gold kept on the place form", async () => {
     renderPage("Buyer", Promise.resolve(ok(tree)));
+    await activateTab("Register existing");
     expect(await screen.findByRole("heading", { name: "Register an existing Application" })).toBeTruthy();
     expect(registerDescription().tagName).toBe("TEXTAREA");
     await webOption(registerProject);
@@ -389,6 +451,9 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     renderPage("Builder", Promise.resolve(ok(tree)));
     expect(await screen.findByText("Not set.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Company Guidance endpoint" })).toBeTruthy();
+    const companySetup = screen.getByRole("heading", { name: "Company setup" }).closest(".section-card");
+    expect(companySetup).not.toBeNull();
+    expect(within(companySetup as HTMLElement).getByText("Buyer")).toBeTruthy();
     expect(endpointField().value).toBe("");
     expect(screen.getByRole("button", { name: "Set the Guidance endpoint" }).className).toBe("button-inverse");
     expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
@@ -464,22 +529,49 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
   });
 
-  it("lists every artifact in text with the download link, keeping the Boilerplate form", async () => {
+  it("renders Boilerplate artifacts as cards that copy their paths, with a commit note and archive download", async () => {
     const fetch = await placeAndGenerate([200, result]);
-    const section = await screen.findByRole("region", { name: "Boilerplate for Claude Code" });
-    expect(section.className).toBe("boilerplate-result");
-    expect([...section.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
-      "Project identification file: .domain-harness.json",
-      "Dependency pins: package.json",
-      "Design-system references: design-system.json",
-      "MCP configuration: .mcp.json",
-      "Instructions: CLAUDE.md",
-      "Skills: .claude/skills/domain-harness-guidance/SKILL.md",
+    await screen.findByText("The Claude Code Boilerplate is ready to download.");
+    const section = document.querySelector(".artifact-grid")?.closest(".section-card") ?? null;
+    expect(section).not.toBeNull();
+    const artifactSection = section as HTMLElement;
+    expect(artifactSection.className).toContain("section-card");
+    expect(within(artifactSection).getByRole("heading", { name: "Boilerplate" })).toBeTruthy();
+    const cards = [...artifactSection.querySelectorAll<HTMLElement>(".artifact-card")];
+    expect(cards.map((card) => card.querySelector(".artifact-card__kind")?.textContent)).toEqual([
+      "Project identification file",
+      "Dependency pins",
+      "Design-system references",
+      "MCP configuration",
+      "Instructions",
+      "Skills",
     ]);
+    expect(cards.map((card) => card.querySelector(".artifact-card__path")?.textContent)).toEqual([
+      ".domain-harness.json",
+      "package.json",
+      "design-system.json",
+      ".mcp.json",
+      "CLAUDE.md",
+      ".claude/skills/domain-harness-guidance/SKILL.md",
+    ]);
+    expect(cards).toHaveLength(result.artifacts.length);
+    for (const card of cards) {
+      expect(within(card).getByRole("button", { name: "Copy" })).toBeTruthy();
+    }
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const originalClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    fireEvent.click(within(cards[0] as HTMLElement).getByRole("button", { name: "Copy" }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(".domain-harness.json");
+    });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: originalClipboard });
+    expect(screen.getByText("Commit .domain-harness.json to the repository root.")).toBeTruthy();
     const link = screen.getByRole("link", { name: "Download the archive" });
     expect(link.getAttribute("download")).toBe(result.archiveName);
     expect(link.getAttribute("href")).toBe(`data:application/gzip;base64,${result.archiveBase64}`);
     expect(status().textContent).toBe("The Claude Code Boilerplate is ready to download.");
+    expect(currentRailStep()).toBe("Result");
     expect(screen.getByRole("button", { name: "Generate the Boilerplate" })).toBeTruthy();
     const [url, init] = fetch.mock.calls[1] as unknown as [string, RequestInit];
     expect(url).toMatch(new RegExp(`/v1/applications/${APP}/boilerplate$`));
@@ -492,15 +584,17 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     await submit("Checkout", B);
     fireEvent.change(await screen.findByLabelText("Agent tool"), { target: { value: "cursor" } });
     fireEvent.click(screen.getByRole("button", { name: "Generate the Boilerplate" }));
-    const section = await screen.findByRole("region", { name: "Boilerplate for Cursor" });
-    expect(section.className).toBe("boilerplate-result");
-    expect([...section.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
-      "Project identification file: .domain-harness.json",
-      "Dependency pins: package.json",
-      "Design-system references: design-system.json",
-      "MCP configuration: .cursor/mcp.json",
-      "Instructions: AGENTS.md",
-      "Skills: .cursor/skills/domain-harness-guidance/SKILL.md",
+    await screen.findByText("The Cursor Boilerplate is ready to download.");
+    const section = document.querySelector(".artifact-grid")?.closest(".section-card");
+    if (section === null || section === undefined) throw new Error("the Boilerplate SectionCard is missing");
+    expect(section.className).toContain("section-card");
+    expect([...section.querySelectorAll(".artifact-card__path")].map((path) => path.textContent)).toEqual([
+      ".domain-harness.json",
+      "package.json",
+      "design-system.json",
+      ".cursor/mcp.json",
+      "AGENTS.md",
+      ".cursor/skills/domain-harness-guidance/SKILL.md",
     ]);
     const link = screen.getByRole("link", { name: "Download the archive" });
     expect(link.getAttribute("download")).toBe(cursorResult.archiveName);
