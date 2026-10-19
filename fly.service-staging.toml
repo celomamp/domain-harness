@@ -1,0 +1,23 @@
+# Staging: Company Standards bundle-pull daemon (Fly app dh-service-staging).
+# Region iad (next to the Supabase staging project in us-east-1). Public: no
+# — the daemon only calls outbound (registry pulls, record-store writes) and
+# listens on no port, so this app declares no services and no checks (there is
+# no services block to carry auto_stop_machines/min_machines_running; with no
+# services there is nothing to autostop — keep exactly one Machine running via
+# `fly scale count 1`, see docs/staging.md).
+# Secrets (fly secrets set, never committed): SERVICE_TENANT_ID,
+# SERVICE_TENANT_CREDENTIAL, SERVICE_BUNDLE_TRUST_KEYS,
+# SERVICE_RECORD_DATABASE_URL. See docs/staging.md.
+app = "dh-service-staging"
+primary_region = "iad"
+
+[build]
+  dockerfile = "apps/service/Dockerfile"
+
+[env]
+  SERVICE_VENDOR_URL = "http://dh-registry-staging.internal:4100"
+  SERVICE_PULL_INTERVAL_MS = "60000"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

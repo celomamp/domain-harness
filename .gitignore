@@ -18,6 +18,11 @@ coverage
 .env.*
 !.env.example
 !.env.local.example
+# Never commit key material or tenant definitions: provision/company files and
+# the staging signing key live outside the repo (see docs/staging.md).
+*.pem
+*.key
+company.json
 supabase/.temp
 
 # Debug

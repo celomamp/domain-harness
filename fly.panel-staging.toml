@@ -1,0 +1,42 @@
+# Staging: management panel (Fly app dh-panel-staging).
+# Region iad (next to the Supabase staging project in us-east-1). Public: yes
+# (port 443) — this is the staging front door (sign-in page). The panel calls
+# the registry over Fly private networking (PANEL_REGISTRY_URL below), never
+# over the public address.
+# Secrets: none — the panel holds no credentials (the session cookie is an
+# opaque registry session token). All values here are non-secret.
+app = "dh-panel-staging"
+primary_region = "iad"
+
+[build]
+  dockerfile = "apps/panel/Dockerfile"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "3000"
+  PANEL_REGISTRY_URL = "http://dh-registry-staging.internal:4100"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 3000
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  # TCP only: the panel exposes no HTTP health endpoint.
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "30s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

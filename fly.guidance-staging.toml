@@ -1,0 +1,51 @@
+# Staging: Company Standards guidance server — Guidance MCP endpoint plus the
+# credentialed Read API (Fly app dh-guidance-staging).
+# Region iad (next to the Supabase staging project in us-east-1). Public: no
+# — the server is reachable only inside the Company network over Fly private
+# networking at http://dh-guidance-staging.internal:8080. The ports below exist
+# only because the platform schema requires at least one [[services.ports]]
+# entry wherever checks run: this app is NEVER allocated a public IP (see
+# docs/staging.md — `fly ips list` must stay empty), so nothing here is
+# reachable from the internet. Authentication at the edge, if ever needed, is
+# a deployment concern outside this app (see server-cli.ts header).
+# Secrets (fly secrets set, never committed): SERVICE_TENANT_ID,
+# SERVICE_TENANT_CREDENTIAL, SERVICE_RECORD_DATABASE_URL,
+# SERVICE_READ_CREDENTIAL, SERVICE_ROLE_TOKEN_TRUST_KEYS. See docs/staging.md.
+app = "dh-guidance-staging"
+primary_region = "iad"
+
+[build]
+  dockerfile = "apps/service/Dockerfile.guidance"
+
+[env]
+  SERVICE_VENDOR_URL = "http://dh-registry-staging.internal:4100"
+  SERVICE_GUIDANCE_PORT = "8080"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Schema-required (see header): no public IP is ever allocated to this app,
+  # so these ports are unreachable from the internet; internal traffic uses
+  # the 6PN address (dh-guidance-staging.internal:8080) directly.
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  # TCP only: the guidance server exposes no HTTP health endpoint.
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "30s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

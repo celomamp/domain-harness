@@ -1,0 +1,5 @@
+{
+  "extends": "@domain-harness/tsconfig/base.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["*.ts"]
+}

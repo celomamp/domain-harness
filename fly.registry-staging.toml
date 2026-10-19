@@ -1,0 +1,52 @@
+# Staging: vendor registry JSON API (Fly app dh-registry-staging).
+# Region iad (next to the Supabase staging project in us-east-1). Public: yes
+# (port 443) — builders reach the API here and sign-in links are verified
+# against it; the panel and the service daemons reach it over Fly private
+# networking at http://dh-registry-staging.internal:4100.
+# Secrets (fly secrets set, never committed): REGISTRY_DATABASE_URL,
+# REGISTRY_MIGRATION_DATABASE_URL (release_command only), REGISTRY_SMTP_URL,
+# REGISTRY_BUNDLE_SIGNING_KEY. See docs/staging.md.
+app = "dh-registry-staging"
+primary_region = "iad"
+
+[build]
+  dockerfile = "apps/registry/Dockerfile"
+
+[deploy]
+  # Runs in a temporary Machine with this app's secrets before each release:
+  # applies pending registry migrations as the migrator (owner) role, so the
+  # serving Machines always boot against a migrated schema. Uses
+  # REGISTRY_MIGRATION_DATABASE_URL (the owner connection string).
+  release_command = "node --conditions=@domain-harness/source src/db/migrate-cli.ts"
+
+[env]
+  REGISTRY_HTTP_HOST = "0.0.0.0"
+  REGISTRY_HTTP_PORT = "4100"
+  REGISTRY_PANEL_URL = "https://dh-panel-staging.fly.dev"
+  REGISTRY_MAIL_FROM = "Domain Harness Staging <staging@mailtrap.io>"
+  REGISTRY_BUNDLE_SIGNING_KEY_ID = "staging-key-1"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 4100
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  # TCP only: the registry exposes no HTTP health endpoint.
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "30s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

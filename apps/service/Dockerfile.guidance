@@ -1,0 +1,44 @@
+# The Company Standards guidance-server image: runs the Guidance MCP + Read
+# API server (apps/service/src/guidance/server-cli.ts). Build context is the
+# repository root so the pinned workspace resolves. Same source-mode runtime
+# as the bundle-pull daemon (apps/service/Dockerfile): no compiled dist, the
+# entry runs straight from TypeScript with Node's type stripping and the
+# @domain-harness/source condition; only the entry (and its wider workspace
+# imports) differs. Configuration comes only from the environment (see
+# apps/service/src/guidance/config.ts); the port default (8080) is overridden
+# by the fly.toml [env] when needed.
+FROM node:26-bookworm-slim
+
+# Node 26 no longer bundles corepack; install the pinned version (like CI) and
+# enable the pnpm version pinned in package.json.
+RUN npm install --global corepack@0.36.0 \
+    && corepack enable pnpm
+
+WORKDIR /app
+
+# Workspace manifests first so the dependency-install layer caches. The
+# guidance server resolves collector, gate, extractor and core in addition to
+# contract (the daemon image needs only a subset of these).
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/service/package.json apps/service/package.json
+COPY packages/contract/package.json packages/contract/package.json
+COPY packages/core/package.json packages/core/package.json
+COPY packages/collector/package.json packages/collector/package.json
+COPY packages/gate/package.json packages/gate/package.json
+COPY packages/extractor/package.json packages/extractor/package.json
+
+RUN pnpm install --frozen-lockfile
+
+# Source: the workspace units the guidance server imports at runtime, then the service.
+COPY tsconfig.json ./
+COPY packages ./packages
+COPY apps/service ./apps/service
+
+WORKDIR /app/apps/service
+
+# The guidance server binds SERVICE_GUIDANCE_PORT (default 8080). It is
+# reachable only inside the Fly private network (its fly.toml exposes no
+# public service) and serves the MCP endpoint plus the credentialed Read API.
+EXPOSE 8080
+
+CMD ["node", "--conditions=@domain-harness/source", "src/guidance/server-cli.ts"]
