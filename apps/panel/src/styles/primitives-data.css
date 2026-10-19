@@ -1,1 +1,113 @@
-/* primitives-data.css — data primitives (data-table, toolbar). Owned by Task 4. */
+/* primitives-data.css — data primitives (data-table, toolbar). */
+.data-table__scroll {
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.data-table {
+  border-collapse: collapse;
+  inline-size: max-content;
+  min-inline-size: 100%;
+  text-align: start;
+}
+
+.data-table caption {
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  font: inherit;
+  font-weight: var(--type-label-strong-weight);
+}
+
+.data-table th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  border-block: var(--size-hairline) solid var(--color-border);
+  background: var(--color-surface-subtle);
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  font-weight: var(--type-label-strong-weight);
+}
+
+.data-table td {
+  border-block-end: var(--size-hairline) solid var(--color-border);
+  padding: var(--space-3) var(--space-4);
+  vertical-align: top;
+}
+
+.data-table tbody tr:hover {
+  background: var(--color-surface-base);
+}
+
+.data-table .data-table__cell--end {
+  text-align: end;
+}
+
+.data-table .data-table__empty {
+  color: var(--color-ink-muted);
+}
+
+.data-table tfoot td {
+  border-block: var(--size-hairline) solid var(--color-border);
+  font-weight: var(--type-label-strong-weight);
+}
+
+.toolbar {
+  display: flex;
+  min-inline-size: 0;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.toolbar__search {
+  display: grid;
+  min-inline-size: 0;
+  flex: 1 1 var(--size-form-measure);
+  gap: var(--space-1);
+  color: var(--color-ink-secondary);
+  font: var(--type-body-sm-size) / var(--type-body-sm-line-height) var(--type-body-sm-family);
+}
+
+.toolbar__search input {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: var(--size-field-min);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+}
+
+.toolbar__filters,
+.toolbar__group-by {
+  display: flex;
+  min-inline-size: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toolbar__sort {
+  min-block-size: var(--size-field-min);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  cursor: pointer;
+}
+
+.toolbar__count {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--color-ink-secondary);
+  font: var(--type-body-sm-size) / var(--type-body-sm-line-height) var(--type-body-sm-family);
+  font-variant-numeric: tabular-nums;
+}
