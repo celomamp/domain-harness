@@ -128,6 +128,12 @@ AS $$
   ORDER BY 1
 $$;
 
+-- Managed Postgres (e.g. Supabase) runs the migrator without superuser: OWNER
+-- TO also needs CREATE on the schema for the new owner, so grant it
+-- transiently and revoke right after. Steady state keeps USAGE-only, as
+-- designed above.
+GRANT CREATE ON SCHEMA public TO dh_alert_scheduler;
 ALTER FUNCTION live_accepted_deviation_alert_tenants(timestamptz) OWNER TO dh_alert_scheduler;
+REVOKE CREATE ON SCHEMA public FROM dh_alert_scheduler;
 REVOKE ALL ON FUNCTION live_accepted_deviation_alert_tenants(timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION live_accepted_deviation_alert_tenants(timestamptz) TO dh_registry_app;

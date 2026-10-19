@@ -18,6 +18,7 @@ coverage
 .env.*
 !.env.example
 !.env.local.example
+supabase/.temp
 
 # Debug
 npm-debug.log*

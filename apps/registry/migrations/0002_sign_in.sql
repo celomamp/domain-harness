@@ -113,6 +113,12 @@ AS $$
   ORDER BY a.tenant_id, a.id
 $$;
 
+-- Managed Postgres (e.g. Supabase) runs the migrator without superuser: OWNER
+-- TO also needs CREATE on the schema for the new owner, so grant it
+-- transiently and revoke right after. Steady state keeps USAGE-only, as
+-- designed above.
+GRANT CREATE ON SCHEMA public TO dh_sign_in_lookup;
 ALTER FUNCTION sign_in_account_lookup(text) OWNER TO dh_sign_in_lookup;
+REVOKE CREATE ON SCHEMA public FROM dh_sign_in_lookup;
 REVOKE ALL ON FUNCTION sign_in_account_lookup(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION sign_in_account_lookup(text) TO dh_registry_app;
