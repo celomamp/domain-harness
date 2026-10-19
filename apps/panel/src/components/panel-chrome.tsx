@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Form, NavLink } from "react-router";
 import type { Role } from "@domain-harness/contract";
@@ -57,20 +57,23 @@ export function PanelChrome({ role, children }: PanelChromeProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
 
-  // Esc closes the drawer and returns focus to the menu button that opened it.
+  // Close the drawer and return focus to the menu button that opened it.
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    menuButton.current?.focus();
+  }, []);
+
+  // Esc closes the drawer and returns focus to the menu button.
   useEffect(() => {
     if (!drawerOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setDrawerOpen(false);
-        menuButton.current?.focus();
-      }
+      if (event.key === "Escape") closeDrawer();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [drawerOpen]);
+  }, [drawerOpen, closeDrawer]);
 
   return (
     <>
@@ -83,7 +86,14 @@ export function PanelChrome({ role, children }: PanelChromeProps) {
           className={`shell__rail${drawerOpen ? " shell__rail--open" : ""}`}
           aria-label="Management panel"
         >
-          <p className="shell__wordmark">Domain Harness</p>
+          <div className="shell__rail-head">
+            <p className="shell__wordmark">Domain Harness</p>
+            {drawerOpen ? (
+              <button type="button" className="shell__close" onClick={closeDrawer}>
+                <Icon name="close" label="Close menu" />
+              </button>
+            ) : null}
+          </div>
           <nav className="shell__nav" aria-label="Management panel">
             {PANEL_NAV.map((group) => (
               <section key={group.label} className="shell__group">
@@ -91,7 +101,12 @@ export function PanelChrome({ role, children }: PanelChromeProps) {
                 <ul>
                   {group.items.map((item) => (
                     <li key={item.to}>
-                      <NavLink to={item.to}>
+                      <NavLink
+                        to={item.to}
+                        onClick={() => {
+                          setDrawerOpen(false);
+                        }}
+                      >
                         <Icon name={item.icon} />
                         {item.label}
                       </NavLink>

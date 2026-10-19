@@ -79,6 +79,25 @@ describe("panel-chrome", () => {
     expect(document.activeElement).toBe(menu);
   });
 
+  it("closes the drawer with the close button and returns focus to the menu button", async () => {
+    renderPanel("/inventory");
+    const menu = await screen.findByRole("button", { name: "Menu" });
+    fireEvent.click(menu);
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close menu" }));
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(menu);
+  });
+
+  it("closes the drawer when a destination is chosen", async () => {
+    renderPanel("/inventory");
+    const menu = await screen.findByRole("button", { name: "Menu" });
+    fireEvent.click(menu);
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("link", { name: "Standards" }));
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("offers a skip link to the content", async () => {
     renderPanel("/inventory");
     const skip = await screen.findByRole("link", { name: "Skip to content" });
