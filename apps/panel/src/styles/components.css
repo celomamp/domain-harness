@@ -41,6 +41,45 @@
   color: var(--color-inverse);
 }
 
+/* button-secondary (raised surface, hairline border) and button-ghost
+   (transparent surface, hover fill) share the same action anatomy as the
+   primary/inverse buttons but carry no chromatic fill. */
+.button-secondary,
+.button-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--size-target-min);
+  min-width: var(--size-target-min);
+  padding: var(--space-2) var(--size-button-padding-inline);
+  border-radius: var(--radius-sm);
+  font-family: var(--type-label-strong-family);
+  font-size: var(--type-label-strong-size);
+  font-weight: var(--type-label-strong-weight);
+  line-height: var(--type-label-strong-line-height);
+  letter-spacing: var(--type-label-strong-letter-spacing);
+  text-decoration: none;
+  cursor: pointer;
+  color: var(--color-ink);
+}
+
+.button-secondary {
+  background: var(--color-surface-raised);
+  border: var(--size-hairline) solid var(--color-border);
+}
+
+.button-secondary:hover {
+  background: var(--color-surface-subtle);
+}
+
+.button-ghost {
+  background: transparent;
+}
+
+.button-ghost:hover {
+  background: var(--color-surface-subtle);
+}
+
 /* denial: raised surface, ink body text, hairline border; the word is the state. */
 .denial {
   padding: var(--space-4);

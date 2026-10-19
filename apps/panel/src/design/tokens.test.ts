@@ -82,5 +82,13 @@ describe("design tokens", () => {
       expect(css).toContain("--radius-sm: 4px;");
       expect(css).toContain("--space-gutter: 24px;");
     });
+
+    it("emits the new page-title, caption and stat sizes and the card/popover shadows", () => {
+      expect(css).toContain("--type-page-title-size: 32px;");
+      expect(css).toContain("--type-caption-size: 12px;");
+      expect(css).toContain("--type-stat-size: 28px;");
+      expect(css).toContain("--shadow-card:");
+      expect(css).toContain("--shadow-popover:");
+    });
   });
 });
