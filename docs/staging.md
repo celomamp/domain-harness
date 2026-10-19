@@ -186,6 +186,18 @@ fly deploy -c <fly.<app>-staging.toml> --image <ref> --remote-only
 A failed healthcheck already blocks the bad release (previous Machines stay);
 the command above restores the previous image explicitly.
 
+## Known staging issues (follow-ups, not blockers)
+
+- **Private DNS**: `*.internal` hostnames did not resolve from freshly deployed
+  Machines (`ENOTFOUND`), so inter-service URLs currently use the public
+  `https://dh-registry-staging.fly.dev` (set via `fly secrets`, overriding the
+  `[env]` defaults). The tomls keep `.internal` as the design target; see the
+  deferred-work entry before switching back.
+- **Worker placement**: the daemon app carries no `[[services]]`, so its
+  Machine was scaled to zero by default — `fly scale count 1` pins exactly one
+  running Machine (done). If it ever stops again, `fly machine start` it and
+  check the org's billing/activity for platform stops.
+
 ## Verification
 
 ```sh

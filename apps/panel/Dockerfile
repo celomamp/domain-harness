@@ -11,15 +11,18 @@ RUN npm install --global corepack@0.36.0 \
 WORKDIR /app
 
 # Workspace manifests first so the dependency-install layer caches. The panel
-# resolves only @domain-harness/contract among the workspace units.
+# resolves only @domain-harness/contract among the workspace units, plus the
+# shared tsconfig base its builds extend.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/panel/package.json apps/panel/package.json
 COPY packages/contract/package.json packages/contract/package.json
+COPY tooling/tsconfig/package.json tooling/tsconfig/package.json
 
 RUN pnpm install --frozen-lockfile
 
 # Sources for the panel build and the workspace unit it resolves.
 COPY tsconfig.json ./
+COPY tooling/tsconfig ./tooling/tsconfig
 COPY packages ./packages
 COPY apps/panel ./apps/panel
 
