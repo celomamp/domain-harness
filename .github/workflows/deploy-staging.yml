@@ -7,7 +7,9 @@ name: Deploy staging
 # token (`fly tokens create org`) covers both apps; a deploy token covers one
 # app only, so FLY_REGISTRY_API_TOKEN / FLY_PANEL_API_TOKEN, when set, take
 # precedence for their app. The service daemon and the guidance server keep
-# their manual deploys (docs/staging.md).
+# their manual deploys (docs/staging.md). Images are built here on the runner
+# (--local-only) and pushed to Fly's registry: Fly's remote builder timed out
+# repeatedly ("context deadline exceeded"), and the runner's Docker does not.
 
 on:
   workflow_run:
@@ -53,12 +55,12 @@ jobs:
             echo "::error::Set the repository secret FLY_API_TOKEN (fly tokens create org)."
             exit 1
           fi
-          flyctl deploy -c fly.registry-staging.toml --remote-only --wait-timeout 10m
+          flyctl deploy -c fly.registry-staging.toml --local-only --wait-timeout 10m
 
       - name: Deploy the panel
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_PANEL_API_TOKEN || secrets.FLY_API_TOKEN }}
-        run: flyctl deploy -c fly.panel-staging.toml --remote-only --wait-timeout 10m
+        run: flyctl deploy -c fly.panel-staging.toml --local-only --wait-timeout 10m
 
       - name: Report
         run: |
