@@ -22,25 +22,29 @@ export function loader({ request }: LoaderFunctionArgs): { notice: SignInNotice 
  * Validate the address here, so a malformed one never reaches the registry,
  * then ask the registry to email links. The registry answers the same for
  * every well-formed address, and so does this page.
+ *
+ * All outcomes answer 200: React Router renders the ErrorBoundary for any
+ * 4xx/5xx action response, which would hide the inline notices below behind
+ * a generic error page. The notice field carries the outcome instead.
  */
 export async function action({ request }: ActionFunctionArgs) {
   const form = await request.formData();
   const raw = form.get("email");
   const email = typeof raw === "string" ? raw : "";
   if (!isEmailAddress(email)) {
-    return data<SignInActionData>({ notice: "invalid", email }, { status: 400 });
+    return data<SignInActionData>({ notice: "invalid", email });
   }
   const result = await requestSignInLink(normalizeEmail(email));
   if (result.kind === "unavailable") {
-    return data<SignInActionData>({ notice: "unavailable", email }, { status: 503 });
+    return data<SignInActionData>({ notice: "unavailable", email });
   }
   if (result.kind === "refused") {
     // Only the registry's own verdict on the email field is a field error;
     // any other refusal means sign-in is not working right now.
     const fieldError = result.error.code === "invalid_input" && result.error.subject === "email";
     return fieldError
-      ? data<SignInActionData>({ notice: "invalid", email }, { status: 400 })
-      : data<SignInActionData>({ notice: "unavailable", email }, { status: 503 });
+      ? data<SignInActionData>({ notice: "invalid", email })
+      : data<SignInActionData>({ notice: "unavailable", email });
   }
   return data<SignInActionData>({ notice: "sent", email });
 }

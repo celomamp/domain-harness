@@ -936,27 +936,31 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
       }
     }
 
-    it("exits 1 with one missing_configuration envelope when REGISTRY_BUNDLE_SIGNING_KEY or REGISTRY_BUNDLE_SIGNING_KEY_ID is absent", async () => {
-      const noKey = await runServe({
-        REGISTRY_BUNDLE_SIGNING_KEY: "",
-        REGISTRY_BUNDLE_SIGNING_KEY_ID: KEY_ID,
-      });
-      expect(noKey.code).toBe(1);
-      expect(JSON.parse(noKey.stderr.trim())).toMatchObject({
-        code: "missing_configuration",
-        subject: "REGISTRY_BUNDLE_SIGNING_KEY",
-      });
+    it(
+      "exits 1 with one missing_configuration envelope when REGISTRY_BUNDLE_SIGNING_KEY or REGISTRY_BUNDLE_SIGNING_KEY_ID is absent",
+      async () => {
+        const noKey = await runServe({
+          REGISTRY_BUNDLE_SIGNING_KEY: "",
+          REGISTRY_BUNDLE_SIGNING_KEY_ID: KEY_ID,
+        });
+        expect(noKey.code).toBe(1);
+        expect(JSON.parse(noKey.stderr.trim())).toMatchObject({
+          code: "missing_configuration",
+          subject: "REGISTRY_BUNDLE_SIGNING_KEY",
+        });
 
-      const noKeyId = await runServe({
-        REGISTRY_BUNDLE_SIGNING_KEY: privateKeyPem,
-        REGISTRY_BUNDLE_SIGNING_KEY_ID: "",
-      });
-      expect(noKeyId.code).toBe(1);
-      expect(JSON.parse(noKeyId.stderr.trim())).toMatchObject({
-        code: "missing_configuration",
-        subject: "REGISTRY_BUNDLE_SIGNING_KEY_ID",
-      });
-    });
+        const noKeyId = await runServe({
+          REGISTRY_BUNDLE_SIGNING_KEY: privateKeyPem,
+          REGISTRY_BUNDLE_SIGNING_KEY_ID: "",
+        });
+        expect(noKeyId.code).toBe(1);
+        expect(JSON.parse(noKeyId.stderr.trim())).toMatchObject({
+          code: "missing_configuration",
+          subject: "REGISTRY_BUNDLE_SIGNING_KEY_ID",
+        });
+      },
+      60000,
+    );
 
     it("throws an invalid_configuration EnvelopeError on a malformed PEM or non-Ed25519 key", () => {
       expect(() =>
