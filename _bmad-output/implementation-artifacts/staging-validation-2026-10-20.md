@@ -57,3 +57,30 @@ Service side (`fly status` / `fly logs`): all four apps running; the daemon logs
 ## Test data left on staging (Demo Pilot)
 
 Projects `VAL Cartoes`, `VAL Portal do Cliente`; Modules `VAL Stack Frontend`, `VAL Design System` with 4 Standards; Locked rule on TypeScript; build grant for Demo Builder; Guidance endpoint `https://dh-guidance-staging.internal/mcp`; Application `VAL Portal de faturas do cliente`; one Accepted deviation (until 2026-11-20); Guidance access: Standard owner granted, retention 30 days; catalog 1.0.0 marked read.
+
+## Follow-up the same day: pilot agent loop (option A)
+
+Blockers 1–3 were addressed and the agent half of the loop was run end to end on staging:
+
+- **Endpoint (2):** the guidance server takes an optional `SERVICE_GUIDANCE_ACCESS_TOKEN`; with it, `/mcp` answers 401 without the Bearer token. The app has public IPs again and the panel's Guidance endpoint is `https://dh-guidance-staging.fly.dev/mcp`. Checked from the internet: no token 401, wrong token 401, right token 200.
+- **Bridge distribution (1):** GitHub Release `pilot-0.1` carries self-contained `mcp-bridge.tgz` and `cli.tgz` (`tooling/release/pack-pilot.sh`); Boilerplates now run the bridge from that URL (`REGISTRY_MCP_BRIDGE_PACKAGE`). Two real defects surfaced and were fixed: the bridge and the CLI did nothing when started through an installed bin symlink (npx / `npm install -g`).
+- **Demo Pilot service (3):** the daemon and the guidance server now serve the Demo Pilot tenant with a newly minted service credential.
+
+End-to-end results:
+
+| Step | Result |
+| --- | --- |
+| New Application placed and Claude Code kit generated; `.mcp.json` points at the release tarball and the public endpoint | Pass |
+| MCP client starts the bridge exactly as `.mcp.json` says, with `DH_GUIDANCE_TOKEN` | Pass: 4 tools listed; moment → prohibited with the v2 correction; recharts → approved `^2`; lodash → miss (gap); PrimaryButton → usage rule |
+| Same without the token | Refused |
+| Guidance events reach the panel | Pass after two fixes (below): Collector flush `sent 4`, Application evidence shows 4 Guidance entries, Inventory "Evidence received" |
+| Offline Gate with the CLI installed from the release | Runs; `moment` reported with the authored correction |
+
+New findings from this run:
+
+10. **The Collector was never wired into the deployed service** — no Guidance event or Gate run could ever reach the panel. Fixed for Guidance events (guidance server enqueues to the outbox, 30 s flusher).
+11. **Boilerplate generation did not rebuild the bundle**, so a freshly generated Application had no agent tool in the bundle and the Collector skipped all its events. Fixed (generation now builds the bundle; the bundles DB test was updated from the old pinned behavior).
+12. **The Gate matches code-stack Standards to packages by exact, case-sensitive name** (`packages/core/src/evaluate.ts`, documented as a design choice), while Guidance matches casefold. A Standard named "TypeScript" (the guide's example) is never satisfied by the `typescript` package, so a fresh kit **fails** the Gate; and a prohibited "React" would **not** catch `react`. Needs a decision before pilots run the Gate.
+13. **Gate runs still never reach the panel:** the CI Gate (`apps/service/src/ci-gate/gate-cli.ts`) has no Collector, needs the Company record store, and needs a pre-resolved snapshot file nothing produces; the offline CLI records nothing. In the hosted pilot model the Builder's CI cannot reach the record store, so Gate evidence needs a design (e.g. a token-gated Gate-run ingest on the guidance server).
+14. One `npx` start of the bridge timed out once (download), then worked; first-run latency of `npx <tarball URL>` is worth noting for pilots.
+15. An orphan service-credential row exists for Demo Pilot (a first mint whose value was lost); harmless, nobody holds the token.
