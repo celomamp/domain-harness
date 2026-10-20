@@ -232,13 +232,9 @@ export interface ProjectTreeViewProps {
  */
 export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewProps) {
   const [focusedId, setFocusedId] = useState(selectedId);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => {
-    const withChildren = new Set<string>();
-    for (const project of tree.projects) {
-      if (project.parentId !== null) withChildren.add(project.parentId);
-    }
-    return withChildren;
-  });
+  // Only what the person collapsed is remembered: every other branch is open,
+  // so a Project created under a leaf shows at once under its new parent.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const nodes = useRef(new Map<string, HTMLLIElement>());
   const moved = useRef(false);
 
@@ -250,6 +246,7 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
     else siblings.push(project);
   }
   const parentOf = new Map<string, string | null>(tree.projects.map((project) => [project.id, project.parentId]));
+  const expanded: ReadonlySet<string> = new Set([...childrenMap.keys()].filter((id) => !collapsed.has(id)));
 
   // Depth-first order respecting collapse: exactly the rendered nodes.
   const order: string[] = [];
@@ -273,10 +270,10 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
   }, [focused]);
 
   const setExpandedFor = (id: string, value: boolean) => {
-    setExpanded((previous) => {
+    setCollapsed((previous) => {
       const next = new Set(previous);
-      if (value) next.add(id);
-      else next.delete(id);
+      if (value) next.delete(id);
+      else next.add(id);
       return next;
     });
   };

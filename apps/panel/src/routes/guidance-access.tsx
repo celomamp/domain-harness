@@ -236,7 +236,13 @@ function AccessState({ access, saveNonce, mintFormKey, actionData }: AccessState
         {(result: RegistryResult<GuidanceAccessState>) =>
           result.kind === "ok" ? (
             <div className="guidance-layout">
-              <GrantSection key={saveNonce} state={result.value} actionData={actionData} />
+              {/* Remount on the saved state too: a save resolves before the revalidated
+                  state arrives, and the form must start from what was saved. */}
+              <GrantSection
+                key={`${String(saveNonce)}:${result.value.updatedAt ?? ""}`}
+                state={result.value}
+                actionData={actionData}
+              />
               <MintSection formKey={mintFormKey} actionData={actionData} />
             </div>
           ) : result.kind === "refused" && result.error.code === SESSION_INVALID ? (

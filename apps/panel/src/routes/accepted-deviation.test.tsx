@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRoutesStub, Outlet } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AcceptedDeviationRecord, ApplicationInfo, EffectiveStandardSet, Role, StandardInfo, UuidV7 } from "@domain-harness/contract";
@@ -194,13 +194,25 @@ describe("Accepted-deviation page (cold load)", () => {
   it("lists the stored records as cards with every stored field (Application, Standard + version, window, alert interval, recorded by, justification)", async () => {
     renderPage({ role: "Buyer", records: Promise.resolve(ok([storedRecord])) });
     await screen.findByText("lodash");
-    expect(screen.getByText(APP)).toBeTruthy();
+    // The Application is named and links to its evidence page.
+    const card = screen.getByRole("article", { name: "lodash" });
+    expect(within(card).getByRole("link", { name: "Checkout Web" }).getAttribute("href")).toBe(`/applications/${APP}`);
     expect(screen.getByText(STANDARD)).toBeTruthy();
     expect(screen.getByText("Version 3")).toBeTruthy();
     expect(screen.getByText("01 Oct 2026 to 01 Nov 2026")).toBeTruthy();
     expect(screen.getByText("168 hours")).toBeTruthy();
     expect(screen.getByText("Bea Buyer")).toBeTruthy();
     expect(screen.getByText("known exception")).toBeTruthy();
+  });
+
+  it("shows the Application id on a card when the Applications are unavailable", async () => {
+    renderPage({
+      role: "Buyer",
+      applications: Promise.resolve({ kind: "unavailable" }),
+      records: Promise.resolve(ok([storedRecord])),
+    });
+    await screen.findByText("lodash");
+    expect(screen.getByText(APP)).toBeTruthy();
   });
 
   it("renders stored acceptances as cards with an Active or Expired badge computed from the end", async () => {

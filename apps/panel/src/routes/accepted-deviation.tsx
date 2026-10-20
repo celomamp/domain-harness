@@ -375,6 +375,7 @@ export default function AcceptedDeviationPage() {
   return (
     <>
       <PageHeader
+        eyebrow="Operate"
         title={ACCEPTED_DEVIATION_COPY.heading}
         description={ACCEPTED_DEVIATION_COPY.description}
         actions={
@@ -391,14 +392,21 @@ export default function AcceptedDeviationPage() {
             submitted={actionData?.recordedId !== undefined ? undefined : actionData}
           />
         </SectionCard>
-        <StoredRecords records={records} />
+        <StoredRecords records={records} applications={applications} />
       </div>
     </>
   );
 }
 
 /** The stored Accepted deviations as cards under their own Suspense. */
-function StoredRecords({ records }: { readonly records: Promise<RegistryResult<AcceptedDeviationRecord[]>> }) {
+function StoredRecords({
+  records,
+  applications,
+}: {
+  readonly records: Promise<RegistryResult<AcceptedDeviationRecord[]>>;
+  /** Names each record's Application; without it a card shows the Application id. */
+  readonly applications: Promise<RegistryResult<readonly ApplicationInfo[]>>;
+}) {
   const copy = ACCEPTED_DEVIATION_COPY.records;
   return (
     <SectionCard title={copy.heading} id="stored-acceptances">
@@ -407,14 +415,31 @@ function StoredRecords({ records }: { readonly records: Promise<RegistryResult<A
           {(result: RegistryResult<AcceptedDeviationRecord[]>) => {
             if (result.kind === "ok") {
               const now = Date.now();
-              return result.value.length === 0 ? (
-                <EmptyState icon="deviation" title={copy.empty} description={copy.emptyExplanation} />
-              ) : (
+              if (result.value.length === 0) {
+                return <EmptyState icon="deviation" title={copy.empty} description={copy.emptyExplanation} />;
+              }
+              const list = (names: ReadonlyMap<string, string>) => (
                 <ul className="acceptance-list">
                   {result.value.map((record) => (
-                    <AcceptanceCard key={record.id} record={record} now={now} />
+                    <AcceptanceCard
+                      key={record.id}
+                      record={record}
+                      now={now}
+                      applicationName={names.get(record.applicationId)}
+                    />
                   ))}
                 </ul>
+              );
+              return (
+                <Await resolve={applications} errorElement={list(new Map())}>
+                  {(apps: RegistryResult<readonly ApplicationInfo[]>) =>
+                    list(
+                      new Map(
+                        apps.kind === "ok" ? apps.value.map((application) => [application.id, application.description]) : [],
+                      ),
+                    )
+                  }
+                </Await>
               );
             }
             return isPlanRefusal(result) ? (
@@ -432,7 +457,16 @@ function StoredRecords({ records }: { readonly records: Promise<RegistryResult<A
 }
 
 /** One stored acceptance: the match key, window, buyer and a live badge. */
-function AcceptanceCard({ record, now }: { readonly record: AcceptedDeviationRecord; readonly now: number }) {
+function AcceptanceCard({
+  record,
+  now,
+  applicationName,
+}: {
+  readonly record: AcceptedDeviationRecord;
+  readonly now: number;
+  /** The Application's description, when the Company's Applications loaded. */
+  readonly applicationName: string | undefined;
+}) {
   const copy = ACCEPTED_DEVIATION_COPY.records;
   const status = acceptanceStatus(record, now);
   const headingId = `acceptance-card-${record.id}`;
@@ -450,7 +484,13 @@ function AcceptanceCard({ record, now }: { readonly record: AcceptedDeviationRec
         <dl className="acceptance-card__meta">
           <div className="acceptance-card__field">
             <dt>{copy.application}</dt>
-            <dd>{record.applicationId}</dd>
+            <dd>
+              {applicationName === undefined ? (
+                record.applicationId
+              ) : (
+                <Link to={`/applications/${encodeURIComponent(record.applicationId)}`}>{applicationName}</Link>
+              )}
+            </dd>
           </div>
           <div className="acceptance-card__field">
             <dt>{copy.standard}</dt>
