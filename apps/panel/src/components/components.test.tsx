@@ -89,6 +89,21 @@ describe("panel-chrome", () => {
     expect(document.activeElement).toBe(menu);
   });
 
+  it("moves focus into the drawer and wraps Tab within it", async () => {
+    renderPanel("/inventory");
+    const menu = await screen.findByRole("button", { name: "Menu" });
+    fireEvent.click(menu);
+    // Focus enters the drawer on the close control.
+    const close = screen.getByRole("button", { name: "Close menu" });
+    expect(document.activeElement).toBe(close);
+    // Shift+Tab wraps from the first focusable back to the last (Sign out).
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sign out" }));
+    // Tab wraps from the last focusable back to the first (Close menu).
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
+  });
+
   it("closes the drawer when a destination is chosen", async () => {
     renderPanel("/inventory");
     const menu = await screen.findByRole("button", { name: "Menu" });
@@ -102,7 +117,9 @@ describe("panel-chrome", () => {
     renderPanel("/inventory");
     const skip = await screen.findByRole("link", { name: "Skip to content" });
     expect(skip.getAttribute("href")).toBe("#main");
-    expect(document.querySelector("#main")).not.toBeNull();
+    const main = document.querySelector("#main");
+    expect(main).not.toBeNull();
+    expect(main?.getAttribute("tabindex")).toBe("-1");
   });
 
   it("marks Inventory as the current destination on /inventory, with the empty state", async () => {

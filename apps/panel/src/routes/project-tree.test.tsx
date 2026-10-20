@@ -170,7 +170,7 @@ describe("Project tree page", () => {
     const dialog = screen.getByRole("dialog", { name: "Change the parent of Web" });
     const parent = within(dialog).getByLabelText<HTMLSelectElement>("Parent");
     expect(parent.value).toBe(A);
-    expect(within(dialog).getByRole("button", { name: "Change parent" }).className).toBe("button-inverse");
+    expect(within(dialog).getByRole("button", { name: "Save parent" }).className).toBe("button-inverse");
   });
 
   it("moves focus with Up, Down, Home and End and selects with Enter and Space", async () => {
@@ -229,15 +229,11 @@ describe("Project tree page", () => {
     renderPage("Buyer", ok(fullTree));
     await screen.findByRole("tree");
     const tree = screen.getByRole("tree");
-    // Collapse Platform so Web is no longer rendered.
+    // Collapse Platform so Web is no longer rendered; the chevron click moves
+    // the roving focus onto Platform, so the next Arrow key continues from it.
     fireEvent.click(within(items()[1] as HTMLElement).getByRole("button", { name: "Collapse Platform" }));
     expect(items()).toHaveLength(3);
-    // Move focus to the last visible node (Data) with the keyboard.
-    (items()[0] as HTMLElement).focus();
-    fireEvent.keyDown(tree, { key: "ArrowDown" });
-    await waitFor(() => {
-      expect(document.activeElement).toBe(items()[1]);
-    });
+    // ArrowDown from Platform targets the next visible node (Data), not Acme.
     fireEvent.keyDown(tree, { key: "ArrowDown" });
     await waitFor(() => {
       expect(document.activeElement).toBe(items()[2]);
@@ -371,7 +367,7 @@ describe("Project tree page", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Change parent" }));
     const dialog = screen.getByRole("dialog", { name: "Change the parent of Platform" });
     fireEvent.change(within(dialog).getByLabelText<HTMLSelectElement>("Parent"), { target: { value: B } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Change parent" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save parent" }));
     await waitFor(() => {
       expect(status().textContent).toBe(
         "Nothing was changed. Web is a descendant of Platform, so it cannot be its parent. Choose another parent.",
@@ -641,7 +637,7 @@ describe("child-Project permission", () => {
   it("lists each current grant with its account, a Granted badge and a Revoke commit", async () => {
     renderPage("Buyer", ok(fullTree), `/projects?project=${A}`, undefined, emptySetFor, grantsFor([boGrant]));
     const panel = await openAccess();
-    expect(await within(panel).findByText("Bo Builder (Builder)")).toBeTruthy();
+    expect(await within(panel).findByText("Bo Builder (Builder), granted by Bea Buyer on 2026-10-12")).toBeTruthy();
     expect(within(panel).getByText("Granted")).toBeTruthy();
     expect(within(panel).getAllByText("Not granted")).toHaveLength(2);
     const revoke = within(panel).getByRole("button", { name: "Revoke Bo Builder" });
@@ -790,7 +786,7 @@ describe("build grant", () => {
   it("sits behind the Build grants tab and lists each grant with a Granted badge and a Revoke commit", async () => {
     renderBuilds("Buyer", `/projects?project=${A}`, grantsFor([boGrant]));
     const panel = await openBuilds();
-    expect(await within(panel).findByText("Bo Builder (Builder)")).toBeTruthy();
+    expect(await within(panel).findByText("Bo Builder (Builder), granted by Bea Buyer on 2026-10-13")).toBeTruthy();
     expect(within(panel).getByText("Granted")).toBeTruthy();
     expect(within(panel).getAllByText("Not granted")).toHaveLength(2);
     const revoke = within(panel).getByRole("button", { name: "Revoke Bo Builder" });
@@ -938,7 +934,7 @@ describe("plan refusal", () => {
     fireEvent.change(parent, { target: { value: C } });
     const region = regionIn(form);
     expect(region.textContent).toBe("");
-    fireEvent.click(within(form).getByRole("button", { name: "Change parent" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Save parent" }));
     await refusalIn(region, "Setting a parent is included in Team (first sale). Nothing was changed.");
     expectNoPrice(region.textContent);
     expect(topStatus().textContent).toBe("");

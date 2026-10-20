@@ -362,7 +362,9 @@ describe("Module Standards page", () => {
   it("keeps tab order equal to reading order with no positive tabindex", async () => {
     renderPage("Standard owner", { module, standards: [react] });
     await screen.findByRole("button", { name: "Publish standard" });
-    expect(document.querySelectorAll("[tabindex]").length).toBe(0);
+    // The shell's skip-link target on `<main>` carries tabindex="-1"; no element
+    // may carry a tabindex that participates in (or reorders) the tab order.
+    expect([...document.querySelectorAll<HTMLElement>("[tabindex]")].filter((el) => el.tabIndex >= 0)).toHaveLength(0);
     const focusables = [
       ...document.querySelectorAll<HTMLElement>("main a[href], main button, main input:not([type=hidden]), main select, main textarea"),
     ];

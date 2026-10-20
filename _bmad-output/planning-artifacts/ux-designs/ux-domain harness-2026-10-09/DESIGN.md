@@ -299,6 +299,8 @@ The type ramp must still work at 200% zoom. Spacing must survive text-spacing ov
 
 Scale, from the site's 4- and 8-pixel rhythm: 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64. `{spacing.gutter}` is 24px between evidence columns. `{spacing.margin-desktop}` is 76px on the marketing site; the panel uses `{spacing.5}` (24px) at the edge so tables keep width.
 
+The navigation rail is 248px wide; below 1024px it becomes a 248px off-canvas drawer opened by the menu button.
+
 Single reading column for forms. Evidence tables may use the remaining width. At 1280px and above, tables sit beside the Project tree context. From 768px to 1279px, tables stack under the project-filter. From 320px to 767px, publish, accept, filter, and sign-in stay available, stacked, with vertical scroll. Evidence tables and the adherence plot may scroll in two dimensions.
 
 Every pointer target is at least 24 CSS pixels, or it meets the WCAG 2.2 spacing exception.

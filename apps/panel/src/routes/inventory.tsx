@@ -532,7 +532,7 @@ function SortSelect({
   );
 }
 
-/** One group's table: Application (link + project), Project, Agent tool, Status, Added. */
+/** One group's table: Application (link + placement origin), Project, Agent tool, Status, Added. */
 function ApplicationTable({
   group,
   evidence,
@@ -602,7 +602,6 @@ function ApplicationRow({
         <Link className="application-name" to={`/applications/${encodeURIComponent(application.id)}`}>
           {application.description}
         </Link>
-        <span className="application-project">{application.project.name}</span>
         <span className="application-origin">
           {application.fromFlow ? INVENTORY_COPY.fromFlow : INVENTORY_COPY.registered}
         </span>

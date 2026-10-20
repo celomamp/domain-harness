@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Banner } from "./banner.tsx";
 import { CopyButton } from "./copy-button.tsx";
 import { EmptyState } from "./empty-state.tsx";
 import { SideSheet } from "./side-sheet.tsx";
 import { Skeleton } from "./skeleton.tsx";
 import { Tabs } from "./tabs.tsx";
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("feedback primitives", () => {
   it("EmptyState renders a title, explanation and action", () => {
@@ -25,6 +29,7 @@ describe("feedback primitives", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     expect(writeText).toHaveBeenCalledWith("01928c7e");
     expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Copied");
   });
   it("Banner is presentational by default and a live region only when asked", () => {
     const { rerender, container } = render(<Banner tone="denial" title="Refused">Nothing was changed.</Banner>);
@@ -51,5 +56,15 @@ describe("feedback primitives", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
     rerender(<SideSheet open={false} onClose={onClose} title="Create Module">form</SideSheet>);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("SideSheet traps Shift+Tab from the title back to the last focusable", () => {
+    render(<SideSheet open onClose={vi.fn()} title="Create Module">form</SideSheet>);
+    // Focus starts on the title (tabIndex={-1}), which the trap special-cases.
+    const title = screen.getByRole("heading", { name: "Create Module" });
+    expect(document.activeElement).toBe(title);
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
   });
 });

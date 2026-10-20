@@ -486,7 +486,7 @@ function BundleStatusSection({
                         <th scope="col">Sequence</th>
                         <th scope="col">Age vs bound</th>
                         <th scope="col">Freeze state</th>
-                        <th scope="col">Status badge</th>
+                        <th scope="col">Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -525,10 +525,14 @@ function BundleStatusRow({ row, now }: { readonly row: BundleStatusView; readonl
       <td>{row.bundleSequence}</td>
       <td>{copy.age(ageHours, row.stalenessBoundHours)}</td>
       <td>
-        <Badge tone={row.frozen ? "solid" : "neutral"}>{row.frozen ? copy.frozen : copy.unfrozen}</Badge>
+        <Badge tone={row.frozen ? "solid" : "neutral"} icon={row.frozen ? "lock" : "dash"}>
+          {row.frozen ? copy.frozen : copy.unfrozen}
+        </Badge>
       </td>
       <td>
-        <Badge tone={stale ? "solid" : "outline"}>{stale ? copy.stale : copy.fresh}</Badge>
+        <Badge tone={stale ? "solid" : "outline"} icon={stale ? "alert" : "check"}>
+          {stale ? copy.stale : copy.fresh}
+        </Badge>
       </td>
     </tr>
   );

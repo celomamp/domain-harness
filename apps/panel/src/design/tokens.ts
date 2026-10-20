@@ -97,7 +97,8 @@ export const spacing = {
 /**
  * Panel-only sizes DESIGN.md states in prose rather than front matter: the
  * site form shadow, the 1px hairline, the ink focus ring, the 24px minimum
- * target, the 40px field height, and the reading measure for forms.
+ * target, the 40px field height, the 248px navigation rail, and the reading
+ * measure for forms.
  */
 export const sizes = {
   hairline: "1px",
@@ -106,6 +107,7 @@ export const sizes = {
   "target-min": "24px",
   "field-min": "40px",
   "button-padding-inline": "22px",
+  rail: "248px",
   "form-measure": "28rem",
   "content-measure": "80rem",
 } as const;

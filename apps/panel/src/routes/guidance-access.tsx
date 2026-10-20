@@ -202,7 +202,7 @@ export default function GuidanceAccess() {
   return (
     <>
       <PageHeader
-        eyebrow="Access"
+        eyebrow="Govern"
         title={GUIDANCE_ACCESS_COPY.heading}
         description="Manage which roles can read Guidance events and how long they are kept."
       />
@@ -397,7 +397,7 @@ function RoleRow({
         />
         <span className="role-row__name">{role}</span>
       </label>
-      <Badge tone={disabled ? "solid" : checked ? "outline" : "neutral"} icon={checked ? "check" : "dash"}>
+      <Badge tone={checked ? "outline" : "neutral"} icon={checked ? "check" : "dash"}>
         {badge}
       </Badge>
       <p className="role-row__description" id={`${id}-description`}>
@@ -414,7 +414,7 @@ function MintSection({ formKey, actionData }: { readonly formKey: string; readon
     <SectionCard title={copy.token.heading}>
       <Form key={`mint-${formKey}`} method="post" aria-label={copy.token.heading}>
         <input type="hidden" name="intent" value="mint" />
-        <Button variant="primary" type="submit">
+        <Button variant="secondary" type="submit">
           {copy.token.mint}
         </Button>
       </Form>

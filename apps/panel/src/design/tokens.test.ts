@@ -81,6 +81,7 @@ describe("design tokens", () => {
       expect(css).toContain("--type-label-strong-weight: 600;");
       expect(css).toContain("--radius-sm: 4px;");
       expect(css).toContain("--space-gutter: 24px;");
+      expect(css).toContain("--size-rail: 248px;");
     });
 
     it("emits the new page-title, caption and stat sizes and the card/popover shadows", () => {

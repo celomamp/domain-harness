@@ -195,6 +195,20 @@ const HISTORY_TYPES: Readonly<Record<Compilation["type"], string>> = {
   collector_health: "Collector health",
 };
 
+/** The readable, sentence-case History detail for a binding refusal, instead of the raw reason. */
+function bindingRefusalDetail(reason: BindingRefusalCompilation["reason"]): string {
+  switch (reason) {
+    case "commit_first":
+      return "The repository has no commit.";
+    case "missing_identification_file":
+      return "The Project identification file is missing.";
+    case "unknown_application":
+      return "The Application id is not in the active bundle.";
+    case "unavailable":
+      return "The binding outcome could not be read.";
+  }
+}
+
 /** The short fact each Compilation carries: its verdict, outcome, refusal reason, and so on. */
 function historyDetail(entry: Compilation): string {
   switch (entry.type) {
@@ -205,7 +219,7 @@ function historyDetail(entry: Compilation): string {
     case "deviation":
       return `Status ${entry.deviation.status}.`;
     case "binding_refusal":
-      return `Reason ${entry.reason}.`;
+      return bindingRefusalDetail(entry.reason);
     case "bundle_status":
       return `Bundle sequence ${String(entry.bundleSequence)}.`;
     case "collector_health":
@@ -373,7 +387,9 @@ function Summary({ latest, consulted }: { readonly latest: GateRunCompilation | 
           />
           <div className="application-summary__fact" role="group" aria-label={APPLICATION_COPY.summary.verdict}>
             <span className="application-summary__label type-body-sm">{APPLICATION_COPY.summary.verdict}</span>
-            <Badge tone="neutral">{latest.verdict}</Badge>
+            <Badge tone="neutral" icon={latest.verdict === "pass" ? "check" : "alert"}>
+              {latest.verdict}
+            </Badge>
           </div>
           <Stat
             label={APPLICATION_COPY.summary.openDeviations}
@@ -383,7 +399,7 @@ function Summary({ latest, consulted }: { readonly latest: GateRunCompilation | 
       )}
       <div className="application-summary__fact" role="group" aria-label={APPLICATION_COPY.summary.guidance}>
         <span className="application-summary__label type-body-sm">{APPLICATION_COPY.summary.guidance}</span>
-        <Badge tone="neutral">{consulted ? "yes" : "no"}</Badge>
+        <Badge tone="neutral" icon={consulted ? "check" : "dash"}>{consulted ? "yes" : "no"}</Badge>
       </div>
     </div>
   );
@@ -432,7 +448,7 @@ function DeviationsTable({
   return (
     <div className="data-table__scroll" tabIndex={0}>
       <table className="data-table deviations-table">
-        <caption>{APPLICATION_COPY.deviationsHeading}</caption>
+        <caption className="visually-hidden">{APPLICATION_COPY.deviationsHeading}</caption>
         <thead>
           <tr>
             {APPLICATION_COPY.headers.map((header) => (
@@ -452,8 +468,21 @@ function DeviationsTable({
                 tabIndex={-1}
                 className="deviation-card"
               >
-                <td>{row.status}</td>
-                <th scope="row">{row.standardId}</th>
+                <td>
+                  {row.status === "open" ? (
+                    <Badge tone="solid" icon="dot">
+                      {row.status}
+                    </Badge>
+                  ) : (
+                    <Badge tone="outline" icon="check">
+                      {row.status}
+                    </Badge>
+                  )}
+                </td>
+                <th scope="row">
+                  {row.standardId}
+                  <CopyButton value={row.standardId} label="Copy id" />
+                </th>
                 <td>{row.slotText}</td>
                 <td>{row.subject}</td>
                 <td>

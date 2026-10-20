@@ -18,6 +18,7 @@ export interface SideSheetProps {
  */
 export function SideSheet({ open, onClose, title, description, children }: SideSheetProps) {
   const titleId = useId();
+  const descriptionId = useId();
   const sheetRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
@@ -48,7 +49,11 @@ export function SideSheet({ open, onClose, title, description, children }: SideS
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (first === undefined || last === undefined) return;
-      if (event.shiftKey && document.activeElement === first) {
+      // The title has tabIndex={-1} so the focusable query above excludes it;
+      // Shift+Tab from the title must still wrap to the last focusable instead
+      // of escaping the modal.
+      const atStart = document.activeElement === first || document.activeElement === titleRef.current;
+      if (event.shiftKey && atStart) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -71,6 +76,7 @@ export function SideSheet({ open, onClose, title, description, children }: SideS
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
       >
         <header className="side-sheet__header">
           <h2 id={titleId} ref={titleRef} tabIndex={-1} className="side-sheet__title">
@@ -80,7 +86,9 @@ export function SideSheet({ open, onClose, title, description, children }: SideS
             <Icon name="close" />
           </button>
         </header>
-        {description ? <p className="side-sheet__description">{description}</p> : null}
+        {description ? (
+          <p id={descriptionId} className="side-sheet__description">{description}</p>
+        ) : null}
         <div className="side-sheet__body">{children}</div>
       </div>
     </div>

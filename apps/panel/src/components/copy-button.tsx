@@ -9,8 +9,10 @@ export interface CopyButtonProps {
 
 /**
  * copy-button: writes `value` to the clipboard and shows `copiedLabel` for
- * 2000ms. A rejected write returns the control to its resting label; there is
- * no live region here — action results are announced through `Status`.
+ * 2000ms. A rejected write returns the control to its resting label. While
+ * confirmed, a visually hidden `role="status"` sibling announces the local
+ * copy confirmation; the page-level `Status` remains the region for action
+ * results.
  */
 export function CopyButton({ value, label = "Copy", copiedLabel = "Copied" }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
@@ -24,6 +26,7 @@ export function CopyButton({ value, label = "Copy", copiedLabel = "Copied" }: Co
   );
 
   async function handleClick() {
+    if (timer.current !== undefined) window.clearTimeout(timer.current);
     try {
       await navigator.clipboard.writeText(value);
       setCopied(true);
@@ -34,9 +37,12 @@ export function CopyButton({ value, label = "Copy", copiedLabel = "Copied" }: Co
   }
 
   return (
-    <button type="button" className="copy-button" onClick={() => { void handleClick(); }}>
-      <Icon name={copied ? "check" : "copy"} />
-      <span>{copied ? copiedLabel : label}</span>
-    </button>
+    <>
+      <button type="button" className="copy-button" onClick={() => { void handleClick(); }}>
+        <Icon name={copied ? "check" : "copy"} />
+        <span>{copied ? copiedLabel : label}</span>
+      </button>
+      {copied ? <span role="status" className="visually-hidden">{copiedLabel}</span> : null}
+    </>
   );
 }

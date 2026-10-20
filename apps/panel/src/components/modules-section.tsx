@@ -251,7 +251,11 @@ function ModuleRow({
         <Badge tone="neutral">{MODULE_KIND_LABELS[module.kind]}</Badge>
       </td>
       <td className="owner-cell">
-        {module.owner === null ? <p>{MODULES_COPY.noOwner}</p> : <p>{module.owner.name}</p>}
+        {module.owner === null ? (
+          <Badge tone="neutral">{MODULES_COPY.noOwner}</Badge>
+        ) : (
+          <p>{module.owner.name}</p>
+        )}
       </td>
       <td>
         {module.owner === null ? (
@@ -394,7 +398,7 @@ export function CreateModuleSheet({ open, onClose, submitted }: CreateModuleShee
           </p>
         )}
         <Button variant="primary" type="submit">
-          Create Module
+          Create
         </Button>
       </Form>
     </SideSheet>

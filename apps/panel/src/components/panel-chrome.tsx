@@ -56,6 +56,8 @@ export interface PanelChromeProps {
 export function PanelChrome({ role, children }: PanelChromeProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const rail = useRef<HTMLElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
 
   // Close the drawer and return focus to the menu button that opened it.
   const closeDrawer = useCallback(() => {
@@ -63,11 +65,38 @@ export function PanelChrome({ role, children }: PanelChromeProps) {
     menuButton.current?.focus();
   }, []);
 
-  // Esc closes the drawer and returns focus to the menu button.
+  // On open, move focus into the drawer so the keyboard user is not stranded
+  // on the menu button. The close control is the first focusable element.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    closeButton.current?.focus();
+  }, [drawerOpen]);
+
+  // While open: Escape closes (returning focus to the menu button) and
+  // Tab/Shift+Tab stay within the drawer.
   useEffect(() => {
     if (!drawerOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDrawer();
+      if (event.key === "Escape") {
+        closeDrawer();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const drawer = rail.current;
+      if (!drawer) return;
+      const focusable = drawer.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (first === undefined || last === undefined) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -83,13 +112,14 @@ export function PanelChrome({ role, children }: PanelChromeProps) {
       <div className="shell">
         <aside
           id="shell-rail"
+          ref={rail}
           className={`shell__rail${drawerOpen ? " shell__rail--open" : ""}`}
-          aria-label="Management panel"
+          aria-label="Panel sidebar"
         >
           <div className="shell__rail-head">
             <p className="shell__wordmark">Domain Harness</p>
             {drawerOpen ? (
-              <button type="button" className="shell__close" onClick={closeDrawer}>
+              <button type="button" ref={closeButton} className="shell__close" onClick={closeDrawer}>
                 <Icon name="close" label="Close menu" />
               </button>
             ) : null}
@@ -142,7 +172,7 @@ export function PanelChrome({ role, children }: PanelChromeProps) {
             </button>
             <p className="shell__wordmark">Domain Harness</p>
           </header>
-          <main id="main" className="panel-main">
+          <main id="main" className="panel-main" tabIndex={-1}>
             {children}
           </main>
         </div>

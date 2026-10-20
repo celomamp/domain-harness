@@ -546,6 +546,8 @@ function AcceptanceForm({ applications, effective, submitted }: AcceptanceFormPr
               setPaste(event.target.value);
               setPasteError(false);
             }}
+            aria-invalid={pasteError ? true : undefined}
+            aria-describedby={pasteError ? "accepted-deviation-ci-line-error" : undefined}
           />
           <p>{copy.paste.hint}</p>
           {pasteError ? (
@@ -557,7 +559,7 @@ function AcceptanceForm({ applications, effective, submitted }: AcceptanceFormPr
             {copy.paste.use}
           </Button>
 
-          <div className="acceptance-preview" aria-label={copy.preview.label}>
+          <div className="acceptance-preview" role="group" aria-label={copy.preview.label}>
             <span className="acceptance-preview__chip">
               <span className="acceptance-preview__chip-label">{copy.preview.standard}</span>
               <span className="acceptance-preview__chip-value">{standardId === "" ? copy.preview.empty : standardId}</span>

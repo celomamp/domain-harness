@@ -52,6 +52,7 @@ export const PROJECT_TREE_COPY = {
   contextLabel: "Project context",
   changeHeading: (name: string) => `Change the parent of ${name}`,
   change: "Change parent",
+  saveParent: "Save parent",
   header: {
     level: "Level name",
     parent: "Parent",
@@ -375,6 +376,7 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
               tabIndex={-1}
               onClick={(event) => {
                 event.stopPropagation();
+                setFocusedId(project.id);
                 setExpandedFor(project.id, !isExpanded);
               }}
             >
@@ -507,7 +509,7 @@ export function ChangeParentForm({ tree, selected, submitted }: ProjectFormProps
       <input type="hidden" name="projectId" value={selected.id} />
       <ParentSelect form="parent" errors={errors} tree={tree} value={kept ?? selected.parentId ?? ""} />
       <Button variant="inverse" type="submit">
-        {PROJECT_TREE_COPY.change}
+        {PROJECT_TREE_COPY.saveParent}
       </Button>
       <PlanRefusal message={submitted?.planRefusal} />
     </Form>
@@ -640,6 +642,7 @@ const BUILD_GRANT: GrantKind = { copy: PROJECT_TREE_COPY.build, intent: "build" 
 function GrantPanel({ kind, list }: { readonly kind: GrantKind; readonly list: ChildPermissionList | BuildGrantList }) {
   const { copy, intent } = kind;
   const granted = new Set(list.grants.map((grant) => grant.account.accountId));
+  const grantByAccount = new Map(list.grants.map((grant) => [grant.account.accountId, grant]));
   if (list.eligibleAccounts.length === 0) {
     return <p>{copy.empty}</p>;
   }
@@ -648,9 +651,14 @@ function GrantPanel({ kind, list }: { readonly kind: GrantKind; readonly list: C
       <ul className="grant-section__grants">
         {list.eligibleAccounts.map((account) => {
           const isGranted = granted.has(account.accountId);
+          const grant = grantByAccount.get(account.accountId);
           return (
             <li key={account.accountId} className="grant-section__grant">
-              <span className="grant-section__account">{copy.account(account)}</span>
+              <span className="grant-section__account">
+                {isGranted && grant !== undefined
+                  ? copy.grant(account, grant.grantedBy.name, grant.grantedAt)
+                  : copy.account(account)}
+              </span>
               <Badge tone={isGranted ? "outline" : "neutral"} icon={isGranted ? "check" : "dash"}>
                 {isGranted ? copy.grantedLabel : copy.notGrantedLabel}
               </Badge>

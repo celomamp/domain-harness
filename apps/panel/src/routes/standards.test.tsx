@@ -148,7 +148,7 @@ describe("Standards: Modules section", () => {
     renderStandards("Builder", { modules: [unowned], standardOwners });
     const dialog = await openCreateSheet();
     fireEvent.change(within(dialog).getByLabelText("Module name"), { target: { value: "Code stack 2" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Module" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => {
       expect(screen.getByRole("status").textContent).toBe(DENIAL);
     });
@@ -163,7 +163,7 @@ describe("Standards: Modules section", () => {
     const dialog = await openCreateSheet();
     fireEvent.change(within(dialog).getByLabelText("Module name"), { target: { value: "code STACK" } });
     fireEvent.change(within(dialog).getByLabelText("Kind"), { target: { value: "design-system" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Module" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
 
     const error = await within(dialog).findByText(/Another Module already has this name/);
     const input = within(dialog).getByLabelText<HTMLInputElement>("Module name");
@@ -197,7 +197,7 @@ describe("Standards: Modules section", () => {
     renderStandards("Buyer", { modules: [], standardOwners });
     const dialog = await openCreateSheet();
     fireEvent.change(within(dialog).getByLabelText("Module name"), { target: { value: " Code stack " } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Module" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => {
       expect(screen.getByRole("status").textContent).toBe("Module created: Code stack.");
     });
@@ -217,7 +217,9 @@ describe("Standards: Modules section", () => {
   it("keeps tab order equal to reading order with no positive tabindex", async () => {
     renderStandards("Buyer", { modules: [unowned], standardOwners });
     await screen.findByRole("table");
-    expect(document.querySelectorAll("[tabindex]").length).toBe(0);
+    // The shell's skip-link target on `<main>` carries tabindex="-1"; no element
+    // may carry a tabindex that participates in (or reorders) the tab order.
+    expect([...document.querySelectorAll<HTMLElement>("[tabindex]")].filter((el) => el.tabIndex >= 0)).toHaveLength(0);
     const focusables = [
       ...document.querySelectorAll<HTMLElement>("main a[href], main button, main input:not([type=hidden]), main select"),
     ];

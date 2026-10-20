@@ -212,6 +212,14 @@
   background: var(--color-sidebar-active);
 }
 
+/* The rail and mobile bar sit on the sidebar surface, so the global ink focus
+   ring (--color-ink) would be invisible against it. Re-color the ring with
+   the sidebar-ink pair (already contrast-tested on sidebar). */
+.shell__rail :focus-visible,
+.shell__mobilebar :focus-visible {
+  outline-color: var(--color-sidebar-ink);
+}
+
 /* Below 1024px the rail is an off-canvas drawer: hidden until the menu
    button opens it, with no slide (instant state changes). */
 @media (max-width: 63.999rem) {
@@ -220,7 +228,7 @@
     inset-block: 0;
     inset-inline-start: 0;
     z-index: 2;
-    inline-size: 15.5rem;
+    inline-size: var(--size-rail);
     overflow-y: auto;
     display: none;
   }
@@ -234,11 +242,11 @@
   }
 }
 
-/* Desktop (>= 1024px): a 248px (15.5rem) sticky rail and no top bar. */
+/* Desktop (>= 1024px): a 248px (var(--size-rail)) sticky rail and no top bar. */
 @media (min-width: 64rem) {
   .shell {
     display: grid;
-    grid-template-columns: 15.5rem minmax(0, 1fr);
+    grid-template-columns: var(--size-rail) minmax(0, 1fr);
   }
 
   .shell__rail {
