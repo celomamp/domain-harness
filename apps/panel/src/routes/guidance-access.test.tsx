@@ -213,7 +213,10 @@ describe("Guidance access", () => {
     fireEvent.change(input, { target: { value: "soon" } });
     fireEvent.click(screen.getByRole("button", { name: "Save Guidance access" }));
 
-    expect((await screen.findByRole("status")).textContent).toContain(GUIDANCE_ACCESS_COPY.retention.invalid);
+    // The status region is always present (empty until the action answers), so wait for its text.
+    await waitFor(() => {
+      expect(screen.getByRole("status").textContent).toContain(GUIDANCE_ACCESS_COPY.retention.invalid);
+    });
     expect(input.getAttribute("aria-describedby")).toBe("retention-error");
     expect(screen.getAllByRole("status")).toHaveLength(1);
   });

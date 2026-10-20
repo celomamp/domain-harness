@@ -98,6 +98,10 @@ export function SignInForm({ notice, email }: SignInFormProps) {
               <Button
                 variant="secondary"
                 onClick={() => {
+                  // The person chose the form: a submit still settling (its
+                  // revalidation) must not flip back to the confirmation.
+                  awaitingActionResult.current = false;
+                  actionWasPending.current = false;
                   setShowForm(true);
                 }}
               >
