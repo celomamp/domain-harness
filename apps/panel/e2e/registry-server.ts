@@ -47,6 +47,8 @@ const registry = spawn(process.execPath, ["--conditions=@domain-harness/source",
     REGISTRY_MAIL_OUTBOX_DIR: OUTBOX_DIR,
     REGISTRY_BUNDLE_SIGNING_KEY: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
     REGISTRY_BUNDLE_SIGNING_KEY_ID: "e2e-key-1",
+    // The staging demo accounts are exercised end to end too (auth.spec.ts).
+    REGISTRY_DEMO_SIGN_IN: "1",
   },
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

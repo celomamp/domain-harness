@@ -158,6 +158,11 @@ export function requestSignInLink(email: string): Promise<RegistryResult<Record<
   return call(REGISTRY_API_PATHS.signInLinks, json({ email }), 202, isEmptyObject);
 }
 
+/** Staging only: a session for a demo account, with no emailed link (404 where demo sign-in is off). */
+export function createDemoSession(email: string): Promise<RegistryResult<SessionCreated>> {
+  return call(REGISTRY_API_PATHS.demoSessions, json({ email }), 201, isSessionCreated);
+}
+
 /** Exchange an emailed link token for a session. */
 export function createSession(token: string): Promise<RegistryResult<SessionCreated>> {
   return call(REGISTRY_API_PATHS.sessions, json({ token }), 201, isSessionCreated);

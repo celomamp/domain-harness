@@ -72,4 +72,11 @@ test.describe("sign-in", () => {
     await page.getByRole("button", { name: "Use a different address" }).click();
     await expect(page.getByLabel("Email address")).toBeVisible();
   });
+
+  test("on staging, a demo account signs in with one press and no email", async ({ page }) => {
+    await page.goto("/sign-in");
+    await page.getByRole("button", { name: "Sign in as Builder" }).click();
+    await expect(page).toHaveURL(/\/inventory$/);
+    await expect(page.getByRole("complementary", { name: "Panel sidebar" }).getByText("Builder", { exact: true })).toBeVisible();
+  });
 });

@@ -1,9 +1,19 @@
-import { data, useActionData, useLoaderData } from "react-router";
+import { data, redirect, useActionData, useLoaderData } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { isEmailAddress, normalizeEmail } from "@domain-harness/contract";
+import { DEMO_ACCOUNTS, isDemoEmail, isEmailAddress, normalizeEmail } from "@domain-harness/contract";
 import { SignInForm } from "../components/sign-in-form.tsx";
-import type { SignInNotice } from "../components/sign-in-form.tsx";
-import { requestSignInLink } from "../registry.server.ts";
+import type { DemoAccount, SignInNotice } from "../components/sign-in-form.tsx";
+import { createDemoSession, requestSignInLink } from "../registry.server.ts";
+import { sessionCookie } from "../session.server.ts";
+
+/**
+ * Staging only: with PANEL_DEMO_SIGN_IN=1 (set only in fly.panel-staging.toml)
+ * the page offers the demo accounts, and signing in as one opens a session at
+ * once instead of emailing a link. The registry must enable it too.
+ */
+function demoSignInEnabled(): boolean {
+  return process.env["PANEL_DEMO_SIGN_IN"]?.trim() === "1";
+}
 
 export const meta: MetaFunction = () => [{ title: "Sign in | Domain Harness" }];
 
@@ -13,9 +23,12 @@ export interface SignInActionData {
 }
 
 /** `?status=link-invalid` and `?status=unavailable` come from the verify route. */
-export function loader({ request }: LoaderFunctionArgs): { notice: SignInNotice } {
+export function loader({ request }: LoaderFunctionArgs): { notice: SignInNotice; demoAccounts: readonly DemoAccount[] } {
   const status = new URL(request.url).searchParams.get("status");
-  return { notice: status === "link-invalid" || status === "unavailable" ? status : null };
+  return {
+    notice: status === "link-invalid" || status === "unavailable" ? status : null,
+    demoAccounts: demoSignInEnabled() ? DEMO_ACCOUNTS : [],
+  };
 }
 
 /**
@@ -33,6 +46,13 @@ export async function action({ request }: ActionFunctionArgs) {
   const email = typeof raw === "string" ? raw : "";
   if (!isEmailAddress(email)) {
     return data<SignInActionData>({ notice: "invalid", email });
+  }
+  if (demoSignInEnabled() && isDemoEmail(email)) {
+    const demo = await createDemoSession(normalizeEmail(email));
+    if (demo.kind !== "ok") return data<SignInActionData>({ notice: "unavailable", email });
+    return redirect("/inventory", {
+      headers: { "Set-Cookie": sessionCookie(request, demo.value.sessionToken, demo.value.expiresAt) },
+    });
   }
   const result = await requestSignInLink(normalizeEmail(email));
   if (result.kind === "unavailable") {
@@ -52,5 +72,11 @@ export async function action({ request }: ActionFunctionArgs) {
 export default function SignIn() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  return <SignInForm notice={actionData?.notice ?? loaderData.notice} email={actionData?.email ?? ""} />;
+  return (
+    <SignInForm
+      notice={actionData?.notice ?? loaderData.notice}
+      email={actionData?.email ?? ""}
+      demoAccounts={loaderData.demoAccounts}
+    />
+  );
 }

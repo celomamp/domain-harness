@@ -17,7 +17,34 @@ export const REGISTRY_API_PATHS = {
   sessions: "/v1/sessions",
   /** `GET` with `Authorization: Bearer <session token>`: 200 {@link SessionInfo}, or 401 `session_invalid`. */
   session: "/v1/session",
+  /**
+   * `POST` a {@link SignInLinkRequest} naming one of the {@link DEMO_ACCOUNTS}:
+   * 201 {@link SessionCreated} with no emailed link. Served only when the
+   * registry runs with `REGISTRY_DEMO_SIGN_IN=1` (staging); 404 otherwise.
+   */
+  demoSessions: "/v1/demo-sessions",
 } as const;
+
+/**
+ * The demo Company for staging and pilot testing: three accounts, one per
+ * role, that sign in without an emailed link. Never active in production: the
+ * registry provisions and serves them only with `REGISTRY_DEMO_SIGN_IN=1`, and
+ * the panel offers them only with `PANEL_DEMO_SIGN_IN=1` (both set only in the
+ * `fly.*-staging.toml` files).
+ */
+export const DEMO_COMPANY = "Demo Pilot";
+
+export const DEMO_ACCOUNTS: readonly { readonly name: string; readonly email: string; readonly role: Role }[] = [
+  { name: "Demo Buyer", email: "buyer@demo.domainharness.test", role: "Buyer" },
+  { name: "Demo Standard Owner", email: "owner@demo.domainharness.test", role: "Standard owner" },
+  { name: "Demo Builder", email: "builder@demo.domainharness.test", role: "Builder" },
+];
+
+/** True when `email` (in any case or padding) is one of the {@link DEMO_ACCOUNTS}. */
+export function isDemoEmail(email: string): boolean {
+  const address = normalizeEmail(email);
+  return DEMO_ACCOUNTS.some((account) => account.email === address);
+}
 
 /** The link was malformed, unknown, already used or expired. One code for all, so none is distinguishable. */
 export const SIGN_IN_LINK_INVALID = "sign_in_link_invalid";

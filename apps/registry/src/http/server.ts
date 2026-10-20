@@ -147,6 +147,7 @@ const ROUTES: Readonly<Record<string, readonly string[]>> = {
   [REGISTRY_API_PATHS.signInLinks]: ["POST"],
   [REGISTRY_API_PATHS.sessions]: ["POST"],
   [REGISTRY_API_PATHS.session]: ["GET"],
+  [REGISTRY_API_PATHS.demoSessions]: ["POST"],
   [MODULE_API_PATHS.modules]: ["GET", "POST"],
   [MODULE_OWNER_ROUTE]: ["POST"],
   [MODULE_STANDARDS_ROUTE]: ["GET", "POST"],
@@ -388,6 +389,21 @@ async function handle(
     }
     case REGISTRY_API_PATHS.session: {
       sendJson(res, 200, await service.getSession(bearerToken(req)));
+      return;
+    }
+    case REGISTRY_API_PATHS.demoSessions: {
+      // Staging only: without demo sign-in the endpoint does not exist.
+      if (service.openDemoSession === undefined) {
+        throw new HttpFailure({ code: "not_found", message: "no such registry endpoint", subject: path });
+      }
+      const body = await readJson(req);
+      const email = onlyField(body, "email");
+      if (!isEmailAddress(email)) {
+        throw new HttpFailure({ code: "invalid_input", message: "email must be an email address", subject: "email" });
+      }
+      const created = await service.openDemoSession(email);
+      log({ event: "demo_session", role: created.session.role });
+      sendJson(res, 201, created);
       return;
     }
     case MODULE_API_PATHS.modules: {

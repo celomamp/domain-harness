@@ -47,7 +47,7 @@ export default defineConfig({
       timeout: 60_000,
       stdout: "ignore",
       stderr: "pipe",
-      env: { PORT: String(PANEL_PORT), PANEL_REGISTRY_URL: REGISTRY_URL },
+      env: { PORT: String(PANEL_PORT), PANEL_REGISTRY_URL: REGISTRY_URL, PANEL_DEMO_SIGN_IN: "1" },
     },
   ],
 });

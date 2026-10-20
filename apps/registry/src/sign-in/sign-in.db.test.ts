@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isSessionCreated } from "@domain-harness/contract";
+import { DEMO_ACCOUNTS, isSessionCreated } from "@domain-harness/contract";
 import type { UuidV7 } from "@domain-harness/contract";
 import { createRegistryDb } from "../db/client.ts";
 import type { RegistryDb } from "../db/client.ts";
@@ -22,7 +22,8 @@ import { createModuleService } from "../modules/service.ts";
 import { MemoryTransport } from "../mail/memory.ts";
 import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
-import { consumeSignInLink, createSignInService, getSession, requestSignInLinks } from "./service.ts";
+import { ensureDemoCompany } from "./demo.ts";
+import { consumeSignInLink, createSignInService, getSession, openDemoSession, requestSignInLinks } from "./service.ts";
 import { hashToken, mintToken } from "./tokens.ts";
 import { createProjectService } from "../projects/service.ts";
 import { createLockedRuleService } from "../locked-rules/service.ts";
@@ -452,6 +453,75 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
         expect(await me.json()).toEqual(created.session);
       } finally {
         await new Promise((resolve) => server.close(resolve));
+      }
+    });
+  });
+
+  describe("demo sign-in (staging only)", () => {
+    it("provisions the demo Company once and opens sessions for its accounts without a link", async () => {
+      expect(await ensureDemoCompany(db)).toBe("provisioned");
+      expect(await ensureDemoCompany(db)).toBe("present");
+
+      for (const account of DEMO_ACCOUNTS) {
+        const created = await openDemoSession(db, ` ${account.email.toUpperCase()} `);
+        expect(isSessionCreated(created)).toBe(true);
+        expect(created.session.role).toBe(account.role);
+        expect(await getSession(db, created.sessionToken)).toEqual(created.session);
+      }
+    });
+
+    it("refuses any address that is not a demo account", async () => {
+      await expect(openDemoSession(db, "bea@acme.io")).rejects.toMatchObject({ code: "sign_in_link_invalid" });
+    });
+
+    it("exists over HTTP only when demo sign-in is enabled", async () => {
+      const { privateKey } = generateKeyPairSync("ed25519");
+      const signer = ed25519SignerFromEnv({
+        REGISTRY_BUNDLE_SIGNING_KEY: privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+        REGISTRY_BUNDLE_SIGNING_KEY_ID: "demo-test-key",
+      });
+      const serve = async (demoSignIn: boolean) => {
+        const server = createRegistryServer(
+          {
+            signIn: createSignInService(db, new MemoryTransport(), { ...config, demoSignIn }),
+            modules: createModuleService(db),
+            standards: createStandardService(db),
+            projects: createProjectService(db),
+            lockedRules: createLockedRuleService(db),
+            childPermissions: createChildPermissionService(db),
+            buildGrants: createBuildGrantService(db),
+            applications: createApplicationService(db),
+            guidanceEndpoint: createGuidanceEndpointService(db),
+            acceptedDeviations: createAcceptedDeviationsService(db),
+            acceptedDeviationAlerts: createAcceptedDeviationAlertsService(db),
+            boilerplate: createBoilerplateService(db),
+            compilations: createCompilationsService(db),
+            guidanceAccess: createGuidanceAccessService(db, signer),
+          },
+          () => undefined,
+        );
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+        return server;
+      };
+      const post = (server: Awaited<ReturnType<typeof serve>>, email: string) =>
+        fetch(`http://127.0.0.1:${String((server.address() as AddressInfo).port)}/v1/demo-sessions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+
+      await ensureDemoCompany(db);
+      const off = await serve(false);
+      const on = await serve(true);
+      try {
+        expect((await post(off, DEMO_ACCOUNTS[0]?.email ?? "")).status).toBe(404);
+        const opened = await post(on, DEMO_ACCOUNTS[0]?.email ?? "");
+        expect(opened.status).toBe(201);
+        expect(isSessionCreated(await opened.json())).toBe(true);
+        expect((await post(on, "bea@acme.io")).status).toBe(401);
+      } finally {
+        await new Promise((resolve) => off.close(resolve));
+        await new Promise((resolve) => on.close(resolve));
       }
     });
   });

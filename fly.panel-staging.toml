@@ -15,6 +15,9 @@ primary_region = "iad"
   HOST = "0.0.0.0"
   PORT = "3000"
   PANEL_REGISTRY_URL = "http://dh-registry-staging.internal:4100"
+  # Staging only, never in production: the sign-in page offers the three demo
+  # accounts ("Sign in as Buyer / Standard owner / Builder"), no email needed.
+  PANEL_DEMO_SIGN_IN = "1"
 
 [[services]]
   protocol = "tcp"

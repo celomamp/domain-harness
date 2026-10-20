@@ -7,6 +7,8 @@
 //   REGISTRY_SMTP_URL + REGISTRY_MAIL_FROM, or REGISTRY_MAIL_OUTBOX_DIR (exactly one)
 //   REGISTRY_BUNDLE_SIGNING_KEY     Ed25519 private key in PKCS#8 PEM format
 //   REGISTRY_BUNDLE_SIGNING_KEY_ID  non-empty key identifier carried in signed bundles
+//   REGISTRY_DEMO_SIGN_IN           "1" on staging only: provision the demo Company
+//                                   and serve POST /v1/demo-sessions (no emailed link)
 // Logs carry ids, codes and counts only. Any start-up error prints one envelope
 // to stderr and exits 1.
 import { EnvelopeError } from "../errors.ts";
@@ -29,6 +31,7 @@ import { ALERT_TICK_SECONDS, createAcceptedDeviationAlertsService } from "../acc
 import { ed25519SignerFromEnv } from "../bundles/sign.ts";
 import { createBundleService } from "../bundles/service.ts";
 import { createSignInService } from "../sign-in/service.ts";
+import { demoSignInEnabled, ensureDemoCompany } from "../sign-in/demo.ts";
 import { createStandardService } from "../standards/service.ts";
 import { createRegistryServer, stdoutLogger } from "./server.ts";
 
@@ -77,7 +80,8 @@ function port(): number {
 
 async function main(): Promise<void> {
   const connectionString = required(DB_ENV);
-  const config = { panelUrl: panelUrl() };
+  const demoSignIn = demoSignInEnabled(process.env);
+  const config = { panelUrl: panelUrl(), demoSignIn };
   const mailer = createTransportFromEnv(process.env);
   const host = process.env["REGISTRY_HTTP_HOST"]?.trim() || "127.0.0.1";
   const listenPort = port();
@@ -105,6 +109,15 @@ async function main(): Promise<void> {
   } catch (error) {
     await pool.end();
     throw error;
+  }
+
+  if (demoSignIn) {
+    try {
+      stdoutLogger({ event: "demo_company", state: await ensureDemoCompany(db) });
+    } catch (error) {
+      // Demo sign-in is a convenience: report the code, keep serving.
+      stdoutLogger({ event: "demo_company_failed", code: error instanceof EnvelopeError ? error.code : "unexpected" });
+    }
   }
 
   // The alert service serves both the HTTP routes and the schedule: one

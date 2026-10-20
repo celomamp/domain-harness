@@ -1,5 +1,6 @@
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import {
+  isDemoEmail,
   isEmailAddress,
   isUuidV7,
   normalizeEmail,
@@ -8,7 +9,7 @@ import {
   SIGN_IN_LINK_INVALID,
   SIGN_IN_LINK_TTL_MINUTES,
 } from "@domain-harness/contract";
-import type { SessionCreated, SessionInfo } from "@domain-harness/contract";
+import type { SessionCreated, SessionInfo, UuidV7 } from "@domain-harness/contract";
 import { EnvelopeError } from "../errors.ts";
 import { mintUuidV7 } from "../ids.ts";
 import type { RegistryDb } from "../db/client.ts";
@@ -56,27 +57,11 @@ export async function requestSignInLinks(
     throw new EnvelopeError({ code: "invalid_input", message: "email must be an email address", subject: "email" });
   }
   const address = normalizeEmail(email);
-  const { rows } = await db.execute<LookupRow>(
-    sql`select tenant_id::text as tenant_id, account_id::text as account_id from sign_in_account_lookup(${address})`,
-  );
+  const holders = await lookupAccounts(db, address);
 
   const messages: MailMessage[] = [];
-  for (const row of rows) {
-    const tenantId = row.tenant_id;
-    const accountId = row.account_id;
-    if (!isUuidV7(tenantId) || !isUuidV7(accountId)) continue;
-    const token = mintToken(tenantId);
-    const companyName = await withTenant(db, tenantId, async (tx) => {
-      const [tenant] = await tx.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId));
-      await tx.insert(signInLinks).values({
-        id: mintUuidV7(),
-        tenantId,
-        accountId,
-        tokenHash: hashToken(token),
-        expiresAt: sql`now() + make_interval(mins => ${SIGN_IN_LINK_TTL_MINUTES})`,
-      });
-      return tenant?.name ?? "";
-    });
+  for (const { tenantId, accountId } of holders) {
+    const { token, companyName } = await mintSignInLink(db, tenantId, accountId);
     messages.push(composeSignInMessage({ to: address, companyName, panelUrl: config.panelUrl, token }));
   }
 
@@ -92,6 +77,57 @@ export async function requestSignInLinks(
     }
   }
   return { links: messages.length, sent, failed };
+}
+
+/** Store one single-use link for the account; returns its token and the Company name. */
+async function mintSignInLink(
+  db: RegistryDb,
+  tenantId: UuidV7,
+  accountId: UuidV7,
+): Promise<{ token: string; companyName: string }> {
+  const token = mintToken(tenantId);
+  const companyName = await withTenant(db, tenantId, async (tx) => {
+    const [tenant] = await tx.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId));
+    await tx.insert(signInLinks).values({
+      id: mintUuidV7(),
+      tenantId,
+      accountId,
+      tokenHash: hashToken(token),
+      expiresAt: sql`now() + make_interval(mins => ${SIGN_IN_LINK_TTL_MINUTES})`,
+    });
+    return tenant?.name ?? "";
+  });
+  return { token, companyName };
+}
+
+/** The `(tenant, account)` pairs holding `address`, through the SECURITY DEFINER lookup. */
+export async function lookupAccounts(
+  db: RegistryDb,
+  address: string,
+): Promise<{ tenantId: UuidV7; accountId: UuidV7 }[]> {
+  const { rows } = await db.execute<LookupRow>(
+    sql`select tenant_id::text as tenant_id, account_id::text as account_id from sign_in_account_lookup(${address})`,
+  );
+  const holders: { tenantId: UuidV7; accountId: UuidV7 }[] = [];
+  for (const row of rows) {
+    if (isUuidV7(row.tenant_id) && isUuidV7(row.account_id)) holders.push({ tenantId: row.tenant_id, accountId: row.account_id });
+  }
+  return holders;
+}
+
+/**
+ * Staging only: open a session for one of the demo accounts without emailing
+ * a link. The link is minted and consumed at once through the same single-use
+ * path as an emailed one. Any other address, or a demo address with no
+ * account, is `sign_in_link_invalid`. The HTTP API serves this only when demo
+ * sign-in is enabled.
+ */
+export async function openDemoSession(db: RegistryDb, email: string): Promise<SessionCreated> {
+  if (!isDemoEmail(email)) throw linkInvalid();
+  const [holder] = await lookupAccounts(db, normalizeEmail(email));
+  if (holder === undefined) throw linkInvalid();
+  const { token } = await mintSignInLink(db, holder.tenantId, holder.accountId);
+  return consumeSignInLink(db, token);
 }
 
 const linkInvalid = (): EnvelopeError =>
@@ -188,12 +224,19 @@ export interface SignInService {
   requestSignInLinks(email: string): Promise<SignInLinkReport>;
   createSession(token: string): Promise<SessionCreated>;
   getSession(token: string): Promise<SessionInfo>;
+  /** Present only when demo sign-in is enabled (staging): a session for a demo account, no email. */
+  openDemoSession?(email: string): Promise<SessionCreated>;
 }
 
-export function createSignInService(db: RegistryDb, mailer: MailTransport, config: SignInConfig): SignInService {
+export function createSignInService(
+  db: RegistryDb,
+  mailer: MailTransport,
+  config: SignInConfig & { readonly demoSignIn?: boolean },
+): SignInService {
   return {
     requestSignInLinks: (email) => requestSignInLinks(db, mailer, config, email),
     createSession: (token) => consumeSignInLink(db, token),
     getSession: (token) => getSession(db, token),
+    ...(config.demoSignIn === true ? { openDemoSession: (email: string) => openDemoSession(db, email) } : {}),
   };
 }

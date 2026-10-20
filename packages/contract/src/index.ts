@@ -9,6 +9,9 @@ export { isRecord, isUtcIso } from "./guards.ts";
 export { isUuidV7 } from "./ids.ts";
 export type { UuidV7 } from "./ids.ts";
 export {
+  DEMO_ACCOUNTS,
+  DEMO_COMPANY,
+  isDemoEmail,
   isEmailAddress,
   isSessionCreated,
   isSessionInfo,

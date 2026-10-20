@@ -199,3 +199,67 @@ describe("sign-in", () => {
     expect(screen.getByText("new@acme.io")).toBeTruthy();
   });
 });
+
+describe("sign-in with demo accounts (staging only)", () => {
+  const BUYER = "buyer@demo.domainharness.test";
+  const created = {
+    sessionToken: "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7.demo-token",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    session: {
+      accountId: "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6",
+      tenantId: "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7",
+      role: "Buyer",
+    },
+  };
+  const post = (email: string) => {
+    const body = new FormData();
+    body.set("email", email);
+    return action({
+      request: new Request("http://localhost/sign-in", { method: "POST", body }),
+      params: {},
+      context: {},
+    } as unknown as Parameters<typeof action>[0]);
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("offers nothing and emails a link as usual while PANEL_DEMO_SIGN_IN is off", async () => {
+    const fetch = registry(202, {});
+    renderSignIn();
+    await screen.findByLabelText("Email address");
+    expect(screen.queryByRole("heading", { name: "Demo accounts (staging)" })).toBeNull();
+    await post(BUYER);
+    const [url] = fetch.mock.calls[0] as unknown as [string];
+    expect(url).toMatch(/\/v1\/sign-in-links$/);
+  });
+
+  it("offers one button per role and signs a demo account in at once, with no email", async () => {
+    vi.stubEnv("PANEL_DEMO_SIGN_IN", "1");
+    const fetch = registry(201, created);
+    renderSignIn();
+    expect(await screen.findByRole("heading", { name: "Demo accounts (staging)" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Sign in as / }).map((button) => button.textContent)).toEqual([
+      "Sign in as Buyer",
+      "Sign in as Standard owner",
+      "Sign in as Builder",
+    ]);
+
+    const response = (await post(` ${BUYER.toUpperCase()} `)) as Response;
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/inventory");
+    expect(response.headers.get("Set-Cookie")).toContain(`dh_session=${created.sessionToken}`);
+    const [url, init] = fetch.mock.calls.at(-1) as unknown as [string, RequestInit];
+    expect(url).toMatch(/\/v1\/demo-sessions$/);
+    expect(init.body).toBe(JSON.stringify({ email: BUYER }));
+  });
+
+  it("still emails a link for any other address while demo sign-in is on", async () => {
+    vi.stubEnv("PANEL_DEMO_SIGN_IN", "1");
+    const fetch = registry(202, {});
+    await post("bea@acme.io");
+    const [url] = fetch.mock.calls[0] as unknown as [string];
+    expect(url).toMatch(/\/v1\/sign-in-links$/);
+  });
+});

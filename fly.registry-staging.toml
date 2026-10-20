@@ -25,6 +25,10 @@ primary_region = "iad"
   REGISTRY_PANEL_URL = "https://dh-panel-staging.fly.dev"
   REGISTRY_MAIL_FROM = "Domain Harness Staging <staging@mailtrap.io>"
   REGISTRY_BUNDLE_SIGNING_KEY_ID = "staging-key-1"
+  # Staging only, never in production: provisions the "Demo Pilot" Company at
+  # start and serves POST /v1/demo-sessions, so the three demo accounts
+  # (DEMO_ACCOUNTS in packages/contract) sign in without an emailed link.
+  REGISTRY_DEMO_SIGN_IN = "1"
 
 [[services]]
   protocol = "tcp"

@@ -10,6 +10,13 @@ export const SIGN_IN_COPY = {
   unavailable: "Sign-in is unavailable right now. Try again in a few minutes.",
 } as const;
 
+/** A demo account offered on staging: signs in at once, no emailed link. */
+export interface DemoAccount {
+  readonly name: string;
+  readonly email: string;
+  readonly role: string;
+}
+
 /** What the sign-in surface shows besides the form. */
 export type SignInNotice = "sent" | "invalid" | "link-invalid" | "unavailable" | null;
 
@@ -17,6 +24,8 @@ export interface SignInFormProps {
   readonly notice: SignInNotice;
   /** The last submitted value, kept in the field. */
   readonly email: string;
+  /** Staging only: demo accounts to sign in as with one press. Empty elsewhere. */
+  readonly demoAccounts?: readonly DemoAccount[];
 }
 
 /**
@@ -24,7 +33,7 @@ export interface SignInFormProps {
  * focuses the field. The link-sent text and every denial are announced as a
  * status; an invalid address keeps its value and adds ink text under it.
  */
-export function SignInForm({ notice, email }: SignInFormProps) {
+export function SignInForm({ notice, email, demoAccounts = [] }: SignInFormProps) {
   const input = useRef<HTMLInputElement>(null);
   const confirmationHeading = useRef<HTMLHeadingElement>(null);
   const awaitingActionResult = useRef(false);
@@ -146,6 +155,24 @@ export function SignInForm({ notice, email }: SignInFormProps) {
                 </Button>
               </Form>
             </>
+          )}
+          {demoAccounts.length === 0 ? null : (
+            <section className="sign-in-demo" aria-labelledby="sign-in-demo-title">
+              <h2 id="sign-in-demo-title" className="type-label">
+                Demo accounts (staging)
+              </h2>
+              <p className="sign-in-demo__note">Sign in at once as one of these accounts; no email is sent.</p>
+              <div className="sign-in-demo__accounts">
+                {demoAccounts.map((account) => (
+                  <Form method="post" key={account.email}>
+                    <input type="hidden" name="email" value={account.email} />
+                    <Button variant="secondary" type="submit" disabled={pending}>
+                      {`Sign in as ${account.role}`}
+                    </Button>
+                  </Form>
+                ))}
+              </div>
+            </section>
           )}
         </div>
       </section>

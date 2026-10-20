@@ -168,6 +168,29 @@ message there and follow the link (it points at the staging panel URL via
 that is the documented gap, not a silent failure. The panel itself holds no
 mail state.
 
+## Demo accounts (no email needed)
+
+Staging also runs with demo sign-in on (`REGISTRY_DEMO_SIGN_IN=1` in
+`fly.registry-staging.toml`, `PANEL_DEMO_SIGN_IN=1` in
+`fly.panel-staging.toml`). At start the registry provisions the Company
+"Demo Pilot" (plan Team) unless its accounts already exist, and the sign-in
+page shows one button per role. Pressing one, or typing the address, opens a
+session at once, with no emailed link:
+
+| Role | Email |
+| --- | --- |
+| Buyer | `buyer@demo.domainharness.test` |
+| Standard owner | `owner@demo.domainharness.test` |
+| Builder | `builder@demo.domainharness.test` |
+
+The addresses live in `DEMO_ACCOUNTS` (`packages/contract/src/sign-in.ts`).
+Anyone who can open the staging panel can enter these accounts, so keep real
+data out of "Demo Pilot". Both flags must be on; without
+`REGISTRY_DEMO_SIGN_IN` the endpoint answers 404 and the demo Company is never
+created. Never set either flag outside staging. The registry logs
+`{"event":"demo_company","state":"provisioned"|"present"|"partial"}` at start
+("partial" means only some demo addresses exist; nothing is written).
+
 ## Daemon expectation
 
 `fly logs --app dh-service-staging` shows one `bundle_cycle` line per pull
