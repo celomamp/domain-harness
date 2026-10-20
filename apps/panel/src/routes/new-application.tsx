@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Await, data, redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
@@ -271,15 +271,24 @@ export default function NewApplicationPage() {
   const panelLayout = useRouteLoaderData<{ readonly role?: Role }>("routes/panel-layout");
   const role = panelLayout?.role ?? "Builder";
   const [activeTab, setActiveTab] = useState<NewApplicationTab>("place");
+  const focusGenerateAfterPlacement = useRef(false);
   useEffect(() => {
     if (actionData?.intent === "register") {
       setActiveTab("register");
+    } else if (actionData?.intent === "place" && actionData.placedId !== undefined) {
+      focusGenerateAfterPlacement.current = true;
+      setActiveTab("generate");
     } else if (actionData?.placedId !== undefined) {
       setActiveTab("generate");
     } else if (actionData?.intent === "place") {
       setActiveTab("place");
     }
   }, [actionData]);
+  useEffect(() => {
+    if (activeTab !== "generate" || !focusGenerateAfterPlacement.current) return;
+    focusGenerateAfterPlacement.current = false;
+    document.getElementById("tab-generate")?.focus();
+  }, [activeTab]);
   // A success remounts the form empty; a refusal keeps the submitted values.
   const formKey = actionData?.placedId ?? "form";
   const submitted = actionData?.intent === "place" && actionData.placedId === undefined ? actionData : undefined;
