@@ -1,0 +1,63 @@
+name: Staging diagnostics
+
+# On demand only: shows the state of the Fly staging registry and panel
+# (machines, recent logs) and replays the sign-in page and a demo sign-in
+# from outside, so a staging failure can be read from the Actions log.
+# Logs carry ids, codes and paths only (no tokens or addresses by design).
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: Address to sign in with (a demo account signs in at once)
+        required: false
+        default: buyer@demo.domainharness.test
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Inspect Fly staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      PANEL: https://dh-panel-staging.fly.dev
+    steps:
+      - name: Install flyctl
+        run: |
+          curl -fsSL https://fly.io/install.sh | sh
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+
+      - name: Machines
+        continue-on-error: true
+        run: |
+          for app in dh-registry-staging dh-panel-staging; do
+            echo "=== $app"
+            flyctl status --app "$app" || true
+          done
+
+      - name: Replay the sign-in page and a sign-in
+        continue-on-error: true
+        env:
+          EMAIL: ${{ inputs.email }}
+        run: |
+          echo "=== GET /sign-in"
+          curl -s -o /dev/null -w "status %{http_code}\n" "$PANEL/sign-in"
+          echo "=== GET /sign-in.data (the loader, as the browser asks for it)"
+          curl -s -w "\nstatus %{http_code}\n" "$PANEL/sign-in.data" | head -c 2000; echo
+          echo "=== POST /sign-in.data (the action, as the browser submits it)"
+          curl -s -D - -o body.txt -X POST "$PANEL/sign-in.data?index" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "email=$EMAIL" | grep -iv '^set-cookie' || true
+          head -c 3000 body.txt; echo
+
+      - name: Registry logs (recent)
+        continue-on-error: true
+        run: flyctl logs --app dh-registry-staging --no-tail | tail -n 150
+
+      - name: Panel logs (recent)
+        continue-on-error: true
+        run: flyctl logs --app dh-panel-staging --no-tail | tail -n 150
