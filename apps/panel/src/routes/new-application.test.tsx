@@ -528,7 +528,7 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
       ["cursor", "Cursor"],
     ]);
     expect(tool.value).toBe("claude-code");
-    expect(screen.getByRole("button", { name: "Generate the Boilerplate" }).className).toBe("button-inverse");
+    expect((await screen.findByRole("button", { name: "Generate the Boilerplate" })).className).toBe("button-inverse");
     expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
   });
 
@@ -575,7 +575,7 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     expect(link.getAttribute("href")).toBe(`data:application/gzip;base64,${result.archiveBase64}`);
     expect(status().textContent).toBe("The Claude Code Boilerplate is ready to download.");
     expect(currentRailStep()).toBe("Result");
-    expect(screen.getByRole("button", { name: "Generate the Boilerplate" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Generate the Boilerplate" })).toBeTruthy();
     const [url, init] = fetch.mock.calls[1] as unknown as [string, RequestInit];
     expect(url).toMatch(new RegExp(`/v1/applications/${APP}/boilerplate$`));
     expect(init.body).toBe(JSON.stringify({ target: "claude-code" }));
@@ -586,7 +586,7 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     renderPage("Builder", Promise.resolve(ok(tree)));
     await submit("Checkout", B);
     fireEvent.change(await screen.findByLabelText("Agent tool"), { target: { value: "cursor" } });
-    fireEvent.click(screen.getByRole("button", { name: "Generate the Boilerplate" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Generate the Boilerplate" }));
     await screen.findByText("The Cursor Boilerplate is ready to download.");
     const section = document.querySelector(".artifact-grid")?.closest(".section-card");
     if (section === null || section === undefined) throw new Error("the Boilerplate SectionCard is missing");
@@ -616,7 +616,7 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
       );
     });
     expect(status().querySelector(".denial")).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Generate the Boilerplate" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Generate the Boilerplate" })).toBeTruthy();
     expect(document.querySelector(".boilerplate-result")).toBeNull();
   });
 
