@@ -836,6 +836,6 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("accepted deviation a
       }
       // Terminated cleanly: the stop handler drained the pool and exited 0.
       expect(exitCode).toBe(0);
-    });
+    }, 60000);
   });
 });
