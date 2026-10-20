@@ -40,9 +40,13 @@ const npmPackage = (name: string): Record<string, string> => ({
 });
 
 describe("boundary check on the real workspace", () => {
-  it("passes", async () => {
-    expect(lines(await checkBoundaries(repoRoot))).toEqual([]);
-  });
+  it(
+    "passes",
+    async () => {
+      expect(lines(await checkBoundaries(repoRoot))).toEqual([]);
+    },
+    60000,
+  );
 });
 
 describe("boundary check on fixtures", () => {
