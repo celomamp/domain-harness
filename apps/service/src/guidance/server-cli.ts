@@ -49,6 +49,8 @@ import type { PinnedActiveBundle } from "./identity.ts";
 import { handleReadRequest, readRouteOf } from "../read/server.ts";
 import { handleGuidanceEventRead, isGuidanceEventReadPath } from "./events-read.ts";
 import { fetchRetentionDays, RETENTION_SWEEP_INTERVAL_MS, sweepGuidanceEvents } from "./retention.ts";
+import { CollectorClient } from "../collector/client.ts";
+import { createPostgresCollectorOutbox } from "../collector/outbox.ts";
 import type { FetchRetentionResult } from "./retention.ts";
 
 const RECORD_DATABASE_URL = "SERVICE_RECORD_DATABASE_URL";
@@ -116,6 +118,26 @@ export interface RetentionSweep {
   readonly fetchRetentionDays: () => Promise<FetchRetentionResult>;
 }
 
+/** How often the Collector outbox is flushed to the vendor registry. */
+export const COLLECTOR_FLUSH_INTERVAL_MS = 30_000;
+
+/**
+ * The deployed Collector (Story 6.3): every recorded Guidance event is
+ * enqueued to the record store's outbox and a background flusher delivers it
+ * to the vendor registry with the tenant credential. Ids and counts only in
+ * the logs.
+ */
+export function createCollector(config: GuidanceServiceConfig, pool: Pool, log: Logger): CollectorClient {
+  return new CollectorClient({
+    outbox: createPostgresCollectorOutbox(pool),
+    tenantKey: config.registryCredential,
+    panelBaseUrl: config.registryUrl,
+    onError: ({ applicationId, stage }) => {
+      log({ event: "collector_error", stage, applicationId: applicationId ?? "" });
+    },
+  });
+}
+
 /**
  * The guidance HTTP server for a started record store: the bundle and
  * guidance identity stores over one pool, the MCP handler at `/mcp`, the
@@ -129,6 +151,7 @@ export function createGuidanceHttpServer(
   pool: Pool,
   log: Logger = stdoutLogger,
   sweep: RetentionSweep | null = null,
+  collector: CollectorClient | null = null,
 ): Server {
   const bundleStore = createPostgresBundleRecordStore(pool);
   const identityStore = createPostgresGuidanceIdentityStore(pool);
@@ -144,6 +167,7 @@ export function createGuidanceHttpServer(
     },
     getPinnedBundle: (tenantId) => pinnedActiveBundle(bundleStore, tenantId),
     getBundledState: (now) => bundledState(bundleStore, config.tenantId, now),
+    collector: collector ?? undefined,
   });
 
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
@@ -217,6 +241,21 @@ export function createGuidanceHttpServer(
     const timer = setInterval(() => {
       void runSweep();
     }, sweep.intervalMs);
+    server.on("close", () => {
+      clearInterval(timer);
+    });
+  }
+
+  if (collector !== null) {
+    // Delivery never runs on the request path: one pass per tick, failures
+    // stay queued for the next pass.
+    const flush = async (): Promise<void> => {
+      const report = await collector.flushNow(new Date().toISOString());
+      if (report.attempted > 0) log({ event: "collector_flush", ...report });
+    };
+    const timer = setInterval(() => {
+      void flush();
+    }, COLLECTOR_FLUSH_INTERVAL_MS);
     server.on("close", () => {
       clearInterval(timer);
     });
@@ -317,11 +356,17 @@ async function endQuietly(pool: Pool): Promise<void> {
 async function main(): Promise<void> {
   const config = guidanceServiceConfigFromEnv(process.env);
   const pool = await openRecordStore(config);
-  const server = createGuidanceHttpServer(config, pool, stdoutLogger, {
-    intervalMs: RETENTION_SWEEP_INTERVAL_MS,
-    fetchRetentionDays: () =>
-      fetchRetentionDays({ baseUrl: config.registryUrl, credential: config.registryCredential }),
-  });
+  const server = createGuidanceHttpServer(
+    config,
+    pool,
+    stdoutLogger,
+    {
+      intervalMs: RETENTION_SWEEP_INTERVAL_MS,
+      fetchRetentionDays: () =>
+        fetchRetentionDays({ baseUrl: config.registryUrl, credential: config.registryCredential }),
+    },
+    createCollector(config, pool, stdoutLogger),
+  );
 
   await new Promise<void>((resolve, reject) => {
     server.once("listening", () => {
