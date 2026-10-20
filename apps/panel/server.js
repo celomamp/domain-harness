@@ -16,6 +16,11 @@ const clientDir = fileURLToPath(new URL("./dist/client/", import.meta.url));
 
 const app = express();
 app.disable("x-powered-by");
+// Deployed behind a TLS-terminating proxy (Fly): take the scheme and host
+// from X-Forwarded-*, so the request URL is the public https one. Without
+// it the URL reads http while the browser's Origin is https, and React
+// Router's CSRF check refuses every form submission with 400.
+app.set("trust proxy", true);
 
 app.use((req, res, next) => {
   const started = performance.now();

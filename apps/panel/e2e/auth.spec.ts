@@ -81,4 +81,16 @@ test.describe("sign-in", () => {
     await expect(page).toHaveURL(/\/inventory$/);
     await expect(page.getByRole("complementary", { name: "Panel sidebar" }).getByText("Builder", { exact: true })).toBeVisible();
   });
+
+  test("behind a TLS-terminating proxy, form submissions pass the origin check", async ({ request, baseURL }) => {
+    // Fly ends TLS and forwards plain http; the browser's Origin stays https.
+    const host = new URL(baseURL ?? "").host;
+    const submit = (origin: string) =>
+      request.post("/sign-in.data?index", {
+        headers: { "X-Forwarded-Proto": "https", Origin: origin },
+        form: { email: "not-an-email" },
+      });
+    expect((await submit(`https://${host}`)).status()).toBe(200);
+    expect((await submit("https://elsewhere.example")).status()).toBe(400);
+  });
 });
