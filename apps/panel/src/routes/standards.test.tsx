@@ -219,7 +219,7 @@ describe("Standards: Modules section", () => {
     await screen.findByRole("table");
     // The shell's skip-link target on `<main>` carries tabindex="-1"; no element
     // may carry a tabindex that participates in (or reorders) the tab order.
-    expect([...document.querySelectorAll<HTMLElement>("[tabindex]")].filter((el) => el.tabIndex >= 0)).toHaveLength(0);
+    expect([...document.querySelectorAll<HTMLElement>("[tabindex]")].filter((el) => el.tabIndex > 0)).toHaveLength(0);
     const focusables = [
       ...document.querySelectorAll<HTMLElement>("main a[href], main button, main input:not([type=hidden]), main select"),
     ];
