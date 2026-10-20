@@ -1,5 +1,6 @@
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import { Form } from "react-router";
+import { Form, Link } from "react-router";
 import { GUIDANCE_ENDPOINT_URL_MAX } from "@domain-harness/contract";
 import type {
   BoilerplateArtifactKind,
@@ -11,6 +12,7 @@ import type {
 } from "@domain-harness/contract";
 import { Button } from "./button.tsx";
 import { CopyButton } from "./copy-button.tsx";
+import { Icon } from "./icon.tsx";
 import { SectionCard } from "./section-card.tsx";
 import { PROJECT_TREE_COPY } from "./project-tree.tsx";
 
@@ -55,6 +57,7 @@ export const NEW_APPLICATION_COPY = {
     commitIdentificationFile: (path: string) => `Commit ${path} to the repository root.`,
     ready: (target: string) => `The ${target} Boilerplate is ready to download.`,
     download: "Download the archive",
+    openApplication: "Open the Application",
     artifacts: {
       "identification-file": "Project identification file",
       "dependency-pins": "Dependency pins",
@@ -356,10 +359,23 @@ export function BoilerplateForm({ applicationId }: { readonly applicationId: str
  * boilerplate-result: artifact cards with copyable paths and the original
  * archive download. The archive stays opaque to the panel.
  */
-export function BoilerplateResultSection({ result }: { readonly result: BoilerplateResult }) {
+export function BoilerplateResultSection({
+  result,
+  applicationId,
+}: {
+  readonly result: BoilerplateResult;
+  /** The Application the Boilerplate belongs to; links to its evidence page when given. */
+  readonly applicationId?: string;
+}) {
   const copy = NEW_APPLICATION_COPY.boilerplate;
   const identificationFile = result.artifacts.find((artifact) => artifact.kind === "identification-file");
+  const section = useRef<HTMLDivElement>(null);
+  // A new result appears below the form: bring it into view.
+  useEffect(() => {
+    scrollIntoView(section.current);
+  }, [result]);
   return (
+    <div ref={section} className="boilerplate-result-anchor">
     <SectionCard title={copy.heading} description={copy.resultHeading(copy.targets[result.target])}>
       <div className="artifact-grid">
         {result.artifacts.map((artifact) => (
@@ -375,15 +391,31 @@ export function BoilerplateResultSection({ result }: { readonly result: Boilerpl
       {identificationFile === undefined ? null : (
         <p className="artifact-note">{copy.commitIdentificationFile(identificationFile.path)}</p>
       )}
-      <a
-        className="artifact-download"
-        href={`data:application/gzip;base64,${result.archiveBase64}`}
-        download={result.archiveName}
-      >
-        {copy.download}
-      </a>
+      <div className="artifact-actions">
+        <a
+          className="button-primary artifact-download"
+          href={`data:application/gzip;base64,${result.archiveBase64}`}
+          download={result.archiveName}
+        >
+          <Icon name="download" />
+          {copy.download}
+        </a>
+        {applicationId === undefined ? null : (
+          <Link className="button-secondary" to={`/applications/${encodeURIComponent(applicationId)}`}>
+            {copy.openApplication}
+          </Link>
+        )}
+      </div>
     </SectionCard>
+    </div>
   );
+}
+
+/** Scroll `element` into view, smoothly unless the person asked for reduced motion. */
+function scrollIntoView(element: HTMLElement | null): void {
+  if (element === null || typeof element.scrollIntoView !== "function") return;
+  const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  element.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
 }
 
 /**

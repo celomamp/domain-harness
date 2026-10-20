@@ -4,6 +4,7 @@ import { Form, NavLink } from "react-router";
 import type { Role } from "@domain-harness/contract";
 import { Icon } from "./icon.tsx";
 import type { IconName } from "./icon.tsx";
+import { useNavigationState } from "./navigation-state.ts";
 
 /** One navigation group: a caption and its destinations in reading order. */
 export interface PanelNavGroup {
@@ -58,6 +59,7 @@ export function PanelChrome({ role, children }: PanelChromeProps) {
   const menuButton = useRef<HTMLButtonElement>(null);
   const rail = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
+  const navigation = useNavigationState();
 
   // Close the drawer and return focus to the menu button that opened it.
   const closeDrawer = useCallback(() => {
@@ -109,6 +111,8 @@ export function PanelChrome({ role, children }: PanelChromeProps) {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
+      {/* A thin bar while a page loads or a form is sent; buttons carry aria-busy for assistive technology. */}
+      <div className="route-progress" data-state={navigation} aria-hidden="true" />
       <div className="shell">
         <aside
           id="shell-rail"

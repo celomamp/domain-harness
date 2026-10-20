@@ -22,6 +22,7 @@ import "./styles/accepted-deviation.css";
 import "./styles/compilations.css";
 import "./styles/guidance-access.css";
 import "./styles/sign-in.css";
+import "./styles/polish.css";
 import { tokenCss } from "./design/tokens.ts";
 
 const TOKENS = tokenCss();

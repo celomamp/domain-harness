@@ -126,6 +126,7 @@ export default function Standards() {
   return (
     <>
       <PageHeader
+        eyebrow="Govern"
         title="Standards"
         description="Open a Module to see and publish its Standards."
         actions={

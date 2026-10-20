@@ -293,7 +293,7 @@ describe("applicationFacts", () => {
   it("returns the project name, agent tool and created date", () => {
     expect(applicationFacts(application as never)).toEqual({
       project: "Platform",
-      agentTool: "claude-code",
+      agentTool: "Claude Code",
       created: "13 Oct 2026",
     });
   });

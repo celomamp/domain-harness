@@ -16,7 +16,7 @@ import { SectionCard } from "../components/section-card.tsx";
 import { Skeleton } from "../components/skeleton.tsx";
 import { Stat } from "../components/stat.tsx";
 import { Toolbar } from "../components/toolbar.tsx";
-import { formatDate } from "../format.ts";
+import { agentToolName, formatDate } from "../format.ts";
 import { getApplications, getInventoryEvidence, getProjectTree } from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
 import { readSessionToken } from "../session.server.ts";
@@ -34,6 +34,7 @@ export const INVENTORY_COPY = {
   registered: "Registered",
   evidence: "Listed before any Gate run. Compilation evidence fills in later.",
   empty: "No Application yet.",
+  emptyDescription: "Place an Application on a Project, or register one that already exists, to see it here.",
   emptyProject: "No Application in this Project yet.",
   emptySearch: "No Application matches this search.",
   loading: "Loading the Applications…",
@@ -120,7 +121,7 @@ export function groupApplications(
     const key = (observed[0] ?? application.agentTool ?? "").trim();
     let group = byKey.get(key);
     if (group === undefined) {
-      group = { key, heading: key === "" ? INVENTORY_COPY.groupNone : key, applications: [] };
+      group = { key, heading: key === "" ? INVENTORY_COPY.groupNone : agentToolName(key), applications: [] };
       byKey.set(key, group);
       groups.push(group);
     }
@@ -263,8 +264,9 @@ export default function Inventory() {
               <EmptyState
                 icon="inventory"
                 title={INVENTORY_COPY.empty}
+                description={INVENTORY_COPY.emptyDescription}
                 action={
-                  <Link className="button-primary" to="/new-application">
+                  <Link className="button-secondary" to="/new-application">
                     {INVENTORY_COPY.newApplication}
                   </Link>
                 }
@@ -543,7 +545,7 @@ function ApplicationTable({
   return (
     <div className="inventory-table-scroll" tabIndex={0}>
       <table className="inventory-table">
-        <caption>{`${INVENTORY_COPY.caption} — ${group.heading}`}</caption>
+        <caption className="visually-hidden">{`${INVENTORY_COPY.caption} — ${group.heading}`}</caption>
         <thead>
           <tr>
             {INVENTORY_COPY.headers.map((header) => (
@@ -607,7 +609,7 @@ function ApplicationRow({
         </span>
       </th>
       <td>{application.project.name}</td>
-      <td>{agentTool === "" ? "—" : agentTool}</td>
+      <td>{agentTool === "" ? "—" : agentToolName(agentTool)}</td>
       <td>
         <Badge tone={status.tone} icon={status.icon}>
           {status.label}

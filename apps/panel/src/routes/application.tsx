@@ -20,7 +20,7 @@ import { Stat } from "../components/stat.tsx";
 import { getAcceptedDeviations, getApplicationEvidence } from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
 import { readSessionToken } from "../session.server.ts";
-import { formatDate, formatDateTime } from "../format.ts";
+import { agentToolName, formatDate, formatDateTime } from "../format.ts";
 
 export const meta: MetaFunction = () => [{ title: "Application | Domain Harness" }];
 
@@ -254,7 +254,7 @@ export interface ApplicationFacts {
 export function applicationFacts(application: ApplicationInfo): ApplicationFacts {
   return {
     project: application.project.name,
-    agentTool: application.agentTool ?? "—",
+    agentTool: application.agentTool === null ? "—" : agentToolName(application.agentTool),
     created: formatDate(application.createdAt),
   };
 }

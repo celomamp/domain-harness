@@ -34,3 +34,10 @@ export function formatDateTime(iso: string): string {
   const value = parse(iso);
   return Number.isNaN(value) ? "—" : `${DATE_FORMATTER.format(value)}, ${TIME_FORMATTER.format(value)} UTC`;
 }
+
+const AGENT_TOOL_NAMES: Readonly<Record<string, string>> = { "claude-code": "Claude Code", cursor: "Cursor" };
+
+/** The product name of a known agent tool ("claude-code" → "Claude Code"); any other value as given. */
+export function agentToolName(tool: string): string {
+  return AGENT_TOOL_NAMES[tool] ?? tool;
+}

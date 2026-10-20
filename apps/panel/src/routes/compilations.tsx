@@ -182,7 +182,11 @@ export default function Compilations() {
   ] as const;
   return (
     <>
-      <PageHeader title={COMPILATIONS_COPY.heading} />
+      <PageHeader
+        eyebrow="Monitor"
+        title={COMPILATIONS_COPY.heading}
+        description="Bundle status, Collector health and dropped payloads reported by the Company service."
+      />
       <Status
         tone={actionData?.status?.tone ?? "notice"}
         message={actionData?.status?.message ?? dropStatusMessage}

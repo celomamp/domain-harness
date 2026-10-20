@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDateTime } from "./format.ts";
+import { agentToolName, formatDate, formatDateTime } from "./format.ts";
 
 describe("format", () => {
   it("formats a UTC instant as a short date", () => {
@@ -10,5 +10,13 @@ describe("format", () => {
   });
   it("returns an em dash for an unparseable value", () => {
     expect(formatDate("not-a-date")).toBe("—");
+  });
+});
+
+describe("agentToolName", () => {
+  it("names the known agent tools and passes any other value through", () => {
+    expect(agentToolName("claude-code")).toBe("Claude Code");
+    expect(agentToolName("cursor")).toBe("Cursor");
+    expect(agentToolName("windsurf")).toBe("windsurf");
   });
 });

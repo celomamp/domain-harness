@@ -129,3 +129,20 @@
     border-inline-start-color: var(--color-ink);
   }
 }
+
+/* The result's actions: the archive download (the one gold action once the
+   Boilerplate exists) and the link to the Application's evidence page. */
+.artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.artifact-actions .artifact-download {
+  gap: var(--space-2);
+}
+
+.boilerplate-result-anchor {
+  scroll-margin-block-start: var(--space-5);
+}

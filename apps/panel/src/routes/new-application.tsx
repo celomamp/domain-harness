@@ -320,7 +320,7 @@ export default function NewApplicationPage() {
   const currentStep = newApplicationStep(actionData);
   return (
     <div className="new-application-flow">
-      <PageHeader title={NEW_APPLICATION_COPY.heading} description={flowDescription(role)} />
+      <PageHeader eyebrow="Operate" title={NEW_APPLICATION_COPY.heading} description={flowDescription(role)} />
       <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
       <ol className="flow-rail" aria-label="Application flow progress">
         {(["place", "boilerplate", "result"] as const).map((step, index) => (
@@ -379,7 +379,7 @@ export default function NewApplicationPage() {
         ) : (
           <>
             <BoilerplateForm applicationId={actionData.placedId} />
-            {actionData.boilerplate === undefined ? null : <BoilerplateResultSection result={actionData.boilerplate} />}
+            {actionData.boilerplate === undefined ? null : <BoilerplateResultSection result={actionData.boilerplate} applicationId={actionData.placedId} />}
           </>
         )}
       </section>

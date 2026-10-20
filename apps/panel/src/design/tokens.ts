@@ -110,6 +110,19 @@ export const sizes = {
   rail: "248px",
   "form-measure": "28rem",
   "content-measure": "80rem",
+  progress: "3px",
+  spinner: "14px",
+} as const;
+
+/**
+ * Motion: short, single-run transitions only (never a flash or a loop the
+ * Buyer cannot stop, except the busy spinner while a request is in flight).
+ * Every use is switched off under `prefers-reduced-motion: reduce`.
+ */
+export const motion = {
+  fast: "120ms",
+  base: "200ms",
+  ease: "cubic-bezier(0.2, 0, 0, 1)",
 } as const;
 
 export const shadow = {
@@ -149,6 +162,7 @@ function staticDeclarations(): string[] {
   for (const [name, value] of Object.entries(spacing)) lines.push(`--space-${name}: ${value};`);
   for (const [name, value] of Object.entries(sizes)) lines.push(`--size-${kebab(name)}: ${value};`);
   for (const [name, value] of Object.entries(shadow)) lines.push(`--shadow-${name}: ${value};`);
+  for (const [name, value] of Object.entries(motion)) lines.push(`--motion-${name}: ${value};`);
   return lines;
 }
 
