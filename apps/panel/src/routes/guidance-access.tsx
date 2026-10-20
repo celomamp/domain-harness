@@ -78,8 +78,10 @@ export interface GuidanceAccessActionData {
   readonly values: { readonly grants: readonly string[]; readonly retentionDays: string };
   /** The minted token, shown once on a mint success. */
   readonly token?: { readonly token: string; readonly role: string; readonly expiresAt: string };
-  /** A success remounts the forms; the key is the saved instant. */
+  /** A successful save remounts the grant form; the key is the saved instant. */
   readonly savedAt?: string;
+  /** A successful mint remounts only the mint form; the key is the token expiry. */
+  readonly mintedAt?: string;
 }
 
 const emptyValues = { grants: [], retentionDays: "" } as const;
@@ -109,7 +111,7 @@ export async function action({ request }: ActionFunctionArgs) {
       return data<GuidanceAccessActionData>(
         {
           intent,
-          status: null,
+          status: { tone: "denial", message: GUIDANCE_ACCESS_COPY.retention.invalid },
           fieldErrors: { retentionDays: GUIDANCE_ACCESS_COPY.retention.invalid },
           values,
         },
@@ -141,7 +143,7 @@ export async function action({ request }: ActionFunctionArgs) {
         fieldErrors: {},
         values: emptyValues,
         token: { token: result.value.token, role: result.value.role, expiresAt: result.value.expiresAt },
-        savedAt: result.value.expiresAt,
+        mintedAt: result.value.expiresAt,
       });
     }
     return refusal(intent, emptyValues, result.kind === "refused" ? result.error : undefined);
@@ -170,7 +172,12 @@ function refusal(
   }
   if (intent === "save" && error?.code === "invalid_input" && error.subject === "retentionDays") {
     return data<GuidanceAccessActionData>(
-      { intent, status: null, fieldErrors: { retentionDays: GUIDANCE_ACCESS_COPY.retention.invalid }, values },
+      {
+        intent,
+        status: { tone: "denial", message: GUIDANCE_ACCESS_COPY.retention.invalid },
+        fieldErrors: { retentionDays: GUIDANCE_ACCESS_COPY.retention.invalid },
+        values,
+      },
       { status: 400 },
     );
   }
@@ -194,20 +201,27 @@ export default function GuidanceAccess() {
         description="Manage which roles can read Guidance events and how long they are kept."
       />
       <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
-      <AccessState access={access} formKey={actionData?.savedAt ?? "form"} actionData={actionData} />
+      <AccessState
+        access={access}
+        grantFormKey={actionData?.savedAt ?? "form"}
+        mintFormKey={actionData?.mintedAt ?? "form"}
+        actionData={actionData}
+      />
     </>
   );
 }
 
 interface AccessStateProps {
   readonly access: Promise<RegistryResult<GuidanceAccessState>>;
-  /** A success remounts the forms; the key is the saved instant. */
-  readonly formKey: string;
+  /** A successful save remounts the grant form; the key is the saved instant. */
+  readonly grantFormKey: string;
+  /** A successful mint remounts only the mint form; the key is the token expiry. */
+  readonly mintFormKey: string;
   readonly actionData: GuidanceAccessActionData | undefined;
 }
 
 /** The access state under its own Suspense, with the save and mint commits beside it. */
-function AccessState({ access, formKey, actionData }: AccessStateProps) {
+function AccessState({ access, grantFormKey, mintFormKey, actionData }: AccessStateProps) {
   const copy = GUIDANCE_ACCESS_COPY.grant;
   const unavailable = <Banner tone="notice">{copy.unavailable}</Banner>;
   return (
@@ -216,8 +230,8 @@ function AccessState({ access, formKey, actionData }: AccessStateProps) {
         {(result: RegistryResult<GuidanceAccessState>) =>
           result.kind === "ok" ? (
             <div className="guidance-layout">
-              <GrantSection key={formKey} state={result.value} actionData={actionData} />
-              <MintSection formKey={formKey} actionData={actionData} />
+              <GrantSection key={grantFormKey} state={result.value} actionData={actionData} />
+              <MintSection formKey={mintFormKey} actionData={actionData} />
             </div>
           ) : result.kind === "refused" && result.error.code === SESSION_INVALID ? (
             <Banner tone="denial" title={copy.heading}>
