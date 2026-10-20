@@ -1,0 +1,69 @@
+name: Deploy staging
+
+# Deploys the registry and the panel to Fly.io staging after CI passes on
+# main (or by hand from the Actions tab). The registry goes first: its
+# release_command applies pending migrations before the new version serves,
+# and the panel calls it. Needs the repository secret FLY_API_TOKEN: an org
+# token (`fly tokens create org`) covers both apps; a deploy token covers one
+# app only, so FLY_REGISTRY_API_TOKEN / FLY_PANEL_API_TOKEN, when set, take
+# precedence for their app. The service daemon and the guidance server keep
+# their manual deploys (docs/staging.md).
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy registry and panel to Fly staging
+    # Only after a green CI run of a push to main (manual runs always go).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          # Deploy exactly the commit CI tested.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Install flyctl
+        run: |
+          curl -fsSL https://fly.io/install.sh | sh
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+
+      - name: Deploy the registry (runs migrations first)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_REGISTRY_API_TOKEN || secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::Set the repository secret FLY_API_TOKEN (fly tokens create org)."
+            exit 1
+          fi
+          flyctl deploy -c fly.registry-staging.toml --remote-only --wait-timeout 10m
+
+      - name: Deploy the panel
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_PANEL_API_TOKEN || secrets.FLY_API_TOKEN }}
+        run: flyctl deploy -c fly.panel-staging.toml --remote-only --wait-timeout 10m
+
+      - name: Report
+        run: |
+          {
+            echo "### Staging deployed"
+            echo "- Commit: \`${{ github.event.workflow_run.head_sha || github.sha }}\`"
+            echo "- Panel: https://dh-panel-staging.fly.dev"
+          } >> "$GITHUB_STEP_SUMMARY"

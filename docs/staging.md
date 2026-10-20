@@ -160,6 +160,18 @@ the placement): `fly scale count 1 --app dh-service-staging`.
 Health: `fly status --app <app>` shows the TCP checks; the panel serves the
 sign-in page at `https://dh-panel-staging.fly.dev`.
 
+## Continuous deploy (registry and panel)
+
+`.github/workflows/deploy-staging.yml` deploys the registry, then the panel,
+after every green CI run of a push to `main`, and on demand from the Actions
+tab ("Deploy staging" → Run workflow). It deploys the exact commit CI tested;
+the registry's `release_command` migrates first. It needs the repository
+secret `FLY_API_TOKEN`: an org token (`fly tokens create org -x 999999h`)
+covers both apps. A deploy token (`fly tokens create deploy -a <app>`) covers
+one app, so with those set `FLY_REGISTRY_API_TOKEN` and `FLY_PANEL_API_TOKEN`
+instead (each takes precedence for its app). The service daemon and the
+guidance server still deploy by hand (above).
+
 ## Sign-in expectation
 
 With SMTP set, sign-in mails land in the **Mailtrap sandbox inbox** — open the
