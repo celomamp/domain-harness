@@ -1,6 +1,5 @@
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import {
-  isDemoEmail,
   isEmailAddress,
   isUuidV7,
   normalizeEmail,
@@ -116,15 +115,21 @@ export async function lookupAccounts(
 }
 
 /**
- * Staging only: open a session for one of the demo accounts without emailing
+ * Demo sign-in only: open a session for one of the demo accounts (normalized
+ * `demoEmails`) without emailing
  * a link. The link is minted and consumed at once through the same single-use
  * path as an emailed one. Any other address, or a demo address with no
  * account, is `sign_in_link_invalid`. The HTTP API serves this only when demo
  * sign-in is enabled.
  */
-export async function openDemoSession(db: RegistryDb, email: string): Promise<SessionCreated> {
-  if (!isDemoEmail(email)) throw linkInvalid();
-  const [holder] = await lookupAccounts(db, normalizeEmail(email));
+export async function openDemoSession(
+  db: RegistryDb,
+  demoEmails: readonly string[],
+  email: string,
+): Promise<SessionCreated> {
+  const address = normalizeEmail(email);
+  if (!demoEmails.includes(address)) throw linkInvalid();
+  const [holder] = await lookupAccounts(db, address);
   if (holder === undefined) throw linkInvalid();
   const { token } = await mintSignInLink(db, holder.tenantId, holder.accountId);
   return consumeSignInLink(db, token);
@@ -231,12 +236,13 @@ export interface SignInService {
 export function createSignInService(
   db: RegistryDb,
   mailer: MailTransport,
-  config: SignInConfig & { readonly demoSignIn?: boolean },
+  config: SignInConfig & { readonly demoEmails?: readonly string[] },
 ): SignInService {
+  const { demoEmails } = config;
   return {
     requestSignInLinks: (email) => requestSignInLinks(db, mailer, config, email),
     createSession: (token) => consumeSignInLink(db, token),
     getSession: (token) => getSession(db, token),
-    ...(config.demoSignIn === true ? { openDemoSession: (email: string) => openDemoSession(db, email) } : {}),
+    ...(demoEmails === undefined ? {} : { openDemoSession: (email: string) => openDemoSession(db, demoEmails, email) }),
   };
 }

@@ -15,8 +15,10 @@ primary_region = "iad"
   HOST = "0.0.0.0"
   PORT = "3000"
   PANEL_REGISTRY_URL = "http://dh-registry-staging.internal:4100"
-  # Staging only, never in production: the sign-in page offers the three demo
-  # accounts ("Sign in as Buyer / Standard owner / Builder"), no email needed.
+  # Feature toggle, staging only, never in production: a typed address is first
+  # offered to the registry's demo sessions, so demo accounts sign in at once
+  # (no email); every other address gets the emailed link. The registry holds
+  # the addresses; the panel never knows them. Remove this line to turn it off.
   PANEL_DEMO_SIGN_IN = "1"
 
 [[services]]

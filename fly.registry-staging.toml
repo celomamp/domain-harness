@@ -5,7 +5,8 @@
 # networking at http://dh-registry-staging.internal:4100.
 # Secrets (fly secrets set, never committed): REGISTRY_DATABASE_URL,
 # REGISTRY_MIGRATION_DATABASE_URL (release_command only), REGISTRY_SMTP_URL,
-# REGISTRY_BUNDLE_SIGNING_KEY. See docs/staging.md.
+# REGISTRY_BUNDLE_SIGNING_KEY, and optionally REGISTRY_DEMO_ACCOUNTS. See
+# docs/staging.md.
 app = "dh-registry-staging"
 primary_region = "iad"
 
@@ -25,9 +26,12 @@ primary_region = "iad"
   REGISTRY_PANEL_URL = "https://dh-panel-staging.fly.dev"
   REGISTRY_MAIL_FROM = "Domain Harness Staging <staging@mailtrap.io>"
   REGISTRY_BUNDLE_SIGNING_KEY_ID = "staging-key-1"
-  # Staging only, never in production: provisions the "Demo Pilot" Company at
-  # start and serves POST /v1/demo-sessions, so the three demo accounts
-  # (DEMO_ACCOUNTS in packages/contract) sign in without an emailed link.
+  # Feature toggle, staging only, never in production: provisions the "Demo
+  # Pilot" Company at start and serves POST /v1/demo-sessions, so one account
+  # per role signs in as soon as its address is typed (no emailed link). The
+  # addresses come from the optional secret REGISTRY_DEMO_ACCOUNTS
+  # ("Buyer=a@x.io;Standard owner=b@x.io;Builder=c@x.io"), else the defaults
+  # in apps/registry/src/sign-in/demo.ts. Remove this line to turn it off.
   REGISTRY_DEMO_SIGN_IN = "1"
 
 [[services]]

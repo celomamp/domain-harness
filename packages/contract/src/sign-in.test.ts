@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEMO_ACCOUNTS,
-  isDemoEmail,
   isEmailAddress,
   isErrorEnvelope,
   isSessionCreated,
@@ -94,17 +92,3 @@ describe("isErrorEnvelope", () => {
   );
 });
 
-describe("demo accounts", () => {
-  it("lists one well-formed, normalized address per role", () => {
-    expect(DEMO_ACCOUNTS.map((account) => account.role)).toEqual(["Buyer", "Standard owner", "Builder"]);
-    for (const account of DEMO_ACCOUNTS) {
-      expect(isEmailAddress(account.email)).toBe(true);
-      expect(normalizeEmail(account.email)).toBe(account.email);
-    }
-  });
-
-  it("recognizes a demo address in any case or padding, and nothing else", () => {
-    expect(isDemoEmail(" Buyer@Demo.DomainHarness.test ")).toBe(true);
-    expect(isDemoEmail("buyer@acme.io")).toBe(false);
-  });
-});

@@ -73,9 +73,11 @@ test.describe("sign-in", () => {
     await expect(page.getByLabel("Email address")).toBeVisible();
   });
 
-  test("on staging, a demo account signs in with one press and no email", async ({ page }) => {
+  test("with the demo toggle on, a demo address signs in as soon as it is entered", async ({ page }) => {
     await page.goto("/sign-in");
-    await page.getByRole("button", { name: "Sign in as Builder" }).click();
+    await expect(page.getByText(/demo accounts sign in as soon as you enter their address/)).toBeVisible();
+    await page.getByLabel("Email address").fill("builder@demo.domainharness.test");
+    await page.getByRole("button", { name: "Email me a sign-in link" }).click();
     await expect(page).toHaveURL(/\/inventory$/);
     await expect(page.getByRole("complementary", { name: "Panel sidebar" }).getByText("Builder", { exact: true })).toBeVisible();
   });

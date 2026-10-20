@@ -1,15 +1,17 @@
 import { data, redirect, useActionData, useLoaderData } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { DEMO_ACCOUNTS, isDemoEmail, isEmailAddress, normalizeEmail } from "@domain-harness/contract";
+import { isEmailAddress, normalizeEmail, SIGN_IN_LINK_INVALID } from "@domain-harness/contract";
 import { SignInForm } from "../components/sign-in-form.tsx";
-import type { DemoAccount, SignInNotice } from "../components/sign-in-form.tsx";
+import type { SignInNotice } from "../components/sign-in-form.tsx";
 import { createDemoSession, requestSignInLink } from "../registry.server.ts";
 import { sessionCookie } from "../session.server.ts";
 
 /**
- * Staging only: with PANEL_DEMO_SIGN_IN=1 (set only in fly.panel-staging.toml)
- * the page offers the demo accounts, and signing in as one opens a session at
- * once instead of emailing a link. The registry must enable it too.
+ * Demo sign-in feature toggle (staging only): with PANEL_DEMO_SIGN_IN=1, a
+ * typed address is first offered to the registry's demo sessions; a demo
+ * account signs in at once, any other address gets the emailed link as
+ * usual. The registry decides which addresses are demo accounts
+ * (REGISTRY_DEMO_SIGN_IN / REGISTRY_DEMO_ACCOUNTS); the panel never knows them.
  */
 function demoSignInEnabled(): boolean {
   return process.env["PANEL_DEMO_SIGN_IN"]?.trim() === "1";
@@ -23,11 +25,11 @@ export interface SignInActionData {
 }
 
 /** `?status=link-invalid` and `?status=unavailable` come from the verify route. */
-export function loader({ request }: LoaderFunctionArgs): { notice: SignInNotice; demoAccounts: readonly DemoAccount[] } {
+export function loader({ request }: LoaderFunctionArgs): { notice: SignInNotice; demoSignIn: boolean } {
   const status = new URL(request.url).searchParams.get("status");
   return {
     notice: status === "link-invalid" || status === "unavailable" ? status : null,
-    demoAccounts: demoSignInEnabled() ? DEMO_ACCOUNTS : [],
+    demoSignIn: demoSignInEnabled(),
   };
 }
 
@@ -47,12 +49,16 @@ export async function action({ request }: ActionFunctionArgs) {
   if (!isEmailAddress(email)) {
     return data<SignInActionData>({ notice: "invalid", email });
   }
-  if (demoSignInEnabled() && isDemoEmail(email)) {
+  if (demoSignInEnabled()) {
     const demo = await createDemoSession(normalizeEmail(email));
-    if (demo.kind !== "ok") return data<SignInActionData>({ notice: "unavailable", email });
-    return redirect("/inventory", {
-      headers: { "Set-Cookie": sessionCookie(request, demo.value.sessionToken, demo.value.expiresAt) },
-    });
+    if (demo.kind === "ok") {
+      return redirect("/inventory", {
+        headers: { "Set-Cookie": sessionCookie(request, demo.value.sessionToken, demo.value.expiresAt) },
+      });
+    }
+    // Not a demo account (or demo sign-in off at the registry): email a link.
+    const notDemo = demo.kind === "refused" && (demo.error.code === SIGN_IN_LINK_INVALID || demo.error.code === "not_found");
+    if (!notDemo) return data<SignInActionData>({ notice: "unavailable", email });
   }
   const result = await requestSignInLink(normalizeEmail(email));
   if (result.kind === "unavailable") {
@@ -76,7 +82,7 @@ export default function SignIn() {
     <SignInForm
       notice={actionData?.notice ?? loaderData.notice}
       email={actionData?.email ?? ""}
-      demoAccounts={loaderData.demoAccounts}
+      demoSignIn={loaderData.demoSignIn}
     />
   );
 }

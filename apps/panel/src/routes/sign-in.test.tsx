@@ -200,8 +200,7 @@ describe("sign-in", () => {
   });
 });
 
-describe("sign-in with demo accounts (staging only)", () => {
-  const BUYER = "buyer@demo.domainharness.test";
+describe("sign-in with the demo toggle (staging only)", () => {
   const created = {
     sessionToken: "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7.demo-token",
     expiresAt: "2099-01-01T00:00:00.000Z",
@@ -220,46 +219,53 @@ describe("sign-in with demo accounts (staging only)", () => {
       context: {},
     } as unknown as Parameters<typeof action>[0]);
   };
+  /** Answers each registry call in turn. */
+  function answers(...replies: [number, unknown][]) {
+    const fetch = vi.fn();
+    for (const [status, body] of replies) {
+      fetch.mockResolvedValueOnce(new Response(JSON.stringify(body), { status }));
+    }
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+  const urls = (fetch: ReturnType<typeof vi.fn>) => fetch.mock.calls.map((call) => String(call[0]).replace(/^.*(\/v1\/)/, "$1"));
 
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it("offers nothing and emails a link as usual while PANEL_DEMO_SIGN_IN is off", async () => {
-    const fetch = registry(202, {});
+  it("only emails links, and says nothing about demo accounts, while PANEL_DEMO_SIGN_IN is off", async () => {
+    const fetch = answers([202, {}]);
     renderSignIn();
     await screen.findByLabelText("Email address");
-    expect(screen.queryByRole("heading", { name: "Demo accounts (staging)" })).toBeNull();
-    await post(BUYER);
-    const [url] = fetch.mock.calls[0] as unknown as [string];
-    expect(url).toMatch(/\/v1\/sign-in-links$/);
+    expect(screen.queryByText(/demo accounts/)).toBeNull();
+    await post("buyer@demo.domainharness.test");
+    expect(urls(fetch)).toEqual(["/v1/sign-in-links"]);
   });
 
-  it("offers one button per role and signs a demo account in at once, with no email", async () => {
+  it("signs a demo account in as soon as its address is entered, with no email", async () => {
     vi.stubEnv("PANEL_DEMO_SIGN_IN", "1");
-    const fetch = registry(201, created);
+    const fetch = answers([201, created]);
     renderSignIn();
-    expect(await screen.findByRole("heading", { name: "Demo accounts (staging)" })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /^Sign in as / }).map((button) => button.textContent)).toEqual([
-      "Sign in as Buyer",
-      "Sign in as Standard owner",
-      "Sign in as Builder",
-    ]);
+    expect(await screen.findByText(/demo accounts sign in as soon as you enter their address/)).toBeTruthy();
 
-    const response = (await post(` ${BUYER.toUpperCase()} `)) as Response;
+    const response = (await post(" Buyer@Demo.DomainHarness.test ")) as Response;
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/inventory");
     expect(response.headers.get("Set-Cookie")).toContain(`dh_session=${created.sessionToken}`);
-    const [url, init] = fetch.mock.calls.at(-1) as unknown as [string, RequestInit];
-    expect(url).toMatch(/\/v1\/demo-sessions$/);
-    expect(init.body).toBe(JSON.stringify({ email: BUYER }));
+    expect(urls(fetch)).toEqual(["/v1/demo-sessions"]);
+    const init = fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(init.body).toBe(JSON.stringify({ email: "buyer@demo.domainharness.test" }));
   });
 
-  it("still emails a link for any other address while demo sign-in is on", async () => {
+  it.each([
+    ["not a demo account", 401, { code: "sign_in_link_invalid", message: "m", subject: "token" }],
+    ["demo sign-in off at the registry", 404, { code: "not_found", message: "m", subject: "/v1/demo-sessions" }],
+  ])("emails a link as usual when the address is %s", async (_case, status, body) => {
     vi.stubEnv("PANEL_DEMO_SIGN_IN", "1");
-    const fetch = registry(202, {});
-    await post("bea@acme.io");
-    const [url] = fetch.mock.calls[0] as unknown as [string];
-    expect(url).toMatch(/\/v1\/sign-in-links$/);
+    const fetch = answers([status, body], [202, {}]);
+    const result = (await post("bea@acme.io")) as { data: { notice: string } };
+    expect(result.data.notice).toBe("sent");
+    expect(urls(fetch)).toEqual(["/v1/demo-sessions", "/v1/sign-in-links"]);
   });
 });

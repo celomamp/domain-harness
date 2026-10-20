@@ -170,12 +170,18 @@ mail state.
 
 ## Demo accounts (no email needed)
 
-Staging also runs with demo sign-in on (`REGISTRY_DEMO_SIGN_IN=1` in
-`fly.registry-staging.toml`, `PANEL_DEMO_SIGN_IN=1` in
-`fly.panel-staging.toml`). At start the registry provisions the Company
-"Demo Pilot" (plan Team) unless its accounts already exist, and the sign-in
-page shows one button per role. Pressing one, or typing the address, opens a
-session at once, with no emailed link:
+Demo sign-in is a feature toggle for testing: one account per role signs in
+as soon as its address is typed on the sign-in page, with no emailed link.
+It needs both switches, and both are set only in the staging tomls:
+
+| Where | Variable | Meaning |
+| --- | --- | --- |
+| registry (`[env]`) | `REGISTRY_DEMO_SIGN_IN=1` | provisions the Company "Demo Pilot" (plan Team) at start unless its accounts exist, and serves `POST /v1/demo-sessions`; any other value or unset: the endpoint answers 404 and nothing is provisioned |
+| registry (secret, optional) | `REGISTRY_DEMO_ACCOUNTS` | the three addresses, exactly one per role: `Buyer=ana@acme.com;Standard owner=rui@acme.com;Builder=lia@acme.com`; a malformed list refuses the start with `invalid_configuration` |
+| panel (`[env]`) | `PANEL_DEMO_SIGN_IN=1` | the sign-in action tries a demo session first; a non-demo address gets the emailed link as usual. The page says demo accounts enter directly but never lists them |
+
+Without `REGISTRY_DEMO_ACCOUNTS` the defaults apply
+(`apps/registry/src/sign-in/demo.ts`):
 
 | Role | Email |
 | --- | --- |
@@ -183,11 +189,12 @@ session at once, with no emailed link:
 | Standard owner | `owner@demo.domainharness.test` |
 | Builder | `builder@demo.domainharness.test` |
 
-The addresses live in `DEMO_ACCOUNTS` (`packages/contract/src/sign-in.ts`).
-Anyone who can open the staging panel can enter these accounts, so keep real
-data out of "Demo Pilot". Both flags must be on; without
-`REGISTRY_DEMO_SIGN_IN` the endpoint answers 404 and the demo Company is never
-created. Never set either flag outside staging. The registry logs
+To use your own addresses: `fly secrets set --app dh-registry-staging
+REGISTRY_DEMO_ACCOUNTS='Buyer=...;Standard owner=...;Builder=...'` (this
+restarts the registry, which provisions a new "Demo Pilot" for them). To turn
+the feature off, remove both toggle lines and redeploy. Anyone who knows a
+demo address can enter that account, so keep real data out of "Demo Pilot",
+and never set either toggle where real Companies sign in. The registry logs
 `{"event":"demo_company","state":"provisioned"|"present"|"partial"}` at start
 ("partial" means only some demo addresses exist; nothing is written).
 

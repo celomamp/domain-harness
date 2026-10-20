@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DEMO_ACCOUNTS, isSessionCreated } from "@domain-harness/contract";
+import { isSessionCreated } from "@domain-harness/contract";
 import type { UuidV7 } from "@domain-harness/contract";
 import { createRegistryDb } from "../db/client.ts";
 import type { RegistryDb } from "../db/client.ts";
@@ -22,7 +22,7 @@ import { createModuleService } from "../modules/service.ts";
 import { MemoryTransport } from "../mail/memory.ts";
 import { createStandardService } from "../standards/service.ts";
 import { provisionCompany } from "../tenancy/provision.ts";
-import { ensureDemoCompany } from "./demo.ts";
+import { DEFAULT_DEMO_ACCOUNTS as DEMO_ACCOUNTS, ensureDemoCompany } from "./demo.ts";
 import { consumeSignInLink, createSignInService, getSession, openDemoSession, requestSignInLinks } from "./service.ts";
 import { hashToken, mintToken } from "./tokens.ts";
 import { createProjectService } from "../projects/service.ts";
@@ -457,13 +457,15 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
     });
   });
 
-  describe("demo sign-in (staging only)", () => {
+  describe("demo sign-in (feature toggle)", () => {
+    const demoEmails = DEMO_ACCOUNTS.map((account) => account.email);
+
     it("provisions the demo Company once and opens sessions for its accounts without a link", async () => {
-      expect(await ensureDemoCompany(db)).toBe("provisioned");
-      expect(await ensureDemoCompany(db)).toBe("present");
+      expect(await ensureDemoCompany(db, DEMO_ACCOUNTS)).toBe("provisioned");
+      expect(await ensureDemoCompany(db, DEMO_ACCOUNTS)).toBe("present");
 
       for (const account of DEMO_ACCOUNTS) {
-        const created = await openDemoSession(db, ` ${account.email.toUpperCase()} `);
+        const created = await openDemoSession(db, demoEmails, ` ${account.email.toUpperCase()} `);
         expect(isSessionCreated(created)).toBe(true);
         expect(created.session.role).toBe(account.role);
         expect(await getSession(db, created.sessionToken)).toEqual(created.session);
@@ -471,7 +473,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
     });
 
     it("refuses any address that is not a demo account", async () => {
-      await expect(openDemoSession(db, "bea@acme.io")).rejects.toMatchObject({ code: "sign_in_link_invalid" });
+      await expect(openDemoSession(db, demoEmails, "bea@acme.io")).rejects.toMatchObject({ code: "sign_in_link_invalid" });
     });
 
     it("exists over HTTP only when demo sign-in is enabled", async () => {
@@ -483,7 +485,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
       const serve = async (demoSignIn: boolean) => {
         const server = createRegistryServer(
           {
-            signIn: createSignInService(db, new MemoryTransport(), { ...config, demoSignIn }),
+            signIn: createSignInService(db, new MemoryTransport(), demoSignIn ? { ...config, demoEmails } : config),
             modules: createModuleService(db),
             standards: createStandardService(db),
             projects: createProjectService(db),
@@ -510,7 +512,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
           body: JSON.stringify({ email }),
         });
 
-      await ensureDemoCompany(db);
+      await ensureDemoCompany(db, DEMO_ACCOUNTS);
       const off = await serve(false);
       const on = await serve(true);
       try {
