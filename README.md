@@ -40,9 +40,14 @@ pnpm run typecheck    # typecheck sources and tests
 pnpm run lint         # ESLint with typescript-eslint
 pnpm run boundaries   # dependency-boundary check (.dependency-cruiser.cjs)
 pnpm test             # Vitest in every package
+pnpm test:e2e         # Playwright: the panel's happy paths against a real registry (needs PostgreSQL)
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same steps on every push, on Node 24 and 26.
+CI (`.github/workflows/ci.yml`) runs the same steps on every push, on Node 24 and 26, plus the end-to-end job.
+
+### Panel end-to-end suite
+
+`pnpm test:e2e` builds the panel, then Playwright (`apps/panel/e2e`) recreates a throwaway database `dh_panel_e2e` on the PostgreSQL at `E2E_DATABASE_URL` (default: `REGISTRY_TEST_DATABASE_URL`, then `postgres://postgres:postgres@localhost:5432/postgres`), migrates it, serves the registry on `127.0.0.1:4110` with a file outbox and a per-run signing key, and serves the built panel on `localhost:4173`. Every test provisions its own Company and signs in through the emailed link, as a person would. The specs cover sign-in and sign-out, Modules and Standard owners, publishing and versioning Standards, the Project tree with grants and Locked rules, placing and registering Applications with their Boilerplate, Guidance access, and recording an Accepted deviation. Run Chromium once with `pnpm --filter @domain-harness/panel exec playwright install chromium`, or point `E2E_CHROMIUM_PATH` at an installed one. Failures keep a trace and a screenshot under `apps/panel/test-results`.
 
 ## Local development (three commands)
 

@@ -82,6 +82,57 @@ jobs:
       - name: Test
         run: pnpm test
 
+  e2e:
+    name: Panel end-to-end (happy paths)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # The suite recreates its own throwaway database (dh_panel_e2e) here,
+      # migrates it, and runs the real registry and the built panel against it.
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          # Throwaway CI-only service password, not a secret.
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      E2E_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Enable pnpm through corepack
+        run: |
+          npm install --global corepack@0.36.0
+          corepack enable pnpm
+          pnpm --version
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the panel and its workspace dependencies
+        run: pnpm turbo run build --filter=@domain-harness/panel...
+
+      - name: Install Chromium for Playwright
+        run: pnpm --filter @domain-harness/panel exec playwright install --with-deps chromium
+
+      - name: End-to-end
+        run: pnpm --filter @domain-harness/panel test:e2e
+
   docker-build:
     name: Build staging images
     runs-on: ubuntu-latest

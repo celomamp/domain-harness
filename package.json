@@ -11,6 +11,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint": "turbo run lint",
+    "test:e2e": "turbo run build --filter=@domain-harness/panel... && pnpm --filter @domain-harness/panel test:e2e",
     "boundaries": "node tooling/boundaries/cli.ts",
     "local:up": "sh tooling/local/local-up.sh",
     "local:migrate": "sh tooling/local/local-migrate.sh",

@@ -28,3 +28,7 @@ supabase/.temp
 # Debug
 npm-debug.log*
 pnpm-debug.log*
+
+# Panel end-to-end output (Playwright)
+test-results
+playwright-report
