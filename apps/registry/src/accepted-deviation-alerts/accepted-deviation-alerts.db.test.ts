@@ -58,7 +58,9 @@ const adminUrl = process.env[ENV];
 const inCi = process.env["CI"] !== undefined && process.env["CI"] !== "" && process.env["CI"] !== "false";
 const APP_ROLE = "dh_registry_app";
 const SCHEDULER_ROLE = "dh_alert_scheduler";
-const MIGRATION_SUITE_LOCK = 7_202_610_105;
+// The same advisory lock as every other registry database suite: migrations
+// create cluster-wide roles, so suites must never migrate concurrently.
+const MIGRATION_SUITE_LOCK = 7_202_610_103;
 const REGISTRY_ROOT = resolve(import.meta.dirname, "../..");
 const PATH = ACCEPTED_DEVIATION_ALERT_API_PATHS.alerts;
 const at = (iso: string): Date => new Date(iso);
