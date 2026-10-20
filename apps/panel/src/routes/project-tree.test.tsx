@@ -225,6 +225,34 @@ describe("Project tree page", () => {
     expect(items()).toHaveLength(4);
   });
 
+  it("keeps focus on a rendered node with a single tab stop after collapsing a branch", async () => {
+    renderPage("Buyer", ok(fullTree));
+    await screen.findByRole("tree");
+    const tree = screen.getByRole("tree");
+    // Collapse Platform so Web is no longer rendered.
+    fireEvent.click(within(items()[1] as HTMLElement).getByRole("button", { name: "Collapse Platform" }));
+    expect(items()).toHaveLength(3);
+    // Move focus to the last visible node (Data) with the keyboard.
+    (items()[0] as HTMLElement).focus();
+    fireEvent.keyDown(tree, { key: "ArrowDown" });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(items()[1]);
+    });
+    fireEvent.keyDown(tree, { key: "ArrowDown" });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(items()[2]);
+    });
+    // ArrowDown at the last visible node stays on a rendered node, never a collapsed id.
+    fireEvent.keyDown(tree, { key: "ArrowDown" });
+    await waitFor(() => {
+      expect(items()).toContain(document.activeElement as HTMLElement);
+    });
+    // Exactly one rendered node is in the tab order, and it is the focused one.
+    const tabStops = items().filter((item) => item.tabIndex === 0);
+    expect(tabStops).toHaveLength(1);
+    expect(tabStops[0]).toBe(document.activeElement);
+  });
+
   it("selects a nested Project on click, and only that Project", async () => {
     renderPage("Buyer", ok(fullTree));
     await screen.findByRole("tree");

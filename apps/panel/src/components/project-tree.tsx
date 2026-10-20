@@ -250,7 +250,7 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
   }
   const parentOf = new Map<string, string | null>(tree.projects.map((project) => [project.id, project.parentId]));
 
-  // Depth-first order respecting collapse: every Project still reachable.
+  // Depth-first order respecting collapse: exactly the rendered nodes.
   const order: string[] = [];
   const walk = (id: string): void => {
     order.push(id);
@@ -258,7 +258,6 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
   };
   const root = tree.projects.find((project) => project.id === tree.rootId);
   if (root !== undefined) walk(root.id);
-  for (const project of tree.projects) if (!order.includes(project.id)) order.push(project.id);
 
   const focused = order.includes(focusedId) ? focusedId : order.includes(selectedId) ? selectedId : (order[0] ?? selectedId);
 
