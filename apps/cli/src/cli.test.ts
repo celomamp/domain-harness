@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import type { KeyObject } from "node:crypto";
-import { mkdtempSync, readFileSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { BUNDLE_FORMAT_VERSION, BUNDLE_TYPE, canonicalJson } from "@domain-harness/contract";
@@ -185,6 +185,20 @@ describe("cli bundle verify", () => {
     expect(isCliEntryPoint("/repo/node_modules/vitest/vitest.mjs")).toBe(false);
     expect(isCliEntryPoint("C:\\repo\\node_modules\\vitest\\vitest.mjs")).toBe(false);
     expect(isCliEntryPoint(undefined)).toBe(false);
+  });
+
+  it("detects the entry point through an installed bin symlink", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dh-cli-bin-"));
+    try {
+      const target = join(dir, "cli.js");
+      writeFileSync(target, "");
+      const bin = join(dir, "domain-harness");
+      symlinkSync(target, bin);
+      expect(isCliEntryPoint(bin)).toBe(true);
+      expect(isCliEntryPoint(join(dir, "missing-bin"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("pins the default state path under the cache dir, never the working tree", () => {

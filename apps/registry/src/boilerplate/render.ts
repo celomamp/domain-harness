@@ -63,10 +63,14 @@ export function renderDesignSystem(plan: BoilerplatePlan): string {
   });
 }
 
-/** `.mcp.json`: the stdio bridge, run through npx with the Guidance endpoint URL as its argument. */
-export function renderClaudeMcpJson(guidanceUrl: string): string {
+/**
+ * `.mcp.json`: the stdio bridge, run through npx with the Guidance endpoint
+ * URL as its argument. `bridgePackage` is what npx installs: the npm package
+ * by default, or a release tarball URL while the bridge is not on npm.
+ */
+export function renderClaudeMcpJson(guidanceUrl: string, bridgePackage: string = MCP_BRIDGE_PACKAGE): string {
   return json({
-    mcpServers: { [MCP_SERVER_NAME]: { command: "npx", args: ["-y", MCP_BRIDGE_PACKAGE, guidanceUrl] } },
+    mcpServers: { [MCP_SERVER_NAME]: { command: "npx", args: ["-y", bridgePackage, guidanceUrl] } },
   });
 }
 
@@ -74,16 +78,19 @@ export function renderClaudeMcpJson(guidanceUrl: string): string {
  * `.cursor/mcp.json`: the same stdio bridge entry as `.mcp.json`, plus
  * Cursor's documented `type` field for a STDIO server.
  */
-export function renderCursorMcpJson(guidanceUrl: string): string {
+export function renderCursorMcpJson(guidanceUrl: string, bridgePackage: string = MCP_BRIDGE_PACKAGE): string {
   return json({
     mcpServers: {
-      [MCP_SERVER_NAME]: { type: "stdio", command: "npx", args: ["-y", MCP_BRIDGE_PACKAGE, guidanceUrl] },
+      [MCP_SERVER_NAME]: { type: "stdio", command: "npx", args: ["-y", bridgePackage, guidanceUrl] },
     },
   });
 }
 
 const INITIAL_COMMIT_RULE =
   "Make an initial commit before calling Guidance: the Domain Harness bridge identifies this repository by its root commit, so Guidance cannot answer before one exists.";
+
+const ACCESS_TOKEN_RULE =
+  "If the Company's Guidance endpoint requires an access token, set `DH_GUIDANCE_TOKEN` in the environment the agent starts from; the bridge sends it with every call.";
 
 const stackLine = (item: StackItem): string =>
   `- ${item.category} ${oneLine(item.name)}${item.versionConstraint === null ? "" : ` (${oneLine(item.versionConstraint)})`}`;
@@ -113,6 +120,8 @@ function renderInstructionsMd(applicationId: UuidV7, plan: BoilerplatePlan, mcpC
     "## Before you start",
     "",
     INITIAL_COMMIT_RULE,
+    "",
+    ACCESS_TOKEN_RULE,
     "",
     `Then request Guidance through the \`${MCP_SERVER_NAME}\` MCP server (declared in \`${mcpConfigPath}\`) before you add a dependency, a component or a design token.`,
     "",
@@ -183,6 +192,8 @@ function renderGuidanceSkill(mcpConfigPath: string): string {
     "",
     INITIAL_COMMIT_RULE,
     "",
+    ACCESS_TOKEN_RULE,
+    "",
     "## How to request Guidance",
     "",
     `1. Use the tools of the \`${MCP_SERVER_NAME}\` MCP server. It is declared in \`${mcpConfigPath}\` and needs no manual setup.`,
@@ -212,6 +223,8 @@ export interface RenderInput {
   readonly projectId: UuidV7;
   readonly guidanceUrl: string;
   readonly plan: BoilerplatePlan;
+  /** What the MCP configuration has npx install; defaults to the npm package. */
+  readonly bridgePackage?: string;
 }
 
 /** The target-independent files, in archive order. */
@@ -230,12 +243,12 @@ export function renderSharedFiles(input: RenderInput): BoilerplateFile[] {
 /** The target-specific files of each target, in archive order (after the shared ones). */
 const TARGET_FILES: Readonly<Record<BoilerplateTarget, (input: RenderInput) => BoilerplateFile[]>> = {
   "claude-code": (input) => [
-    { kind: "mcp-configuration", path: ".mcp.json", content: renderClaudeMcpJson(input.guidanceUrl) },
+    { kind: "mcp-configuration", path: ".mcp.json", content: renderClaudeMcpJson(input.guidanceUrl, input.bridgePackage) },
     { kind: "instructions", path: "CLAUDE.md", content: renderClaudeMd(input.applicationId, input.plan) },
     { kind: "skills", path: `.claude/skills/${GUIDANCE_SKILL_NAME}/SKILL.md`, content: renderClaudeSkill() },
   ],
   cursor: (input) => [
-    { kind: "mcp-configuration", path: ".cursor/mcp.json", content: renderCursorMcpJson(input.guidanceUrl) },
+    { kind: "mcp-configuration", path: ".cursor/mcp.json", content: renderCursorMcpJson(input.guidanceUrl, input.bridgePackage) },
     { kind: "instructions", path: "AGENTS.md", content: renderAgentsMd(input.applicationId, input.plan) },
     { kind: "skills", path: `.cursor/skills/${GUIDANCE_SKILL_NAME}/SKILL.md`, content: renderCursorSkill() },
   ],

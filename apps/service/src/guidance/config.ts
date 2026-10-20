@@ -10,7 +10,9 @@
  * registry address plus the tenant credential (the retention sweep's
  * authenticated fetch; same names as the bundles daemon) and the role-token
  * trust set (the registry's Ed25519 public keys, same JSON shape as the
- * bundle trust keys).
+ * bundle trust keys). The optional MCP access token gates `/mcp` with a
+ * Bearer check when the endpoint is exposed outside the Company network
+ * (the pilot's hosted Guidance endpoint).
  */
 import type { ErrorEnvelope, UuidV7 } from "@domain-harness/contract";
 import { isUuidV7 } from "@domain-harness/contract";
@@ -49,6 +51,8 @@ export interface GuidanceServiceConfig {
   readonly registryCredential: string;
   /** keyId → Ed25519 public key of the vendor registry, from required `SERVICE_ROLE_TOKEN_TRUST_KEYS`. */
   readonly tokenTrustSet: BundleTrustSet;
+  /** `/mcp` requires `Authorization: Bearer <token>` when set, from optional `SERVICE_GUIDANCE_ACCESS_TOKEN`; `null` serves it open. */
+  readonly mcpAccessToken: string | null;
 }
 
 function required(env: Record<string, string | undefined>, name: string): string {
@@ -101,7 +105,23 @@ export function guidanceServiceConfigFromEnv(env: Record<string, string | undefi
     registryUrl: registryUrl(env),
     registryCredential: required(env, "SERVICE_TENANT_CREDENTIAL"),
     tokenTrustSet: tokenTrustSet(env),
+    mcpAccessToken: mcpAccessToken(env),
   };
+}
+
+function mcpAccessToken(env: Record<string, string | undefined>): string | null {
+  const name = "SERVICE_GUIDANCE_ACCESS_TOKEN";
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") return null;
+  const value = raw.trim();
+  if (value.length < 32 || /\s/.test(value)) {
+    throw new GuidanceConfigError({
+      code: "invalid_configuration",
+      message: `${name} must be at least 32 characters with no whitespace`,
+      subject: name,
+    });
+  }
+  return value;
 }
 
 function registryUrl(env: Record<string, string | undefined>): string {

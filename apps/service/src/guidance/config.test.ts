@@ -111,6 +111,21 @@ describe("guidanceServiceConfigFromEnv", () => {
     }
   });
 
+  it("leaves /mcp open when no access token is set, and reads a set one trimmed", () => {
+    expect(guidanceServiceConfigFromEnv(baseEnv()).mcpAccessToken).toBeNull();
+    expect(guidanceServiceConfigFromEnv({ ...baseEnv(), SERVICE_GUIDANCE_ACCESS_TOKEN: "  " }).mcpAccessToken).toBeNull();
+    const token = "a".repeat(40);
+    expect(guidanceServiceConfigFromEnv({ ...baseEnv(), SERVICE_GUIDANCE_ACCESS_TOKEN: ` ${token} ` }).mcpAccessToken).toBe(token);
+  });
+
+  it("refuses a short or whitespace-carrying access token", () => {
+    for (const raw of ["short", `${"a".repeat(20)} ${"b".repeat(20)}`]) {
+      const error = configErrorOf(() => guidanceServiceConfigFromEnv({ ...baseEnv(), SERVICE_GUIDANCE_ACCESS_TOKEN: raw }));
+      expect(error.code).toBe("invalid_configuration");
+      expect(error.subject).toBe("SERVICE_GUIDANCE_ACCESS_TOKEN");
+    }
+  });
+
   it("throws exactly one envelope, in declared-variable order", () => {
     // Missing tenant id wins over every later failure.
     const first = configErrorOf(() => guidanceServiceConfigFromEnv({ SERVICE_RECORD_DATABASE_URL: "   " }));

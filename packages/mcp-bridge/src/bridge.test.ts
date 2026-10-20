@@ -111,8 +111,8 @@ interface BridgeSession {
   exitCode(): Promise<number | null>;
 }
 
-function spawnBridge(args: readonly string[], cwd: string): BridgeSession {
-  const child = spawn(process.execPath, [BRIDGE_PATH, ...args], { cwd, stdio: ["pipe", "pipe", "pipe"] });
+function spawnBridge(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv = process.env): BridgeSession {
+  const child = spawn(process.execPath, [BRIDGE_PATH, ...args], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
   let stdout = "";
@@ -314,6 +314,33 @@ describe("every forwarded call carries call-time identity headers", () => {
 
     session.endStdin();
     expect(await session.exitCode()).toBe(0);
+  }, 60_000);
+});
+
+describe("the Guidance access token", () => {
+  it("is sent as a Bearer header on every request when DH_GUIDANCE_TOKEN is set, and absent otherwise", async () => {
+    const repo = createScratchDir();
+    const stubUrl = await stub.url;
+    const token = "pilot-token-0123456789abcdef0123456789";
+
+    stub.requests.length = 0;
+    const withToken = spawnBridge([stubUrl], repo, { ...process.env, DH_GUIDANCE_TOKEN: ` ${token} ` });
+    withToken.send({ jsonrpc: "2.0", id: 1, method: "ping" });
+    expect(await withToken.waitResponse(1)).not.toBeNull();
+    const sent = stub.requests.find((request) => request.body.includes('"id":1'));
+    expect(sent?.headers["authorization"]).toBe(`Bearer ${token}`);
+    withToken.endStdin();
+    expect(await withToken.exitCode()).toBe(0);
+    expect(withToken.stderr()).not.toContain(token);
+
+    stub.requests.length = 0;
+    const withoutToken = spawnBridge([stubUrl], repo, { ...process.env, DH_GUIDANCE_TOKEN: "  " });
+    withoutToken.send({ jsonrpc: "2.0", id: 2, method: "ping" });
+    expect(await withoutToken.waitResponse(2)).not.toBeNull();
+    const unsent = stub.requests.find((request) => request.body.includes('"id":2'));
+    expect(unsent?.headers["authorization"]).toBeUndefined();
+    withoutToken.endStdin();
+    expect(await withoutToken.exitCode()).toBe(0);
   }, 60_000);
 });
 

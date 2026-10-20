@@ -10,10 +10,13 @@
 //   SERVICE_ROLE_TOKEN_TRUST_KEYS keyId → Ed25519 PEM public key of the registry (role-token verification)
 //   SERVICE_GUIDANCE_PORT         optional inbound port; default 8080
 //
-// The server serves the four Guidance tools over Streamable HTTP at `/mcp`,
-// without authentication: it is reachable only inside the Company network
-// (the container publishes no other inbound port; authentication is a
-// deployment concern the network edge handles). The same service serves the
+//   SERVICE_GUIDANCE_ACCESS_TOKEN optional Bearer token `/mcp` requires when set (never logged)
+//
+// The server serves the four Guidance tools over Streamable HTTP at `/mcp`.
+// Inside the Company network it runs without authentication (the container
+// publishes no other inbound port); when the endpoint is exposed beyond it,
+// SERVICE_GUIDANCE_ACCESS_TOKEN makes every MCP request present that Bearer
+// token. The same service serves the
 // credentialed, read-only Company Read API (`GET /v1/standards` and
 // `GET /v1/projects/{id}/effective-standards`) from the pinned active bundle
 // through the shared derivation Guidance uses, and the token-gated
@@ -41,6 +44,7 @@ import type { GuidanceServiceConfig } from "./config.ts";
 import { createPostgresGuidanceIdentityStore } from "./store.ts";
 import { createPostgresGuidanceEventStore } from "./events.ts";
 import { createGuidanceMcpHandler, GUIDANCE_MCP_PATH } from "./mcp.ts";
+import { mcpAccessDenied, mcpAccessGranted } from "./mcp-access.ts";
 import type { PinnedActiveBundle } from "./identity.ts";
 import { handleReadRequest, readRouteOf } from "../read/server.ts";
 import { handleGuidanceEventRead, isGuidanceEventReadPath } from "./events-read.ts";
@@ -147,7 +151,9 @@ export function createGuidanceHttpServer(
     const path = endpointPath(request.url);
     const handled: Promise<void> =
       path === GUIDANCE_MCP_PATH
-        ? handler(request, response)
+        ? mcpAccessGranted(request, config.mcpAccessToken)
+          ? handler(request, response)
+          : unauthorized(response)
         : handleReadRequest(
             {
               tenantId: config.tenantId,
@@ -236,6 +242,13 @@ function respondEnvelope(response: ServerResponse, status: number, envelope: Err
     "Cache-Control": "no-store",
   });
   response.end(body);
+}
+
+/** An MCP request without the configured access token answers 401 exactly once. */
+function unauthorized(response: ServerResponse): Promise<void> {
+  response.setHeader("WWW-Authenticate", "Bearer");
+  respondEnvelope(response, 401, mcpAccessDenied());
+  return Promise.resolve();
 }
 
 /** Every path but the MCP endpoint answers 404 exactly once. */

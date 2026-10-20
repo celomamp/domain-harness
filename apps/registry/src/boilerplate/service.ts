@@ -55,6 +55,7 @@ export async function generateBoilerplate(
   session: SessionInfo,
   applicationId: unknown,
   body: unknown,
+  options: BoilerplateOptions = {},
 ): Promise<BoilerplateResult> {
   if (!isUuidV7(applicationId)) throw applicationNotFound();
   const { tenantId } = session;
@@ -91,6 +92,7 @@ export async function generateBoilerplate(
       projectId: toId(row.projectId),
       guidanceUrl: endpoint.url,
       plan: planned.plan,
+      ...(options.bridgePackage === undefined ? {} : { bridgePackage: options.bridgePackage }),
     });
     const result = {
       applicationId: id,
@@ -104,13 +106,19 @@ export async function generateBoilerplate(
   });
 }
 
+/** Deployment choices for every generated Boilerplate. */
+export interface BoilerplateOptions {
+  /** What the MCP configuration has npx install (REGISTRY_MCP_BRIDGE_PACKAGE); the npm package when absent. */
+  readonly bridgePackage?: string;
+}
+
 /** The operations the HTTP API needs, bound to one database. */
 export interface BoilerplateService {
   generateBoilerplate(session: SessionInfo, applicationId: string, body: unknown): Promise<BoilerplateResult>;
 }
 
-export function createBoilerplateService(db: RegistryDb): BoilerplateService {
+export function createBoilerplateService(db: RegistryDb, options: BoilerplateOptions = {}): BoilerplateService {
   return {
-    generateBoilerplate: (session, applicationId, body) => generateBoilerplate(db, session, applicationId, body),
+    generateBoilerplate: (session, applicationId, body) => generateBoilerplate(db, session, applicationId, body, options),
   };
 }

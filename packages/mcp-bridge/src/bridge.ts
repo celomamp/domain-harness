@@ -14,6 +14,10 @@
  * stderr carries no subject text, and nothing but the MCP stream is written
  * to stdout. A missing or invalid endpoint URL is a start-up failure: one
  * `{ code, message, subject }` envelope on stderr, exit 1.
+ *
+ * When the endpoint is hosted outside the Company network it requires a
+ * Bearer token: the bridge reads it from `DH_GUIDANCE_TOKEN` and sends it on
+ * every request; unset, no Authorization header is sent.
  */
 import { GUIDANCE_IDENTITY_HEADERS, MCP_BRIDGE_PACKAGE } from "@domain-harness/contract";
 import type { ErrorEnvelope } from "@domain-harness/contract";
@@ -23,6 +27,7 @@ import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { endpointUrlFromArgv } from "./configuration.ts";
 import { computeBridgeFingerprint, readIdentificationFile } from "./identity.ts";
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import type { Readable, Writable } from "node:stream";
 
@@ -32,6 +37,17 @@ export interface BridgeStreams {
   readonly stdout: Writable;
   /** The directory the identification file and the fingerprint describe. */
   readonly identityRoot: string;
+  /** The Guidance endpoint's Bearer token, sent on every request when present. */
+  readonly accessToken?: string | undefined;
+}
+
+/** The environment variable carrying the Guidance endpoint's Bearer token. */
+export const GUIDANCE_TOKEN_ENV = "DH_GUIDANCE_TOKEN";
+
+/** The Bearer token from the environment, or undefined when unset or blank. */
+export function accessTokenFromEnv(env: Record<string, string | undefined>): string | undefined {
+  const raw = env[GUIDANCE_TOKEN_ENV]?.trim();
+  return raw === undefined || raw === "" ? undefined : raw;
 }
 
 /** The transport failure surfaced as one JSON-RPC error (RFC: internal error). */
@@ -64,6 +80,7 @@ export async function runBridge(endpoint: URL, streams: BridgeStreams): Promise<
       headers.set(GUIDANCE_IDENTITY_HEADERS.advisoryProjectId, file.advisoryProjectId);
     }
     if (fingerprint !== undefined) headers.set(GUIDANCE_IDENTITY_HEADERS.repoFingerprint, fingerprint);
+    if (streams.accessToken !== undefined) headers.set("Authorization", `Bearer ${streams.accessToken}`);
     return await fetch(url, { ...init, headers });
   };
 
@@ -129,12 +146,26 @@ export async function runBridge(endpoint: URL, streams: BridgeStreams): Promise<
 
 async function main(): Promise<void> {
   const endpoint = endpointUrlFromArgv(process.argv);
-  await runBridge(endpoint, { stdin: process.stdin, stdout: process.stdout, identityRoot: process.cwd() });
+  await runBridge(endpoint, {
+    stdin: process.stdin,
+    stdout: process.stdout,
+    identityRoot: process.cwd(),
+    accessToken: accessTokenFromEnv(process.env),
+  });
 }
 
-/** Run the entry only when this file is the process's main module. */
+/**
+ * Run the entry only when this file is the process's main module. npx starts
+ * the bin through a symlink, so argv[1] is compared by its real path.
+ */
 function isDirectEntry(): boolean {
-  return process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(entry).href;
+  }
 }
 
 if (isDirectEntry()) {

@@ -102,9 +102,25 @@ describe("Boilerplate renderers", () => {
     });
   });
 
+  it("has npx install a configured bridge tarball instead of the npm package, in both targets", () => {
+    const tarball = "https://github.com/acme/domain-harness/releases/download/pilot-0.1/mcp-bridge.tgz";
+    expect(JSON.parse(renderClaudeMcpJson(URL, tarball))).toEqual({
+      mcpServers: { "domain-harness": { command: "npx", args: ["-y", tarball, URL] } },
+    });
+    expect(JSON.parse(renderCursorMcpJson(URL, tarball))).toEqual({
+      mcpServers: { "domain-harness": { type: "stdio", command: "npx", args: ["-y", tarball, URL] } },
+    });
+  });
+
   it("tells the agent to make an initial commit before calling Guidance, in CLAUDE.md and the skill", () => {
     for (const text of [renderClaudeMd(APP, plan), renderClaudeSkill()]) {
       expect(text.toLowerCase()).toContain("make an initial commit before calling guidance");
+    }
+  });
+
+  it("names DH_GUIDANCE_TOKEN for a token-protected endpoint, in CLAUDE.md and the skill, never a token value", () => {
+    for (const text of [renderClaudeMd(APP, plan), renderClaudeSkill()]) {
+      expect(text).toContain("`DH_GUIDANCE_TOKEN`");
     }
   });
 

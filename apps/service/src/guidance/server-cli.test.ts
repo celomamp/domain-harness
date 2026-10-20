@@ -246,6 +246,7 @@ describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-
         registryUrl: "http://registry.test",
         registryCredential: "tenant-credential",
         tokenTrustSet: new Map([[ROLE_KEY.keyId, createPublicKey(ROLE_KEY.publicKeyPem)]]),
+        mcpAccessToken: null,
       },
       pool,
       (event) => {
@@ -403,6 +404,7 @@ describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-
         registryUrl: "http://registry.test",
         registryCredential: "tenant-credential",
         tokenTrustSet: new Map([[ROLE_KEY.keyId, createPublicKey(ROLE_KEY.publicKeyPem)]]),
+        mcpAccessToken: null,
       },
       pool,
       (event) => {
@@ -475,6 +477,7 @@ describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-
         registryUrl: "http://registry.test",
         registryCredential: "tenant-credential",
         tokenTrustSet: new Map([[ROLE_KEY.keyId, createPublicKey(ROLE_KEY.publicKeyPem)]]),
+        mcpAccessToken: null,
       },
       pool,
       (event) => {
