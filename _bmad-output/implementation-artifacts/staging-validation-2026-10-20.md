@@ -44,6 +44,7 @@ Service side (`fly status` / `fly logs`): all four apps running; the daemon logs
 ### Security / ops
 
 4. **The guidance app has public IPs** (`fly ips list --app dh-guidance-staging`: dedicated IPv6 + shared IPv4, created 2026-10-19), contrary to `docs/staging.md` ("must stay empty"). `GET https://dh-guidance-staging.fly.dev/mcp` answers 405 from the internet, so the MCP endpoint is publicly reachable. Either release the IPs (`fly ips release`) or, if this is the intended answer to finding 2, put authentication in front and update the runbook.
+   **Resolved 2026-10-20:** both IPs released; `fly ips list` is empty, `dh-guidance-staging.fly.dev` no longer resolves, and the app's Machine keeps running with its check passing.
 
 ### Guide gaps and UX notes
 
