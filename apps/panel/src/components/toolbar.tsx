@@ -72,7 +72,7 @@ export function Toolbar({
           Sort: {sort.column} ({sort.direction === "asc" ? "ascending" : "descending"})
         </button>
       ) : null}
-      <p className="toolbar__count" aria-live="polite">
+      <p className="toolbar__count">
         {count}
       </p>
     </div>

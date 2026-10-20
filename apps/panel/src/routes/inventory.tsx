@@ -54,8 +54,10 @@ export const INVENTORY_COPY = {
     notCompiled: "Not yet compiled",
   },
   status: {
-    none: "No Compilation yet",
     received: "Evidence received",
+    none: "No Compilation yet",
+    checking: "Checking evidence…",
+    unavailable: "Evidence unavailable",
   },
   groupBy: {
     label: "Group by",
@@ -104,7 +106,8 @@ export interface ApplicationGroup {
  * Compilation-observed tool first, the registry Boilerplate target second,
  * and the none-group last resort — so an Application with no Compilation
  * yet still appears, and a missing evidence read degrades to the registry
- * tool without moving rows off the page.
+ * tool without moving rows off the page. The key is trimmed so a whitespace
+ * variant of the same tool groups and counts identically.
  */
 export function groupApplications(
   applications: readonly ApplicationInfo[],
@@ -114,7 +117,7 @@ export function groupApplications(
   const byKey = new Map<string, (typeof groups)[number]>();
   for (const application of applications) {
     const observed = evidence.get(application.id) ?? [];
-    const key = observed[0] ?? application.agentTool ?? "";
+    const key = (observed[0] ?? application.agentTool ?? "").trim();
     let group = byKey.get(key);
     if (group === undefined) {
       group = { key, heading: key === "" ? INVENTORY_COPY.groupNone : key, applications: [] };
@@ -130,6 +133,12 @@ export function groupApplications(
 export function evidenceMap(evidence: InventoryEvidence): Map<string, readonly string[]> {
   return new Map(evidence.applications.map((row) => [row.applicationId, row.agentTools]));
 }
+
+/** The evidence read's state, threaded to the rows so the status is never a guess. */
+export type EvidenceState =
+  | { readonly status: "loading" }
+  | { readonly status: "unavailable" }
+  | { readonly status: "ok"; readonly map: ReadonlyMap<string, readonly string[]> };
 
 /** The Inventory summary: totals plus the evidence-derived counts. */
 export interface InventorySummary {
@@ -318,24 +327,26 @@ interface EvidenceLayerProps {
 
 /** Resolve the evidence; a miss degrades the grouping with a non-live notice. */
 function EvidenceLayer({ applications, projects, evidence }: EvidenceLayerProps) {
-  const withoutEvidence = (
+  const unavailable = (
     <>
       <Banner tone="notice">{INVENTORY_COPY.evidenceUnavailable}</Banner>
-      <InventoryView applications={applications} projects={projects} evidence={null} />
+      <InventoryView applications={applications} projects={projects} evidence={{ status: "unavailable" }} />
     </>
   );
   return (
-    <Suspense fallback={<InventoryView applications={applications} projects={projects} evidence={null} />}>
-      <Await resolve={evidence} errorElement={withoutEvidence}>
+    <Suspense
+      fallback={<InventoryView applications={applications} projects={projects} evidence={{ status: "loading" }} />}
+    >
+      <Await resolve={evidence} errorElement={unavailable}>
         {(result: RegistryResult<InventoryEvidence>) =>
           result.kind === "ok" ? (
             <InventoryView
               applications={applications}
               projects={projects}
-              evidence={evidenceMap(result.value)}
+              evidence={{ status: "ok", map: evidenceMap(result.value) }}
             />
           ) : (
-            withoutEvidence
+            unavailable
           )
         }
       </Await>
@@ -368,7 +379,7 @@ function Summary({
 interface InventoryViewProps {
   readonly applications: readonly ApplicationInfo[];
   readonly projects: readonly ProjectInfo[] | null;
-  readonly evidence: ReadonlyMap<string, readonly string[]> | null;
+  readonly evidence: EvidenceState;
 }
 
 /** The interactive surface: the summary, the toolbar, and the grouped tables. */
@@ -378,16 +389,16 @@ function InventoryView({ applications, projects, evidence }: InventoryViewProps)
   const [groupBy, setGroupBy] = useState<"agentTool" | "project">("agentTool");
   const [sort, setSort] = useState<InventorySort>("newest");
 
-  const evidenceMap = evidence ?? new Map<string, readonly string[]>();
-  const summary = inventorySummary(applications, evidenceMap, projects?.length ?? 0);
+  const resolvedEvidence = evidence.status === "ok" ? evidence.map : new Map<string, readonly string[]>();
+  const summary = inventorySummary(applications, resolvedEvidence, projects?.length ?? 0);
 
   const filtered = filterApplications(applications, query, projectId);
   const sorted = sortApplications(filtered, sort);
-  const groups = groupBy === "project" ? groupByProject(sorted) : groupApplications(sorted, evidenceMap);
+  const groups = groupBy === "project" ? groupByProject(sorted) : groupApplications(sorted, resolvedEvidence);
 
   const projectsText = projects === null ? "—" : String(summary.projects);
-  const agentToolsText = evidence === null ? "—" : String(summary.agentTools);
-  const notCompiledText = evidence === null ? "—" : String(summary.notCompiled);
+  const agentToolsText = evidence.status === "ok" ? String(summary.agentTools) : "—";
+  const notCompiledText = evidence.status === "ok" ? String(summary.notCompiled) : "—";
 
   const clearFilter = () => {
     setQuery("");
@@ -405,6 +416,21 @@ function InventoryView({ applications, projects, evidence }: InventoryViewProps)
         notCompiled={notCompiledText}
       />
       {projects === null ? <Banner tone="notice">{INVENTORY_COPY.filterUnavailable}</Banner> : null}
+      <Toolbar
+        searchLabel={INVENTORY_COPY.searchLabel}
+        searchValue={query}
+        onSearch={setQuery}
+        filters={
+          <>
+            {projects === null ? null : (
+              <ProjectFilter projects={projects} value={projectId} onChange={setProjectId} />
+            )}
+            <GroupBySelect value={groupBy} onChange={setGroupBy} />
+            <SortSelect value={sort} onChange={setSort} />
+          </>
+        }
+        count={INVENTORY_COPY.count(filtered.length)}
+      />
       {filtered.length === 0 ? (
         <EmptyState
           icon="inventory"
@@ -416,30 +442,13 @@ function InventoryView({ applications, projects, evidence }: InventoryViewProps)
           }
         />
       ) : (
-        <>
-          <Toolbar
-            searchLabel={INVENTORY_COPY.searchLabel}
-            searchValue={query}
-            onSearch={setQuery}
-            filters={
-              <>
-                {projects === null ? null : (
-                  <ProjectFilter projects={projects} value={projectId} onChange={setProjectId} />
-                )}
-                <GroupBySelect value={groupBy} onChange={setGroupBy} />
-                <SortSelect value={sort} onChange={setSort} />
-              </>
-            }
-            count={INVENTORY_COPY.count(filtered.length)}
-          />
-          <div className="inventory-groups">
-            {groups.map((group) => (
-              <SectionCard key={group.key} title={`${group.heading} · ${String(group.applications.length)}`}>
-                <ApplicationTable group={group} evidence={evidenceMap} />
-              </SectionCard>
-            ))}
-          </div>
-        </>
+        <div className="inventory-groups">
+          {groups.map((group) => (
+            <SectionCard key={group.key} title={`${group.heading} · ${String(group.applications.length)}`}>
+              <ApplicationTable group={group} evidence={evidence} />
+            </SectionCard>
+          ))}
+        </div>
       )}
     </>
   );
@@ -529,7 +538,7 @@ function ApplicationTable({
   evidence,
 }: {
   readonly group: ApplicationGroup;
-  readonly evidence: ReadonlyMap<string, readonly string[]>;
+  readonly evidence: EvidenceState;
 }) {
   return (
     <div className="inventory-table-scroll" tabIndex={0}>
@@ -555,12 +564,26 @@ function ApplicationTable({
 }
 
 /** The per-row agent tool: observed tool first, the registry target second, otherwise "". */
-function agentToolOf(
-  application: ApplicationInfo,
-  evidence: ReadonlyMap<string, readonly string[]>,
-): string {
-  const observed = evidence.get(application.id);
+function agentToolOf(application: ApplicationInfo, evidence: EvidenceState): string {
+  const observed = evidence.status === "ok" ? evidence.map.get(application.id) : undefined;
   return (observed?.[0] ?? application.agentTool ?? "").trim();
+}
+
+/** The status badge for one row, derived from the evidence read's state. */
+function statusBadge(
+  application: ApplicationInfo,
+  evidence: EvidenceState,
+): { readonly tone: "neutral" | "outline"; readonly icon: "clock" | "dash" | "check" | "dot"; readonly label: string } {
+  if (evidence.status === "loading") {
+    return { tone: "neutral", icon: "clock", label: INVENTORY_COPY.status.checking };
+  }
+  if (evidence.status === "unavailable") {
+    return { tone: "neutral", icon: "dash", label: INVENTORY_COPY.status.unavailable };
+  }
+  if (evidence.map.has(application.id)) {
+    return { tone: "outline", icon: "check", label: INVENTORY_COPY.status.received };
+  }
+  return { tone: "neutral", icon: "dot", label: INVENTORY_COPY.status.none };
 }
 
 /** One Application row. Status is read-presence, never a Gate verdict. */
@@ -569,10 +592,10 @@ function ApplicationRow({
   evidence,
 }: {
   readonly application: ApplicationInfo;
-  readonly evidence: ReadonlyMap<string, readonly string[]>;
+  readonly evidence: EvidenceState;
 }) {
-  const hasEvidence = evidence.has(application.id);
   const agentTool = agentToolOf(application, evidence);
+  const status = statusBadge(application, evidence);
   return (
     <tr>
       <th scope="row">
@@ -587,8 +610,8 @@ function ApplicationRow({
       <td>{application.project.name}</td>
       <td>{agentTool === "" ? "—" : agentTool}</td>
       <td>
-        <Badge tone={hasEvidence ? "outline" : "neutral"} icon={hasEvidence ? "check" : "dot"}>
-          {hasEvidence ? INVENTORY_COPY.status.received : INVENTORY_COPY.status.none}
+        <Badge tone={status.tone} icon={status.icon}>
+          {status.label}
         </Badge>
       </td>
       <td>{formatDate(application.createdAt)}</td>

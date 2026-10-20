@@ -2,8 +2,9 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
+import type { ApplicationInfo } from "@domain-harness/contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import Inventory, { loader } from "./inventory.tsx";
+import Inventory, { groupApplications, inventorySummary, loader } from "./inventory.tsx";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
 const ROOT = "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7";
@@ -215,6 +216,61 @@ describe("Inventory", () => {
     expect(screen.getByText("1 Application")).toBeTruthy();
   });
 
+  it("searches by Project name, not just the description, and reports the filtered result and count", async () => {
+    renderInventory(fullReads());
+    await screen.findByRole("table", { name: "Applications — cursor" });
+    fireEvent.change(screen.getByLabelText("Search applications"), { target: { value: "Acme" } });
+    // Legacy billing is the only Application on the Acme Project.
+    expect(screen.getByText("Legacy billing")).toBeTruthy();
+    expect(screen.queryByText("Checkout service")).toBeNull();
+    expect(screen.queryByText("Intake form")).toBeNull();
+    expect(screen.getByText("1 Application")).toBeTruthy();
+  });
+
+  it("keeps the toolbar and the visible result count in the zero-results state", async () => {
+    renderInventory(fullReads());
+    await screen.findByRole("table", { name: "Applications — cursor" });
+    fireEvent.change(screen.getByLabelText("Search applications"), { target: { value: "zzz" } });
+    expect(await screen.findByText("No Application matches this search.")).toBeTruthy();
+    // The search, Project filter, group-by, sort and the count all stay.
+    expect(screen.getByLabelText("Search applications")).toBeTruthy();
+    expect(screen.getByLabelText("Project")).toBeTruthy();
+    expect(screen.getByLabelText("Group by")).toBeTruthy();
+    expect(screen.getByLabelText("Sort")).toBeTruthy();
+    expect(screen.getByText("0 Applications")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clear filter" })).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("shows 'Checking evidence…' while the evidence read is loading, never a verdict", async () => {
+    const reads = fullReads();
+    renderInventory({ ...reads, evidence: new Promise(() => undefined) });
+    expect((await screen.findAllByText("Checking evidence…")).length).toBe(3);
+    expect(screen.queryByText("No Compilation yet")).toBeNull();
+    expect(screen.queryByText("Evidence received")).toBeNull();
+  });
+
+  it("shows 'Evidence unavailable' per row, not 'No Compilation yet', when the evidence read fails", async () => {
+    const reads = fullReads();
+    renderInventory({ ...reads, evidence: Promise.resolve({ kind: "unavailable" }) });
+    await screen.findByText(
+      "The Compilation evidence did not arrive, so the agent-tool groups use the latest Boilerplate target.",
+    );
+    expect(screen.getAllByText("Evidence unavailable").length).toBe(3);
+    expect(screen.queryByText("No Compilation yet")).toBeNull();
+    expect(screen.queryByText("Evidence received")).toBeNull();
+  });
+
+  it("shows 'No Compilation yet' only for Applications the evidence read confirms have no row", async () => {
+    renderInventory(fullReads());
+    await screen.findByRole("table", { name: "Applications — cursor" });
+    // Checkout service has a row; Intake form and Legacy billing do not.
+    expect(screen.getAllByText("No Compilation yet").length).toBe(2);
+    expect(screen.getByText("Evidence received")).toBeTruthy();
+    expect(screen.queryByText("Checking evidence…")).toBeNull();
+    expect(screen.queryByText("Evidence unavailable")).toBeNull();
+  });
+
   it("handles 60 applications without dropping rows", async () => {
     const many = Array.from({ length: 60 }, (_, index) => ({ ...flow, id: `${flow.id}-${String(index)}`, description: `Application ${String(index)}` }));
     renderInventory({ applications: Promise.resolve({ kind: "ok", value: { applications: many } }) });
@@ -228,6 +284,19 @@ describe("Inventory", () => {
     renderInventory({ applications: Promise.resolve({ kind: "ok", value: { applications: [long] } }) });
     const link = await screen.findByRole("link", { name: "A".repeat(500) });
     expect(link.className).toContain("application-name");
+  });
+});
+
+describe("inventory helpers", () => {
+  it("trims agent-tool keys so whitespace variants group and count the same", () => {
+    const apps = [flow, cursorApp] as unknown as ApplicationInfo[];
+    const map = new Map<string, readonly string[]>();
+    map.set(flow.id, [" cursor "]);
+    map.set(cursorApp.id, ["cursor"]);
+    // Both Applications group under one trimmed "cursor" heading.
+    expect(groupApplications(apps, map).map((group) => group.heading)).toEqual(["cursor"]);
+    // And the summary counts exactly one agent tool, matching the grouping.
+    expect(inventorySummary(apps, map, 1).agentTools).toBe(1);
   });
 });
 
