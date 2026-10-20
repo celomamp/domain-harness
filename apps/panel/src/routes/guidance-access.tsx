@@ -193,10 +193,10 @@ function refusal(
 export default function GuidanceAccess() {
   const { access } = useLoaderData<GuidanceAccessLoaderData>();
   const actionData = useActionData<GuidanceAccessActionData>();
-  const [grantFormKey, setGrantFormKey] = useState("form");
+  const [saveNonce, setSaveNonce] = useState(0);
   useEffect(() => {
     if (actionData?.intent === "save" && actionData.savedAt !== undefined) {
-      setGrantFormKey(actionData.savedAt);
+      setSaveNonce((current) => current + 1);
     }
   }, [actionData]);
   return (
@@ -209,7 +209,7 @@ export default function GuidanceAccess() {
       <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
       <AccessState
         access={access}
-        grantFormKey={grantFormKey}
+        saveNonce={saveNonce}
         mintFormKey={actionData?.mintedAt ?? "form"}
         actionData={actionData}
       />
@@ -219,15 +219,15 @@ export default function GuidanceAccess() {
 
 interface AccessStateProps {
   readonly access: Promise<RegistryResult<GuidanceAccessState>>;
-  /** A successful save remounts the grant form; the key is the saved instant. */
-  readonly grantFormKey: string;
+  /** A successful save remounts the grant form; mint actions do not change the key. */
+  readonly saveNonce: number;
   /** A successful mint remounts only the mint form; the key is the token expiry. */
   readonly mintFormKey: string;
   readonly actionData: GuidanceAccessActionData | undefined;
 }
 
 /** The access state under its own Suspense, with the save and mint commits beside it. */
-function AccessState({ access, grantFormKey, mintFormKey, actionData }: AccessStateProps) {
+function AccessState({ access, saveNonce, mintFormKey, actionData }: AccessStateProps) {
   const copy = GUIDANCE_ACCESS_COPY.grant;
   const unavailable = <Banner tone="notice">{copy.unavailable}</Banner>;
   return (
@@ -236,7 +236,7 @@ function AccessState({ access, grantFormKey, mintFormKey, actionData }: AccessSt
         {(result: RegistryResult<GuidanceAccessState>) =>
           result.kind === "ok" ? (
             <div className="guidance-layout">
-              <GrantSection key={grantFormKey} state={result.value} actionData={actionData} />
+              <GrantSection key={saveNonce} state={result.value} actionData={actionData} />
               <MintSection formKey={mintFormKey} actionData={actionData} />
             </div>
           ) : result.kind === "refused" && result.error.code === SESSION_INVALID ? (

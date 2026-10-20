@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { GRANTABLE_ROLES } from "@domain-harness/contract";
@@ -29,7 +29,7 @@ function renderAccess(
       path: "/guidance-access",
       Component: GuidanceAccess,
       loader: () => ({ access }),
-      action: () => postActionData,
+      action: () => (postActionData === undefined ? undefined : { ...postActionData }),
     },
   ]);
   render(<Stub initialEntries={["/guidance-access"]} />);
@@ -123,7 +123,17 @@ describe("Guidance access", () => {
     fireEvent.click(await screen.findByLabelText("Builder"));
     fireEvent.click(screen.getByRole("button", { name: "Save Guidance access" }));
     expect(await screen.findByText(GUIDANCE_ACCESS_COPY.grant.saved)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save Guidance access" })).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Save Guidance access" })).toBeNull();
+    });
+    expect(screen.getByRole("checkbox", { name: "Builder" })).toHaveProperty("checked", false);
+
+    fireEvent.click(screen.getByLabelText("Builder"));
+    expect(screen.getByRole("button", { name: "Save Guidance access" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save Guidance access" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Save Guidance access" })).toBeNull();
+    });
     expect(screen.getByRole("checkbox", { name: "Builder" })).toHaveProperty("checked", false);
   });
 
