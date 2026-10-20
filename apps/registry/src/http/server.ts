@@ -543,6 +543,8 @@ async function handle(
       // The service checks the Application, then the body, then the endpoint,
       // the Standards and the ecosystem, so the first failure in that order wins.
       const result = await services.boilerplate.generateBoilerplate(session, match.id, await readJson(req));
+      // Generation records the Application's agent tool, which the bundle carries.
+      await buildBundleAfterMutation(services, log, session);
       log({
         event: "boilerplate_generated",
         applicationId: result.applicationId,

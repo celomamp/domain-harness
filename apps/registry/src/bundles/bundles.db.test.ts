@@ -646,7 +646,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
         },
       ]);
 
-      // Non-mutating routes (GETs, sign-in links, boilerplate generation) do NOT build a bundle
+      // Non-mutating routes (GETs, sign-in links) do NOT build a bundle
       expect((await get("/v1/modules", "buyer")).status).toBe(200);
       expect((await get("/v1/projects", "buyer")).status).toBe(200);
       expect((await get("/v1/applications", "buyer")).status).toBe(200);
@@ -674,17 +674,9 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Standard bundles aga
         target: "claude-code",
       });
       expect(bpRes.status).toBe(200);
-      // Boilerplate generation is not in the pinned mutating hook list
-      expect(await bundleCount(tenantA)).toBe(15);
-
-      // A fresh generation's tool appears only after the next bundle: the
-      // next mutation builds bundle 16 carrying `claude-code` for the
-      // generated app and `null` for the app without a generation.
-      const r16 = await post("/v1/applications", "builder", {
-        description: "Post-generation app",
-        projectId: childProject.id,
-      });
-      expect(r16.status).toBe(201);
+      // Generation records the agent tool, so it builds bundle 16 at once,
+      // carrying `claude-code` for the generated app and `null` for the app
+      // without a generation: the Collector needs the tool to project events.
       const afterGeneration = await assertLatestBundle(16);
       expect(afterGeneration.payload.applications.find((a) => a.id === flowApp.id)).toEqual({
         id: flowApp.id,
