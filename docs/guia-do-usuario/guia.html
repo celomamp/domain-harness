@@ -157,13 +157,25 @@
     .phones figure { width: 100%; max-width: 280px; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+  @page { size: A4; margin: 14mm 13mm 16mm; }
   @media print {
+    html, body { background: #fff; font-size: 13px; }
     .layout { display: block; }
     .toc, .menu-btn, .lightbox { display: none !important; }
     main { max-width: none; padding: 0; }
-    section.chapter { break-inside: avoid-page; }
-    figure { break-inside: avoid; }
-    .shot { box-shadow: none; }
+    .hero { padding: 40px 0 28px; margin-bottom: 28px; }
+    section.chapter { margin-bottom: 34px; break-before: auto; }
+    section.chapter + section.chapter { break-before: page; }
+    h2, h3, .chapter__num { break-after: avoid; }
+    figure, .card, .callout, details, .checklist li, tr, dl.glossary dt, dl.glossary dd { break-inside: avoid; }
+    figure { margin: 14px 0 18px; }
+    .grid--2:has(figure) { grid-template-columns: 1fr; }
+    .shot { box-shadow: none; transform: none !important; }
+    .shot__bar { display: none; }
+    .card { box-shadow: none; }
+    .phones figure { width: 46%; }
+    a { text-decoration: none; }
+    details summary { list-style: none; }
   }
 </style>
 </head>
