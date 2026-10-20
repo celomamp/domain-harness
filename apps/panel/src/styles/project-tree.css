@@ -31,9 +31,27 @@
 /* A Project node: a row of chevron + label, indented by the nested group. */
 .project-node__row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.project-node__row:hover {
+  background: var(--color-surface-subtle);
+}
+
+/* Name on top, level text below in the muted caption: every node reads alike. */
+.project-node__label {
+  display: grid;
+  min-width: 0;
+}
+
+.project-node__level {
+  color: var(--color-ink-muted);
+  font-size: var(--type-caption-size);
 }
 
 /* The expand/collapse chevron: a quiet 24px control, never gold. */
@@ -77,9 +95,10 @@
 }
 
 /* The selected node: cream surface and 600 weight, never gold. */
-.project-node[aria-selected="true"] {
+/* Only the selected row is marked, never its whole subtree. */
+.project-node[aria-selected="true"] > .project-node__row {
   background: var(--color-surface-base);
-  border-radius: var(--radius-sm);
+  box-shadow: inset var(--size-focus-ring) 0 0 var(--color-ink);
 }
 
 .project-node[aria-selected="true"] .project-node__name {

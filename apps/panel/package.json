@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "test:e2e": "playwright test -c e2e/playwright.config.ts"
+    "test:e2e": "playwright test -c e2e/playwright.config.ts",
+    "guide:screens": "E2E_GUIDE=1 playwright test -c e2e/playwright.config.ts"
   },
   "dependencies": {
     "@domain-harness/contract": "workspace:*",

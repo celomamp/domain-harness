@@ -1,5 +1,7 @@
 # Domain Harness
 
+**New here or testing the pilot?** Open [`GUIA-DO-USUARIO.html`](GUIA-DO-USUARIO.html), the illustrated user guide (in Portuguese): what the product does and how to use the management panel, step by step. It is one self-contained file; its source and screenshots live in [`docs/guia-do-usuario/`](docs/guia-do-usuario/).
+
 TypeScript monorepo for Domain Harness. The layout and dependency rules come from the architecture spine (`_bmad-output/planning-artifacts/architecture/`); scaffold choices are recorded in [`docs/decisions/starter-template.md`](docs/decisions/starter-template.md).
 
 ```text
@@ -47,7 +49,7 @@ CI (`.github/workflows/ci.yml`) runs the same steps on every push, on Node 24 an
 
 ### Panel end-to-end suite
 
-`pnpm test:e2e` builds the panel, then Playwright (`apps/panel/e2e`) recreates a throwaway database `dh_panel_e2e` on the PostgreSQL at `E2E_DATABASE_URL` (default: `REGISTRY_TEST_DATABASE_URL`, then `postgres://postgres:postgres@localhost:5432/postgres`), migrates it, serves the registry on `127.0.0.1:4110` with a file outbox and a per-run signing key, and serves the built panel on `localhost:4173`. Every test provisions its own Company and signs in through the emailed link, as a person would. The specs cover sign-in and sign-out, Modules and Standard owners, publishing and versioning Standards, the Project tree with grants and Locked rules, placing and registering Applications with their Boilerplate, Guidance access, and recording an Accepted deviation. Run Chromium once with `pnpm --filter @domain-harness/panel exec playwright install chromium`, or point `E2E_CHROMIUM_PATH` at an installed one. Failures keep a trace and a screenshot under `apps/panel/test-results`.
+`pnpm test:e2e` builds the panel, then Playwright (`apps/panel/e2e`) recreates a throwaway database `dh_panel_e2e` on the PostgreSQL at `E2E_DATABASE_URL` (default: `REGISTRY_TEST_DATABASE_URL`, then `postgres://postgres:postgres@localhost:5432/postgres`), migrates it, serves the registry on `127.0.0.1:4110` with a file outbox and a per-run signing key, and serves the built panel on `localhost:4173`. Every test provisions its own Company and signs in through the emailed link, as a person would. The specs cover sign-in and sign-out, Modules and Standard owners, publishing and versioning Standards, the Project tree with grants and Locked rules, placing and registering Applications with their Boilerplate, Guidance access, and recording an Accepted deviation. Run Chromium once with `pnpm --filter @domain-harness/panel exec playwright install chromium`, or point `E2E_CHROMIUM_PATH` at an installed one. Failures keep a trace and a screenshot under `apps/panel/test-results`. `pnpm --filter @domain-harness/panel guide:screens` retakes the user-guide screenshots the same way (a fictional Company, "Aurora Pagamentos"), and `node docs/guia-do-usuario/build.mjs` rebuilds `GUIA-DO-USUARIO.html` with them inlined.
 
 ## Local development (three commands)
 

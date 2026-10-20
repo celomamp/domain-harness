@@ -8,7 +8,8 @@ import { PANEL_PORT, PANEL_URL, REGISTRY_PORT, REGISTRY_URL } from "./stack.ts";
  */
 export default defineConfig({
   testDir: ".",
-  testMatch: "*.spec.ts",
+  // `guide:screens` sets E2E_GUIDE to take the user-guide screenshots instead.
+  testMatch: process.env["E2E_GUIDE"] === undefined ? "*.spec.ts" : "guide.screens.ts",
   fullyParallel: true,
   forbidOnly: process.env["CI"] !== undefined,
   retries: process.env["CI"] === undefined ? 0 : 1,

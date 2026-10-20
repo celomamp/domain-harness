@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domain Harness · Guia do usuário</title>
+<meta name="description" content="Guia do usuário do Domain Harness para os primeiros usuários de teste: o que é, como funciona e como usar o painel, passo a passo.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400&family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #FEFBE9;
+    --cream-2: #F7F3E4;
+    --cream-3: #F1ECD8;
+    --white: #FFFFFF;
+    --ink: #0A0A0A;
+    --ink-2: #262626;
+    --muted: #5B5B5B;
+    --border: #E5E2D6;
+    --border-strong: #C9C4B4;
+    --gold: #FFC700;
+    --gold-soft: #FFF3C2;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.06);
+    --sans: "Sora", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --display: "Poppins", ui-sans-serif, system-ui, sans-serif;
+    --rail: 280px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body { margin: 0; background: var(--cream); color: var(--ink); font: 16px/1.65 var(--sans); }
+  a { color: var(--ink); text-underline-offset: 3px; }
+  img { max-width: 100%; display: block; }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .88em; background: var(--cream-3); padding: .1em .4em; border-radius: 4px; }
+  h1, h2, h3 { line-height: 1.2; margin: 0; }
+  p { margin: 0 0 1em; }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); min-height: 100vh; }
+  .toc { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--ink); color: #FAFAFA; padding: 28px 22px 40px; }
+  .toc__brand { font-weight: 700; font-size: 20px; letter-spacing: -.01em; }
+  .toc__sub { color: #A3A3A3; font-size: 13px; margin: 4px 0 26px; }
+  .toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; }
+  .toc li { counter-increment: toc; }
+  .toc a { display: flex; gap: 10px; color: #E5E5E5; text-decoration: none; font-size: 14px; padding: 7px 10px; border-radius: 6px; border-left: 2px solid transparent; transition: background .15s, color .15s; }
+  .toc a::before { content: counter(toc, decimal-leading-zero); color: #737373; font-variant-numeric: tabular-nums; }
+  .toc a:hover { background: #1F1F1F; color: #fff; }
+  .toc a.is-active { background: #1F1F1F; color: #fff; border-left-color: #FAFAFA; font-weight: 600; }
+  .menu-btn { display: none; }
+  main { padding: 0 clamp(20px, 5vw, 72px) 96px; max-width: 1080px; }
+
+  /* Hero */
+  .hero { padding: 72px 0 48px; border-bottom: 1px solid var(--border); margin-bottom: 56px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
+  .eyebrow::before { content: ""; width: 10px; height: 10px; border-radius: 2px; background: var(--gold); }
+  .hero h1 { font: 400 clamp(38px, 6vw, 60px)/1.1 var(--display); letter-spacing: -.02em; margin: 14px 0 18px; }
+  .hero h1 strong { font-weight: 400; background: linear-gradient(transparent 62%, var(--gold) 62%); }
+  .lead { font: 300 20px/1.55 var(--display); color: var(--ink-2); max-width: 760px; }
+  .hero__meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+  .pill { max-width: 100%; font-size: 13px; padding: 6px 12px; border-radius: 999px; background: var(--white); border: 1px solid var(--border); }
+
+  /* Sections */
+  section.chapter { padding-top: 8px; margin-bottom: 72px; }
+  .chapter__num { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
+  .chapter h2 { font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -.015em; margin: 6px 0 18px; }
+  .chapter h3 { font-size: 20px; margin: 36px 0 12px; }
+  .chapter > p, .chapter li { max-width: 760px; }
+
+  /* Cards and grids */
+  .grid { display: grid; gap: 16px; }
+  .grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+  .card h3, .card h4 { margin: 0 0 6px; font-size: 17px; }
+  .card p { margin: 0; color: var(--ink-2); font-size: 15px; }
+  .card .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: var(--cream-3); margin-bottom: 10px; }
+  .card--role { border-top: 4px solid var(--ink); }
+  .card--role ul { margin: 10px 0 0; padding-left: 18px; font-size: 14.5px; }
+  .icon-num { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; background: var(--gold); font-weight: 700; margin-bottom: 12px; }
+
+  /* Flow diagram */
+  .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; align-items: stretch; margin: 24px 0 8px; }
+  .flow__step { position: relative; background: var(--white); border: 1px solid var(--border); padding: 16px 14px; border-radius: var(--radius); margin-right: 22px; }
+  .flow__step:last-child { margin-right: 0; }
+  .flow__step:not(:last-child)::after { content: "→"; position: absolute; right: -19px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--muted); }
+  .flow__step b { display: block; font-size: 14.5px; margin-bottom: 4px; }
+  .flow__step span { font-size: 13px; color: var(--muted); line-height: 1.45; display: block; }
+  .flow__step--accent { background: var(--gold-soft); border-color: #F1D36A; }
+  .flow-note { font-size: 14px; color: var(--muted); }
+
+  /* Steps */
+  .steps { list-style: none; padding: 0; margin: 18px 0 0; counter-reset: step; }
+  .steps > li { counter-increment: step; position: relative; padding-left: 48px; margin-bottom: 18px; max-width: 760px; }
+  .steps > li::before { content: counter(step); position: absolute; left: 0; top: -2px; width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: #fff; font-weight: 700; font-size: 14px; display: grid; place-items: center; }
+
+  /* Figures */
+  figure { margin: 22px 0 30px; }
+  .shot { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border-strong); box-shadow: var(--shadow); background: var(--white); cursor: zoom-in; transition: transform .2s, box-shadow .2s; }
+  .shot:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(0,0,0,.06), 0 18px 40px rgba(0,0,0,.10); }
+  .shot__bar { height: 26px; background: var(--cream-3); display: flex; align-items: center; gap: 6px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+  .shot__bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
+  figcaption { font-size: 13.5px; color: var(--muted); margin-top: 10px; }
+  figcaption b { color: var(--ink); }
+  .phones { display: flex; gap: 28px; flex-wrap: wrap; }
+  .phones figure { width: 260px; margin: 12px 0; }
+  .phones .shot { border-radius: 26px; border: 8px solid var(--ink); }
+
+  /* Callouts and tables */
+  .callout { display: grid; grid-template-columns: 28px 1fr; gap: 10px; background: var(--white); border: 1px solid var(--border); border-left: 4px solid var(--ink); border-radius: 8px; padding: 14px 16px; margin: 18px 0; max-width: 820px; font-size: 15px; }
+  .callout--tip { border-left-color: var(--gold); }
+  .callout__icon { font-size: 18px; line-height: 1.3; }
+  .callout p:last-child { margin: 0; }
+  table { width: 100%; border-collapse: collapse; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; font-size: 14.5px; margin: 14px 0 24px; }
+  th, td { padding: 11px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+  thead th { background: var(--cream-2); font-size: 13px; letter-spacing: .02em; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.yes { font-weight: 700; }
+  td.no { color: #9A9A9A; }
+  .table-wrap { overflow-x: auto; }
+  dl.glossary { display: grid; grid-template-columns: minmax(170px, 230px) 1fr; gap: 0; background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  dl.glossary dt, dl.glossary dd { margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  dl.glossary dt { font-weight: 600; background: var(--cream-2); }
+  dl.glossary dt small { display: block; font-weight: 400; color: var(--muted); font-size: 12.5px; }
+  dl.glossary dd { font-size: 15px; overflow-wrap: anywhere; }
+  details { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-bottom: 10px; max-width: 820px; }
+  details summary { cursor: pointer; font-weight: 600; }
+  details[open] summary { margin-bottom: 8px; }
+  .checklist { list-style: none; padding: 0; max-width: 820px; }
+  .checklist li { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px 12px 46px; margin-bottom: 8px; position: relative; }
+  .checklist li::before { content: ""; position: absolute; left: 14px; top: 14px; width: 18px; height: 18px; border: 2px solid var(--ink); border-radius: 4px; }
+  .checklist li small { display: block; color: var(--muted); }
+  footer { border-top: 1px solid var(--border); padding-top: 24px; color: var(--muted); font-size: 13.5px; }
+
+  /* Lightbox */
+  .lightbox { position: fixed; inset: 0; background: rgba(10,10,10,.86); display: none; align-items: center; justify-content: center; padding: 3vw; z-index: 50; cursor: zoom-out; }
+  .lightbox.is-open { display: flex; animation: fade .18s ease; }
+  .lightbox img { max-height: 92vh; width: auto; border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    main { padding-top: 56px; }
+    .toc { position: fixed; inset: 0 auto 0 0; width: 86vw; max-width: 320px; z-index: 40; transform: translateX(-100%); transition: transform .2s ease; }
+    .toc.is-open { transform: none; box-shadow: 0 0 0 100vmax rgba(10,10,10,.45); }
+    .menu-btn { display: inline-flex; position: fixed; top: 14px; right: 14px; z-index: 41; background: var(--ink); color: #fff; border: 0; border-radius: 8px; padding: 10px 14px; font: 600 14px var(--sans); }
+    .grid--3, .grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .flow { grid-template-columns: 1fr; }
+    .flow__step { margin: 0 0 22px; }
+    .flow__step:not(:last-child)::after { content: "↓"; right: auto; left: 50%; top: auto; bottom: -21px; transform: translateX(-50%); }
+  }
+  @media (max-width: 620px) {
+    .grid--2, .grid--3, .grid--4 { grid-template-columns: 1fr; }
+    dl.glossary { grid-template-columns: 1fr; }
+    dl.glossary dt { border-bottom: 0; }
+    .phones figure { width: 100%; max-width: 280px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+  @media print {
+    .layout { display: block; }
+    .toc, .menu-btn, .lightbox { display: none !important; }
+    main { max-width: none; padding: 0; }
+    section.chapter { break-inside: avoid-page; }
+    figure { break-inside: avoid; }
+    .shot { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<button class="menu-btn" type="button" aria-expanded="false" aria-controls="toc">Índice</button>
+<div class="layout">
+  <nav class="toc" id="toc" aria-label="Índice do guia">
+    <div class="toc__brand">Domain Harness</div>
+    <div class="toc__sub">Guia do usuário · piloto</div>
+    <ol>
+      <li><a href="#o-que-e">O que é</a></li>
+      <li><a href="#como-funciona">Como funciona</a></li>
+      <li><a href="#papeis">Papéis e permissões</a></li>
+      <li><a href="#conceitos">Conceitos essenciais</a></li>
+      <li><a href="#acesso">Primeiro acesso</a></li>
+      <li><a href="#painel">Conhecendo o painel</a></li>
+      <li><a href="#projetos">Árvore de projetos</a></li>
+      <li><a href="#modulos">Módulos e donos</a></li>
+      <li><a href="#padroes">Publicar padrões</a></li>
+      <li><a href="#efetivos">Padrões efetivos e travas</a></li>
+      <li><a href="#aplicacoes">Nova aplicação</a></li>
+      <li><a href="#acompanhar">Inventário e evidências</a></li>
+      <li><a href="#guidance">Acesso às orientações</a></li>
+      <li><a href="#desvios">Desvios aceitos</a></li>
+      <li><a href="#celular">No celular</a></li>
+      <li><a href="#roteiro">Roteiro de teste</a></li>
+      <li><a href="#duvidas">Dúvidas frequentes</a></li>
+    </ol>
+  </nav>
+
+  <main id="conteudo">
+    <header class="hero">
+      <span class="eyebrow">Guia do usuário · versão piloto · outubro de 2026</span>
+      <h1>Seus padrões de software, <strong>seguidos por qualquer agente de IA</strong>.</h1>
+      <p class="lead">O Domain Harness registra os padrões de construção de software da sua empresa, entrega esses padrões aos agentes de IA no momento em que eles tomam decisões e verifica, antes da produção, se foram seguidos. Este guia mostra, com telas reais, como usar o painel de gestão.</p>
+      <div class="hero__meta">
+        <span class="pill">Para: primeiros usuários de teste</span>
+        <span class="pill">Leitura: ~20 minutos</span>
+        <span class="pill">Exemplo usado: “Aurora Pagamentos” (empresa fictícia)</span>
+      </div>
+    </header>
+
+    <!-- 1 -->
+    <section class="chapter" id="o-que-e">
+      <div class="chapter__num">01</div>
+      <h2>O que é o Domain Harness</h2>
+      <p>A IA colocou a construção de aplicações nas mãos de muito mais gente. Pessoas de negócio já criam ferramentas com Claude Code, Cursor e similares. O resultado costuma ignorar os padrões de arquitetura, segurança, código e design da empresa, e as áreas de tecnologia acabam escolhendo entre <b>travar tudo</b> (e virar gargalo) ou <b>liberar tudo</b> (e perder a governança).</p>
+      <p>O Domain Harness é uma camada entre os padrões da empresa e os agentes de IA. Ele cumpre quatro funções:</p>
+      <div class="grid grid--4">
+        <div class="card"><div class="icon-num">1</div><h3>Registrar</h3><p>Os padrões ficam organizados em módulos, com dono, versão e escopo.</p></div>
+        <div class="card"><div class="icon-num">2</div><h3>Orientar</h3><p>Durante a construção, o agente consulta o padrão certo via MCP, na hora da decisão.</p></div>
+        <div class="card"><div class="icon-num">3</div><h3>Validar</h3><p>Uma etapa no pipeline de CI (o <em>Gate</em>) verifica se a aplicação seguiu os padrões.</p></div>
+        <div class="card"><div class="icon-num">4</div><h3>Dar visibilidade</h3><p>O painel mostra o que está sendo construído, com quais ferramentas e quais desvios.</p></div>
+      </div>
+      <div class="callout callout--tip"><span class="callout__icon">💡</span><p>O mesmo padrão vale para qualquer ferramenta. Você escreve uma vez, e Claude Code, Cursor ou qualquer agente compatível com MCP recebem a mesma orientação.</p></div>
+    </section>
+
+    <!-- 2 -->
+    <section class="chapter" id="como-funciona">
+      <div class="chapter__num">02</div>
+      <h2>Como funciona, de ponta a ponta</h2>
+      <p>O painel (este guia) é onde a empresa organiza e acompanha tudo. O restante do ciclo acontece automaticamente:</p>
+      <div class="flow" role="list">
+        <div class="flow__step flow__step--accent" role="listitem"><b>1. Painel</b><span>A empresa define projetos, módulos e padrões.</span></div>
+        <div class="flow__step" role="listitem"><b>2. Pacote assinado</b><span>O registro compila os padrões em um pacote assinado digitalmente.</span></div>
+        <div class="flow__step" role="listitem"><b>3. Serviço da empresa</b><span>Roda na rede da empresa, verifica a assinatura e serve as orientações.</span></div>
+        <div class="flow__step" role="listitem"><b>4. Agente de IA</b><span>Claude Code ou Cursor consulta o padrão antes de escolher uma biblioteca ou componente.</span></div>
+        <div class="flow__step flow__step--accent" role="listitem"><b>5. Gate no CI</b><span>Antes da produção, o pipeline aponta desvios. O resultado volta ao painel.</span></div>
+      </div>
+      <p class="flow-note">O código e os prompts de quem constrói nunca saem da empresa. O painel recebe apenas registros resumidos (as <em>Compilations</em>): qual ferramenta, qual padrão foi consultado, se o Gate passou.</p>
+    </section>
+
+    <!-- 3 -->
+    <section class="chapter" id="papeis">
+      <div class="chapter__num">03</div>
+      <h2>Papéis e permissões</h2>
+      <p>Cada conta da empresa tem um papel. Todos veem as mesmas telas; o que muda é o que cada um pode alterar. Quando alguém tenta uma ação que não é do seu papel, o painel explica o motivo e nada é alterado.</p>
+      <div class="grid grid--3">
+        <div class="card card--role"><span class="tag">Buyer</span><h3>Comprador / gestor</h3><p>Normalmente o gestor de tecnologia, TI ou governança.</p><ul><li>Monta e reorganiza a árvore de projetos</li><li>Cria módulos e escolhe seus donos</li><li>Concede permissões de construção</li><li>Trava regras e aceita desvios</li><li>Define quem lê as orientações</li></ul></div>
+        <div class="card card--role"><span class="tag">Standard owner</span><h3>Dono de padrões</h3><p>Arquitetura, design, segurança ou dados.</p><ul><li>Publica e versiona padrões nos módulos que possui</li><li>Escolhe em qual projeto cada padrão vale</li><li>Acompanha onde os padrões estão em vigor</li></ul></div>
+        <div class="card card--role"><span class="tag">Builder</span><h3>Construtor</h3><p>Quem constrói aplicações com IA, muitas vezes sem perfil técnico.</p><ul><li>Cria aplicações nos projetos em que tem permissão</li><li>Gera o kit inicial (Boilerplate) para sua ferramenta</li><li>Consulta os padrões em vigor</li></ul></div>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Ação no painel</th><th>Buyer</th><th>Standard owner</th><th>Builder</th></tr></thead>
+        <tbody>
+          <tr><td>Criar subprojetos</td><td class="yes">Sim</td><td class="no">Com permissão</td><td class="no">Com permissão</td></tr>
+          <tr><td>Mover projetos (trocar o pai)</td><td class="yes">Sim</td><td class="no">Não</td><td class="no">Não</td></tr>
+          <tr><td>Criar módulos e atribuir donos</td><td class="yes">Sim</td><td class="no">Não</td><td class="no">Não</td></tr>
+          <tr><td>Publicar padrões</td><td class="no">Não</td><td class="yes">No próprio módulo</td><td class="no">Não</td></tr>
+          <tr><td>Travar regras (Locked rule)</td><td class="yes">Sim</td><td class="no">Não</td><td class="no">Não</td></tr>
+          <tr><td>Criar aplicação</td><td class="yes">Sim</td><td class="no">Com build grant</td><td class="no">Com build grant</td></tr>
+          <tr><td>Registrar aplicação existente</td><td class="yes">Sim</td><td class="no">Não</td><td class="no">Não</td></tr>
+          <tr><td>Aceitar um desvio</td><td class="yes">Sim</td><td class="no">Não</td><td class="no">Não</td></tr>
+          <tr><td>Ler orientações (Guidance)</td><td class="yes">Sempre</td><td class="no">Se o Buyer liberar</td><td class="no">Se o Buyer liberar</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="chapter" id="conceitos">
+      <div class="chapter__num">04</div>
+      <h2>Conceitos essenciais</h2>
+      <p>O painel está em inglês. Abaixo, cada termo que aparece na tela, com o que significa.</p>
+      <dl class="glossary">
+        <dt>Project tree<small>Árvore de projetos</small></dt><dd>A estrutura da empresa: unidades de negócio, tribos, produtos, aplicações. Você decide o significado de cada nível (o “Level name”). O projeto raiz é a própria empresa.</dd>
+        <dt>Module<small>Módulo</small></dt><dd>Um conjunto de padrões de um tipo: <b>code stack</b> (linguagens, frameworks, bibliotecas) ou <b>design system</b> (componentes, tokens, imports). Cada módulo tem um único dono.</dd>
+        <dt>Standard<small>Padrão</small></dt><dd>Uma regra publicada. Ex.: “biblioteca <code>moment</code> é proibida; use <code>date-fns</code>”. Cada alteração gera uma nova versão; as anteriores ficam guardadas.</dd>
+        <dt>Status</dt><dd><b>approved</b> (aprovado), <b>required</b> (obrigatório) ou <b>prohibited</b> (proibido).</dd>
+        <dt>Project scope<small>Escopo</small></dt><dd>O projeto em que o padrão passa a valer. Ele vale nesse projeto e em todos os projetos abaixo dele.</dd>
+        <dt>Conflict slot</dt><dd>O “assunto” de um padrão, por exemplo (code stack, library, “React”). Dois padrões diferentes não podem ocupar o mesmo assunto no mesmo projeto.</dd>
+        <dt>Effective standards<small>Padrões efetivos</small></dt><dd>O conjunto de padrões que realmente vale em um projeto, somando o que vem de cima. Em conflito, vence o projeto mais específico.</dd>
+        <dt>Locked rule<small>Regra travada</small></dt><dd>Um padrão que os projetos de baixo não podem contrariar. Só o Buyer trava.</dd>
+        <dt>Build grant</dt><dd>A permissão para uma conta criar aplicações em um projeto. Vale só para aquele projeto, não para os de baixo.</dd>
+        <dt>Application</dt><dd>Uma aplicação construída (ou já existente) que fica ligada a um projeto e passa a seguir os padrões dele.</dd>
+        <dt>Boilerplate</dt><dd>O kit inicial da aplicação para a ferramenta escolhida (Claude Code ou Cursor): arquivo de identificação, configuração MCP, instruções e dependências fixadas.</dd>
+        <dt>Guidance endpoint</dt><dd>O endereço do serviço da empresa que entrega as orientações aos agentes. É configurado uma vez pelo Buyer.</dd>
+        <dt>Gate / Deviation</dt><dd>O Gate é a verificação no CI. Cada padrão não seguido vira um <b>Deviation</b> (desvio) no log.</dd>
+        <dt>Accepted deviation<small>Desvio aceito</small></dt><dd>Uma exceção registrada pelo Buyer, com justificativa, janela de validade e alertas periódicos.</dd>
+        <dt>Compilation</dt><dd>Registro resumido enviado pelo serviço da empresa ao painel (status do pacote, saúde do coletor, execuções do Gate). Nunca contém código, prompts ou o conteúdo dos padrões.</dd>
+      </dl>
+    </section>
+
+    <!-- 5 -->
+    <section class="chapter" id="acesso">
+      <div class="chapter__num">05</div>
+      <h2>Primeiro acesso</h2>
+      <p>Não existe senha. O acesso é feito por um link enviado ao seu e-mail corporativo, que a equipe do Domain Harness cadastrou para o piloto.</p>
+      <ol class="steps">
+        <li>Abra o endereço do painel que você recebeu, digite seu e-mail e clique em <b>Email me a sign-in link</b>.</li>
+        <li>Abra o e-mail “sign-in” e clique no link. Ele vale por <b>15 minutos</b> e funciona <b>uma única vez</b>.</li>
+        <li>Pronto: você cai no <b>Inventory</b>. A sessão dura <b>12 horas</b>; depois disso, basta pedir um novo link.</li>
+      </ol>
+      <div class="grid grid--2">
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/01-sign-in.jpg" alt="Tela de login com o campo de e-mail preenchido" loading="lazy"></div><figcaption><b>Login.</b> Só o e-mail é pedido.</figcaption></figure>
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/02-check-email.jpg" alt="Confirmação pedindo para verificar o e-mail" loading="lazy"></div><figcaption><b>Confirmação.</b> Se digitou errado, use “Use a different address”.</figcaption></figure>
+      </div>
+      <div class="callout"><span class="callout__icon">🔒</span><p>Por segurança, a tela mostra a mesma mensagem para qualquer e-mail válido, cadastrado ou não. Se o e-mail não chegar em alguns minutos, confira o spam e fale com a equipe do piloto.</p></div>
+    </section>
+
+    <!-- 6 -->
+    <section class="chapter" id="painel">
+      <div class="chapter__num">06</div>
+      <h2>Conhecendo o painel</h2>
+      <p>À esquerda fica o menu, agrupado em três áreas. Embaixo dele aparecem seu papel e o botão <b>Sign out</b>.</p>
+      <div class="grid grid--3">
+        <div class="card"><span class="tag">Monitor</span><h3>Acompanhar</h3><p><b>Inventory</b>: todas as aplicações. <b>Compilations</b>: saúde do serviço da empresa.</p></div>
+        <div class="card"><span class="tag">Govern</span><h3>Governar</h3><p><b>Standards</b>: módulos e padrões. <b>Project tree</b>: estrutura e permissões. <b>Guidance access</b>: quem lê as orientações.</p></div>
+        <div class="card"><span class="tag">Operate</span><h3>Operar</h3><p><b>New-application flow</b>: criar aplicações. <b>Accepted deviation</b>: registrar exceções.</p></div>
+      </div>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/03-inventory-empty.jpg" alt="Inventory vazio no primeiro acesso" loading="lazy"></div><figcaption><b>Inventory no primeiro acesso.</b> Ainda sem aplicações; o próprio painel indica o próximo passo.</figcaption></figure>
+      <div class="callout callout--tip"><span class="callout__icon">💡</span><p>Toda ação mostra o resultado em uma faixa logo abaixo do título da página: confirmação (com borda escura) ou a explicação de por que nada foi alterado. Enquanto algo está sendo salvo, o botão mostra um indicador de carregamento e uma barra fina aparece no topo.</p></div>
+    </section>
+
+    <!-- 7 -->
+    <section class="chapter" id="projetos">
+      <div class="chapter__num">07</div>
+      <h2>Monte a árvore de projetos <span style="font-weight:400;color:var(--muted);font-size:.6em">Buyer</span></h2>
+      <p>Comece pela estrutura. Ela define onde cada padrão vale e quem pode construir onde. No exemplo, a Aurora Pagamentos tem duas unidades de negócio (Cartões e Pix), e o Portal do Cliente fica dentro de Cartões.</p>
+      <ol class="steps">
+        <li>Abra <b>Project tree</b> e clique em <b>Create project</b>.</li>
+        <li>Preencha <b>Name</b>, o <b>Level name</b> (o que esse nível significa para vocês, ex.: “Unidade de negócio”) e o <b>Parent</b>.</li>
+        <li>Clique em <b>Create Project</b>. O novo projeto aparece na árvore, já aberta no lugar certo.</li>
+      </ol>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/05-create-project.jpg" alt="Painel lateral de criação de projeto" loading="lazy"></div><figcaption><b>Create project.</b> O formulário abre em um painel lateral; <kbd>Esc</kbd> fecha sem salvar.</figcaption></figure>
+      <p>Para mover um projeto, selecione-o na árvore e use <b>Change parent</b>. Na árvore, as setas do teclado navegam e <kbd>Enter</kbd> seleciona.</p>
+    </section>
+
+    <!-- 8 -->
+    <section class="chapter" id="modulos">
+      <div class="chapter__num">08</div>
+      <h2>Crie os módulos e escolha os donos <span style="font-weight:400;color:var(--muted);font-size:.6em">Buyer</span></h2>
+      <ol class="steps">
+        <li>Em <b>Standards</b>, clique em <b>Create Module</b>, dê um nome e escolha o tipo: <b>code stack</b> ou <b>design system</b>.</li>
+        <li>Na linha do módulo, clique em <b>Assign owner</b> e escolha uma conta com papel <i>Standard owner</i>.</li>
+        <li>Sem dono, ninguém consegue publicar no módulo. O resumo no topo mostra quantos módulos estão <b>Without an owner</b>.</li>
+      </ol>
+      <div class="grid grid--2">
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/06-create-module.jpg" alt="Criação de módulo" loading="lazy"></div><figcaption><b>Create a Module.</b></figcaption></figure>
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/07-assign-owner.jpg" alt="Escolha do dono do módulo" loading="lazy"></div><figcaption><b>Assign owner.</b> Trocar o dono depois mantém o histórico.</figcaption></figure>
+      </div>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/08-modules.jpg" alt="Lista de módulos com donos" loading="lazy"></div><figcaption><b>Standards.</b> Busca e filtros por tipo e dono funcionam na hora, sem recarregar.</figcaption></figure>
+    </section>
+
+    <!-- 9 -->
+    <section class="chapter" id="padroes">
+      <div class="chapter__num">09</div>
+      <h2>Publique os padrões <span style="font-weight:400;color:var(--muted);font-size:.6em">Standard owner</span></h2>
+      <p>O dono abre o módulo pelo nome e clica em <b>Publish standard</b>.</p>
+      <h3>Stack de código</h3>
+      <ol class="steps">
+        <li>Escolha o <b>Project scope</b>: em qual projeto o padrão começa a valer (padrão: a empresa toda).</li>
+        <li>Informe <b>Category</b> (language, framework ou library), <b>Name</b> e, se quiser, a <b>Version constraint</b> (ex.: <code>^19</code>).</li>
+        <li>Defina o <b>Status</b> e, para proibições, escreva a <b>Correction instruction</b>: é exatamente o que o agente de IA vai ler para se corrigir.</li>
+        <li>Clique em <b>Publish</b>. O painel confirma com o identificador e a versão.</li>
+      </ol>
+      <div class="grid grid--2">
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/09-publish-standard.jpg" alt="Formulário de publicação de padrão de código" loading="lazy"></div><figcaption><b>Publish a code-stack Standard.</b></figcaption></figure>
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/10-standards-published.jpg" alt="Padrões publicados no módulo Stack Web" loading="lazy"></div><figcaption><b>Publicado.</b> O quadro “Published” traz o id para copiar.</figcaption></figure>
+      </div>
+      <h3>Design system</h3>
+      <p>Em módulos de design system, escolha primeiro o <b>Entry kind</b>: <b>component</b> (com regra de uso e tokens), <b>token</b> (ex.: <code>color-brand-primary</code>) ou <b>import</b> (ex.: o pacote <code>@aurora/ui</code> obrigatório).</p>
+      <div class="grid grid--2">
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/11-publish-component.jpg" alt="Publicação de componente do design system" loading="lazy"></div><figcaption><b>Component.</b> A “Usage rule” orienta o agente.</figcaption></figure>
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/12-design-system.jpg" alt="Padrões do design system" loading="lazy"></div><figcaption><b>Design System Aurora</b> com token, import e componente.</figcaption></figure>
+      </div>
+      <div class="callout callout--tip"><span class="callout__icon">🕘</span><p><b>Para alterar um padrão</b>, clique no nome dele na tabela, mude o que precisar e publique: isso cria a versão 2, 3… do mesmo padrão. Nada é sobrescrito; o histórico fica guardado.</p></div>
+      <div class="callout"><span class="callout__icon">⚠️</span><p>Se outro padrão já ocupa o mesmo assunto no mesmo projeto (ex.: duas regras para “React”), a publicação é recusada e a mensagem diz qual padrão está no caminho.</p></div>
+    </section>
+
+    <!-- 10 -->
+    <section class="chapter" id="efetivos">
+      <div class="chapter__num">10</div>
+      <h2>Veja o que vale em cada projeto e trave o essencial</h2>
+      <p>Em <b>Project tree</b>, selecione um projeto. A aba <b>Effective standards</b> mostra todos os padrões que valem ali e de qual projeto cada um vem. No Portal do Cliente, por exemplo, vale tudo o que foi definido para a empresa e também a biblioteca Recharts, aprovada só para Cartões.</p>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/13-effective-standards.jpg" alt="Padrões efetivos do projeto Portal do Cliente" loading="lazy"></div><figcaption><b>Effective standards.</b> A coluna “Source Project” mostra a origem de cada padrão.</figcaption></figure>
+      <h3>Regras travadas (Buyer)</h3>
+      <p>Clique em <b>Mark as Locked rule</b> em um padrão que nenhum projeto abaixo pode contrariar (ex.: “TypeScript é obrigatório”). A árvore passa a indicar quantas regras travadas cada projeto tem.</p>
+      <h3>Permissões (Buyer)</h3>
+      <p>Na aba <b>Build grants</b>, clique em <b>Grant build</b> para que uma conta possa criar aplicações naquele projeto. A permissão vale só para o projeto selecionado, não para os que estão abaixo dele. A aba <b>Access</b> funciona igual para a permissão de criar subprojetos diretamente abaixo do projeto.</p>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/14-build-grant.jpg" alt="Concessão de build grant para a construtora" loading="lazy"></div><figcaption><b>Build grants.</b> Quem concedeu e quando fica registrado; <b>Revoke</b> desfaz.</figcaption></figure>
+    </section>
+
+    <!-- 11 -->
+    <section class="chapter" id="aplicacoes">
+      <div class="chapter__num">11</div>
+      <h2>Crie uma nova aplicação</h2>
+      <p>O fluxo em <b>New-application flow</b> tem três etapas: <b>Place</b> (posicionar) → <b>Generate</b> (gerar o kit) → <b>Result</b>.</p>
+      <div class="callout"><span class="callout__icon">⚙️</span><p><b>Uma vez só, o Buyer configura o Guidance endpoint</b> no quadro “Company setup”, no fim da página: o endereço do serviço da empresa que os agentes vão consultar. Sem ele, o kit não pode ser gerado.</p></div>
+      <ol class="steps">
+        <li>Na aba <b>Place an application</b>, descreva a aplicação e escolha o <b>Project</b>. Clique em <b>Place the Application</b>.</li>
+        <li>O fluxo avança sozinho para <b>Generate Boilerplate</b>. Escolha a ferramenta (<b>Claude Code</b> ou <b>Cursor</b>) e clique em <b>Generate the Boilerplate</b>.</li>
+        <li>Baixe o pacote em <b>Download the archive</b> e descompacte-o na raiz do repositório da aplicação. A partir daí, o agente já consulta os padrões do projeto.</li>
+      </ol>
+      <div class="grid grid--2">
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/15-place-application.jpg" alt="Posicionar aplicação em um projeto" loading="lazy"></div><figcaption><b>Place.</b> Quem não é Buyer precisa de build grant no projeto.</figcaption></figure>
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/16-boilerplate.jpg" alt="Resultado do Boilerplate com os arquivos gerados" loading="lazy"></div><figcaption><b>Result.</b> Cada arquivo do kit, com botão para copiar o caminho.</figcaption></figure>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Arquivo do kit</th><th>Para que serve</th></tr></thead>
+        <tbody>
+          <tr><td><code>.domain-harness.json</code></td><td>Identifica a aplicação e o projeto. Deve ficar na raiz do repositório.</td></tr>
+          <tr><td><code>.mcp.json</code></td><td>Conecta o agente ao serviço de orientações da empresa.</td></tr>
+          <tr><td><code>CLAUDE.md</code> / regras do Cursor</td><td>Instruções para o agente consultar os padrões antes de decidir.</td></tr>
+          <tr><td><code>package.json</code></td><td>Dependências já fixadas conforme os padrões aprovados.</td></tr>
+          <tr><td><code>design-system.json</code></td><td>Referências do design system em vigor.</td></tr>
+          <tr><td>Skills</td><td>Habilidade pronta de “consultar orientação” para o agente.</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <h3>Aplicações que já existem</h3>
+      <p>O Buyer pode trazer para a governança uma aplicação já construída: aba <b>Register existing</b>, descrição e projeto. O painel mostra o arquivo de identificação para ser adicionado ao repositório.</p>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/17-register-existing.jpg" alt="Registro de aplicação existente" loading="lazy"></div><figcaption><b>Register existing.</b> O conteúdo exato do arquivo aparece pronto para copiar.</figcaption></figure>
+    </section>
+
+    <!-- 12 -->
+    <section class="chapter" id="acompanhar">
+      <div class="chapter__num">12</div>
+      <h2>Acompanhe: inventário e evidências</h2>
+      <p>O <b>Inventory</b> lista todas as aplicações da empresa, agrupadas por ferramenta de IA (ou por projeto). Dá para buscar, filtrar por projeto e ordenar.</p>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/18-inventory.jpg" alt="Inventory com aplicações agrupadas por ferramenta" loading="lazy"></div><figcaption><b>Inventory.</b> Aplicações criadas pelo fluxo, por quem constrói e registradas.</figcaption></figure>
+      <p>Clique em uma aplicação para ver suas <b>evidências</b>: execuções do Gate, desvios encontrados e histórico. A partir de um desvio, o Buyer pode registrar a aceitação diretamente.</p>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/19-application.jpg" alt="Página de evidências da aplicação" loading="lazy"></div><figcaption><b>Application.</b> No piloto, as evidências aparecem depois do primeiro Gate ou da primeira consulta do agente.</figcaption></figure>
+      <p>Em <b>Compilations</b>, o Buyer acompanha a saúde do serviço da empresa: qual pacote de padrões está ativo, se está atualizado, quantos registros estão pendentes e se algum foi descartado.</p>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/23-compilations.jpg" alt="Tela de Compilations" loading="lazy"></div><figcaption><b>Compilations.</b> Vazio até o serviço da empresa ser instalado e começar a reportar.</figcaption></figure>
+    </section>
+
+    <!-- 13 -->
+    <section class="chapter" id="guidance">
+      <div class="chapter__num">13</div>
+      <h2>Controle quem lê as orientações <span style="font-weight:400;color:var(--muted);font-size:.6em">Buyer</span></h2>
+      <p>Cada consulta que um agente faz gera um registro de orientação (<i>Guidance event</i>), guardado dentro da empresa. Em <b>Guidance access</b>, o Buyer decide quais papéis podem ler esses registros e por quantos dias eles são mantidos.</p>
+      <ol class="steps">
+        <li>Marque os papéis que podem ler. O Buyer sempre pode.</li>
+        <li>Ajuste a retenção (1 a 3650 dias; o padrão é 90).</li>
+        <li>Uma barra aparece com <b>Save Guidance access</b> e <b>Discard</b>; nada muda até salvar.</li>
+      </ol>
+      <div class="grid grid--2">
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/20-guidance-access.jpg" alt="Configuração de acesso às orientações" loading="lazy"></div><figcaption><b>Alterações pendentes</b>, com a barra para salvar.</figcaption></figure>
+        <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/21-read-token.jpg" alt="Token de leitura gerado" loading="lazy"></div><figcaption><b>Token de leitura.</b> Aparece uma única vez: copie na hora.</figcaption></figure>
+      </div>
+      <p><b>Mint a read token for my role</b> gera um token temporário para consultar os registros pela API de leitura, dentro da rede da empresa.</p>
+    </section>
+
+    <!-- 14 -->
+    <section class="chapter" id="desvios">
+      <div class="chapter__num">14</div>
+      <h2>Aceite desvios com prazo e justificativa <span style="font-weight:400;color:var(--muted);font-size:.6em">Buyer</span></h2>
+      <p>Às vezes uma aplicação precisa, por um tempo, de algo que o padrão proíbe. Em vez de desligar a regra para todos, o Buyer registra uma exceção pontual:</p>
+      <ol class="steps">
+        <li>Copie a linha do desvio do log do Gate no CI e cole em <b>CI Gate deviation log line</b>. Clique em <b>Use this line</b>: padrão, assunto e regra são preenchidos sozinhos.</li>
+        <li>Escolha a <b>Application</b>. O painel confirma qual versão do padrão está em vigor para ela.</li>
+        <li>Escreva a <b>Justification</b>, defina <b>Start</b> e <b>End</b> e o <b>Alert interval</b> (em horas).</li>
+        <li>Clique em <b>Record Accepted deviation</b>. A exceção aparece em <b>Stored acceptances</b> como <i>Active</i> até vencer.</li>
+      </ol>
+      <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/22-accepted-deviation.jpg" alt="Desvio aceito registrado" loading="lazy"></div><figcaption><b>Accepted deviation.</b> Enquanto a exceção estiver ativa, o Buyer recebe um alerta no topo do painel a cada intervalo, para não esquecer dela.</figcaption></figure>
+    </section>
+
+    <!-- 15 -->
+    <section class="chapter" id="celular">
+      <div class="chapter__num">15</div>
+      <h2>No celular</h2>
+      <p>O painel funciona em telas pequenas. O menu fica atrás do botão ☰, os números de resumo ficam lado a lado e as tabelas rolam para o lado.</p>
+      <div class="phones">
+        <figure><div class="shot"><img src="img/24-mobile-inventory.jpg" alt="Inventory no celular" loading="lazy"></div><figcaption><b>Inventory</b> no celular.</figcaption></figure>
+        <figure><div class="shot"><img src="img/25-mobile-menu.jpg" alt="Menu aberto no celular" loading="lazy"></div><figcaption><b>Menu</b> aberto.</figcaption></figure>
+      </div>
+    </section>
+
+    <!-- 16 -->
+    <section class="chapter" id="roteiro">
+      <div class="chapter__num">16</div>
+      <h2>Roteiro de teste sugerido</h2>
+      <p>Para o piloto, pedimos que cada pessoa percorra o roteiro do seu papel e anote o que foi confuso, lento ou faltou. Leva de 20 a 30 minutos.</p>
+      <h3>Buyer</h3>
+      <ul class="checklist">
+        <li>Entrar pelo link do e-mail.<small>O link chegou rápido? Ficou claro o que fazer?</small></li>
+        <li>Criar 2 ou 3 projetos que espelhem sua empresa.<small>Os nomes de nível fazem sentido para vocês?</small></li>
+        <li>Criar um módulo de code stack e um de design system, e atribuir os donos.</li>
+        <li>Conceder build grant a um construtor em um projeto.</li>
+        <li>Configurar o Guidance endpoint e criar uma aplicação até baixar o Boilerplate.</li>
+        <li>Travar uma regra importante e conferir os padrões efetivos de um projeto filho.</li>
+        <li>Registrar um desvio aceito (a equipe do piloto fornece uma linha de exemplo do Gate).</li>
+      </ul>
+      <h3>Standard owner</h3>
+      <ul class="checklist">
+        <li>Publicar 3 padrões: um obrigatório, um aprovado e um proibido com instrução de correção.</li>
+        <li>Publicar um padrão válido só para um projeto específico.</li>
+        <li>Editar um padrão e conferir que virou a versão 2.</li>
+      </ul>
+      <h3>Builder</h3>
+      <ul class="checklist">
+        <li>Criar uma aplicação em um projeto com permissão e gerar o kit para sua ferramenta.</li>
+        <li>Tentar criar em um projeto sem permissão e avaliar se a mensagem é clara.</li>
+        <li>Abrir o kit no repositório e iniciar uma conversa com o agente.<small>O agente consultou os padrões antes de escolher bibliotecas?</small></li>
+      </ul>
+      <div class="callout callout--tip"><span class="callout__icon">✉️</span><p><b>Como enviar feedback:</b> mande para a equipe do piloto o que tentou fazer, o que esperava e o que aconteceu, com um print sempre que possível. Mensagens de erro do painel são ótimas pistas: copie o texto exato.</p></div>
+    </section>
+
+    <!-- 17 -->
+    <section class="chapter" id="duvidas">
+      <div class="chapter__num">17</div>
+      <h2>Dúvidas frequentes</h2>
+      <details><summary>O link de acesso diz que já foi usado ou expirou.</summary><p>Cada link vale uma vez e por 15 minutos. Digite o e-mail de novo na tela de login para receber outro.</p></details>
+      <details><summary>Fui desconectado do painel.</summary><p>A sessão dura 12 horas. Basta pedir um novo link.</p></details>
+      <details><summary>Apareceu “Nothing was changed” (ou “Nothing was created”).</summary><p>A ação não era permitida para o seu papel ou faltou alguma informação. A mensagem diz o motivo e quem pode fazer a ação. Nada foi alterado, então é seguro tentar de novo.</p></details>
+      <details><summary>Não consigo publicar em um módulo.</summary><p>Só o dono atual do módulo publica. Peça ao Buyer para conferir quem é o dono em <b>Standards</b>.</p></details>
+      <details><summary>Não consigo criar uma aplicação em um projeto.</summary><p>Você precisa de um build grant naquele projeto específico (a permissão não passa para os projetos de baixo). Peça ao Buyer em <b>Project tree → Build grants</b>.</p></details>
+      <details><summary>O Boilerplate diz que o Guidance endpoint não está configurado.</summary><p>O Buyer precisa preencher o endereço do serviço uma vez, em <b>New-application flow → Company setup</b>.</p></details>
+      <details><summary>Alguma opção fala em “Team (first sale)”.</summary><p>Alguns recursos, como criar ou mover projetos, travar regras e registrar desvios aceitos, fazem parte do plano Team. No piloto, as empresas de teste já estão nesse plano.</p></details>
+      <details><summary>Meu código ou meus prompts vão para o Domain Harness?</summary><p>Não. O serviço de orientações roda dentro da empresa. O painel recebe apenas registros resumidos, sem código, prompts ou conteúdo dos padrões.</p></details>
+      <details><summary>O painel vai ficar em português?</summary><p>No piloto, a interface está em inglês. Este guia traduz cada termo na seção <a href="#conceitos">Conceitos essenciais</a>.</p></details>
+    </section>
+
+    <footer>
+      <p>Domain Harness · Guia do usuário para o piloto · outubro de 2026. As telas mostram uma empresa fictícia (“Aurora Pagamentos”) com dados de exemplo.</p>
+    </footer>
+  </main>
+</div>
+
+<div class="lightbox" role="dialog" aria-modal="true" aria-label="Imagem ampliada" hidden><img alt=""></div>
+
+<script>
+  // Lightbox: click a screenshot to enlarge it; click, Esc or Enter closes.
+  const box = document.querySelector(".lightbox");
+  const boxImg = box.querySelector("img");
+  const close = () => { box.classList.remove("is-open"); box.hidden = true; };
+  document.querySelectorAll(".shot img").forEach((img) => {
+    img.parentElement.setAttribute("tabindex", "0");
+    const open = () => { boxImg.src = img.src; boxImg.alt = img.alt; box.hidden = false; box.classList.add("is-open"); };
+    img.parentElement.addEventListener("click", open);
+    img.parentElement.addEventListener("keydown", (e) => { if (e.key === "Enter") open(); });
+  });
+  box.addEventListener("click", close);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  // Table of contents: highlight the chapter in view; the menu button opens it on small screens.
+  const links = [...document.querySelectorAll(".toc a")];
+  const byId = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      links.forEach((a) => a.classList.remove("is-active"));
+      byId.get(entry.target.id)?.classList.add("is-active");
+    }
+  }, { rootMargin: "-20% 0px -70% 0px" });
+  document.querySelectorAll("section.chapter").forEach((s) => observer.observe(s));
+  const toc = document.getElementById("toc");
+  const menu = document.querySelector(".menu-btn");
+  menu.addEventListener("click", () => { const open = toc.classList.toggle("is-open"); menu.setAttribute("aria-expanded", String(open)); });
+  links.forEach((a) => a.addEventListener("click", () => { toc.classList.remove("is-open"); menu.setAttribute("aria-expanded", "false"); }));
+</script>
+</body>
+</html>

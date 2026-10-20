@@ -196,6 +196,26 @@ textarea:hover:not(:disabled, :focus) {
   overflow-wrap: break-word;
 }
 
+/* The open phone drawer dims the page behind it, like a side sheet. */
+@media (max-width: 63.999rem) {
+  .shell__rail--open {
+    box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--color-ink) 45%, transparent);
+    animation: drawer-in var(--motion-base) var(--motion-ease);
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(calc(-1 * var(--space-6)));
+    opacity: 0;
+  }
+
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
 /* Summary stats: two per row on phones rather than one tall column. */
 @media (max-width: 47.999rem) {
   .standards-summary,
@@ -221,6 +241,42 @@ textarea:hover:not(:disabled, :focus) {
 .inventory-table-scroll > table,
 .bundle-table-scroll > table {
   min-inline-size: 40rem;
+}
+
+/* Table cells wrap between words, never inside one ("Versi|on"), and column
+   headers and status badges stay on one line; narrow screens scroll sideways. */
+.standards-table th,
+.standards-table td,
+.inventory-table th,
+.inventory-table td,
+.data-table th,
+.data-table td,
+.bundle-table th,
+.bundle-table td {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.standards-table .standard-name,
+.standards-table .module-name,
+.inventory-table .application-name {
+  overflow-wrap: break-word;
+}
+
+.standards-table thead th,
+.inventory-table thead th,
+.data-table thead th,
+.bundle-table thead th,
+.standards-table .badge,
+.inventory-table .badge,
+.data-table .badge {
+  white-space: nowrap;
+}
+
+.standards-table .badge,
+.inventory-table .badge,
+.data-table .badge {
+  flex-wrap: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {
