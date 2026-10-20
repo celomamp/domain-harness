@@ -240,7 +240,9 @@ describe("New-application flow page", () => {
     });
     expect(project().value).toBe("");
     expect(currentRailStep()).toBe("Generate");
-    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Generate Boilerplate" }));
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Generate Boilerplate" }));
+    });
   });
 
   it("names the Project field when no Project is chosen, keeping the description", async () => {
