@@ -16,9 +16,15 @@ import type {
   EffectiveStandardSet,
   ErrorEnvelope,
 } from "@domain-harness/contract";
-import { PlanRefusal } from "../components/project-tree.tsx";
+import { Badge } from "../components/badge.tsx";
+import { Banner } from "../components/banner.tsx";
 import { Button } from "../components/button.tsx";
+import { EmptyState } from "../components/empty-state.tsx";
+import { PageHeader } from "../components/page-header.tsx";
+import { SectionCard } from "../components/section-card.tsx";
 import { Status } from "../components/status.tsx";
+import { PlanRefusal } from "../components/project-tree.tsx";
+import { formatDate } from "../format.ts";
 import { getAcceptedDeviations, getApplications, getEffectiveStandards, recordAcceptance } from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
 import { readSessionToken } from "../session.server.ts";
@@ -38,26 +44,43 @@ export type AcceptedDeviationField =
 
 export const ACCEPTED_DEVIATION_COPY = {
   heading: "Accepted deviation",
+  description: "Record an Accepted deviation and review the stored acceptances.",
   loading: "Loading the Applications…",
   unavailable: "The Company's data is unavailable right now. Try again in a few minutes.",
   actionUnavailable: "The surface is unavailable right now, so nothing was recorded. Try again in a few minutes.",
   sessionEnded: "Your session has ended, so the surface cannot be shown.",
   signInAgain: "Sign in again",
+  recordHeading: "Record acceptance",
   submit: "Record Accepted deviation",
   storedNote: "Stored: Buyer, justification, start, end, match key.",
+  groups: {
+    match: "Match the Deviation",
+    window: "Justification and window",
+    review: "Review",
+  },
+  preview: {
+    label: "Parsed match key",
+    standard: "Standard",
+    slot: "Conflict slot",
+    subject: "Subject",
+    empty: "—",
+  },
   records: {
-    heading: "Stored Accepted deviations",
-    loading: "Loading the stored Accepted deviations…",
-    unavailable: "The stored Accepted deviations are unavailable right now. Try again in a few minutes.",
+    heading: "Stored acceptances",
+    loading: "Loading the stored acceptances…",
+    unavailable: "The stored acceptances are unavailable right now. Try again in a few minutes.",
     empty: "No Accepted deviation is recorded yet.",
-    line: (record: AcceptedDeviationRecord) =>
-      `${record.subject}, Standard version ${String(record.standardVersion)}, slot (${record.slot.moduleKind}, ${
-        record.slot.slotKind
-      }, "${record.slot.name}") on Application ${record.applicationId}: by ${record.buyer.name}, recorded ${
-        record.createdAt.slice(0, 10)
-      }, from ${record.start.slice(0, 10)} to ${record.end.slice(0, 10)}, alert every ${String(
-        record.alertIntervalHours,
-      )} hours. ${record.justification}`,
+    emptyExplanation: "A recorded acceptance appears here with its window and alert interval.",
+    active: "Active",
+    expired: "Expired",
+    application: "Application",
+    standard: "Standard",
+    version: (version: number) => `Version ${String(version)}`,
+    window: "Window",
+    windowValue: (start: string, end: string) => `${formatDate(start)} to ${formatDate(end)}`,
+    alertInterval: "Alert interval",
+    alertIntervalValue: (hours: number) => `${String(hours)} hours`,
+    recordedBy: "Recorded by",
   },
   paste: {
     label: "CI Gate deviation log line",
@@ -73,7 +96,7 @@ export const ACCEPTED_DEVIATION_COPY = {
     justification: "Justification",
     start: "Start",
     end: "End",
-    alertIntervalHours: "Alert interval (hours)",
+    alertIntervalHours: "Alert interval",
   } satisfies Record<AcceptedDeviationField, string>,
   fieldErrors: {
     applicationId: "Choose an Application of this Company.",
@@ -94,7 +117,16 @@ export const ACCEPTED_DEVIATION_COPY = {
   applicationNotFound: "That Application was not found. Nothing was recorded.",
   recorded: (subject: string) => `Recorded the Accepted deviation for ${subject}.`,
   back: "Back to Application evidence",
+  hours: "hours",
 } as const;
+
+/** Whether a stored acceptance is still live, computed from its exclusive `end`. */
+export type AcceptanceStatus = "active" | "expired";
+
+/** `active` while `now` is before the acceptance's exclusive end; `expired` at or after it. */
+export function acceptanceStatus(record: AcceptedDeviationRecord, now: number): AcceptanceStatus {
+  return now < Date.parse(record.end) ? "active" : "expired";
+}
 
 /** What the record action reports back to the page. */
 export interface AcceptedDeviationActionData {
@@ -314,107 +346,15 @@ function refusal(values: AcceptedDeviationActionData["values"], error: ErrorEnve
   return denial(503, ACCEPTED_DEVIATION_COPY.actionUnavailable);
 }
 
-/** The Accepted-deviation surface: the stored records, then the acceptance form. */
+/**
+ * The Accepted-deviation surface: the acceptance form on the left and the
+ * stored acceptances on the right, in two columns from 1280px.
+ */
 export default function AcceptedDeviationPage() {
   const { applications, effective, records } = useLoaderData<AcceptedDeviationLoaderData>();
   const actionData = useActionData<AcceptedDeviationActionData>();
-  // A success remounts the form empty; a refusal keeps the submitted values.
-  const formKey = actionData?.recordedId === undefined ? "form" : `recorded:${actionData.recordedId}`;
-  return (
-    <>
-      <h1 className="type-title">{ACCEPTED_DEVIATION_COPY.heading}</h1>
-      <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
-      <StoredRecords records={records} />
-      <AcceptanceForm key={formKey} applications={applications} effective={effective} submitted={actionData?.recordedId !== undefined ? undefined : actionData} />
-    </>
-  );
-}
-
-/** The stored Accepted deviations under their own Suspense (every stored field visible). */
-function StoredRecords({ records }: { readonly records: Promise<RegistryResult<AcceptedDeviationRecord[]>> }) {
-  const copy = ACCEPTED_DEVIATION_COPY.records;
-  return (
-    <Suspense
-      fallback={
-        <section className="stored-records" aria-labelledby="stored-records-heading" aria-busy="true">
-          <h2 id="stored-records-heading" className="type-title-sm">
-            {copy.heading}
-          </h2>
-          <p>{copy.loading}</p>
-        </section>
-      }
-    >
-      <Await
-        resolve={records}
-        errorElement={
-          <section className="stored-records" aria-labelledby="stored-records-heading">
-            <h2 id="stored-records-heading" className="type-title-sm">
-              {copy.heading}
-            </h2>
-            <p>{copy.unavailable}</p>
-          </section>
-        }
-      >
-        {(result: RegistryResult<AcceptedDeviationRecord[]>) =>
-          result.kind === "ok" ? (
-            <section className="stored-records" aria-labelledby="stored-records-heading">
-              <h2 id="stored-records-heading" className="type-title-sm">
-                {copy.heading}
-              </h2>
-              {result.value.length === 0 ? (
-                <p>{copy.empty}</p>
-              ) : (
-                <ul className="stored-records__list">
-                  {result.value.map((record) => (
-                    <li key={record.id}>{copy.line(record)}</li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ) : (
-            <section className="stored-records" aria-labelledby="stored-records-heading">
-              <h2 id="stored-records-heading" className="type-title-sm">
-                {copy.heading}
-              </h2>
-              {isPlanRefusal(result) ? (
-                // A Community tenant's cold load: the plan refusal shows when
-                // the surface opens, not an outage.
-                <PlanRefusal message={ACCEPTED_DEVIATION_COPY.planRefusal} />
-              ) : (
-                <p>{copy.unavailable}</p>
-              )}
-            </section>
-          )
-        }
-      </Await>
-    </Suspense>
-  )
-}
-
-interface AcceptanceFormProps {
-  /** The Applications: the list once it loads, or the busy or unavailable form. */
-  readonly applications: Promise<RegistryResult<readonly ApplicationInfo[]>>;
-  /** The chosen Application's Effective Standard set, for the resolved version; `null` when none is selected. */
-  readonly effective: Promise<RegistryResult<EffectiveStandardSet> | null>;
-  /** A refused submit: its values, field errors and in-place plan refusal, kept. */
-  readonly submitted: AcceptedDeviationActionData | undefined;
-}
-
-/**
- * The acceptance form (the standard-form pattern). The paste area fills the
- * match key client-side only: a line the contract's parser rejects leaves the
- * fields untouched and shows the paste ink, and nothing is ever sent from it.
- * The resolved Standard version comes from the chosen Application's Effective
- * Standard set; the panel submits no version.
- */
-function AcceptanceForm({ applications, effective, submitted }: AcceptanceFormProps) {
-  const errors = submitted?.fieldErrors ?? {};
-  const values = submitted?.values ?? {};
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  // A Deviation row of the Application surface links here with the match key
-  // in the query; a refused submit keeps its own values instead.
-  const prefill = (name: AcceptedDeviationField): string => values[name] ?? searchParams.get(name) ?? "";
   // `returnTo` carries the Application row the Buyer came from (with its row
   // anchor): the back link and Esc both go there, returning focus to the row.
   const returnTo = searchParams.get("returnTo");
@@ -430,6 +370,139 @@ function AcceptanceForm({ applications, effective, submitted }: AcceptanceFormPr
       window.removeEventListener("keydown", onKey);
     };
   }, [returnTo, navigate]);
+  // A success remounts the form empty; a refusal keeps the submitted values.
+  const formKey = actionData?.recordedId === undefined ? "form" : `recorded:${actionData.recordedId}`;
+  return (
+    <>
+      <PageHeader
+        title={ACCEPTED_DEVIATION_COPY.heading}
+        description={ACCEPTED_DEVIATION_COPY.description}
+        actions={
+          returnTo === null ? undefined : <Link to={returnTo}>{ACCEPTED_DEVIATION_COPY.back}</Link>
+        }
+      />
+      <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
+      <div className="accepted-deviation-layout">
+        <SectionCard title={ACCEPTED_DEVIATION_COPY.recordHeading}>
+          <AcceptanceForm
+            key={formKey}
+            applications={applications}
+            effective={effective}
+            submitted={actionData?.recordedId !== undefined ? undefined : actionData}
+          />
+        </SectionCard>
+        <StoredRecords records={records} />
+      </div>
+    </>
+  );
+}
+
+/** The stored Accepted deviations as cards under their own Suspense. */
+function StoredRecords({ records }: { readonly records: Promise<RegistryResult<AcceptedDeviationRecord[]>> }) {
+  const copy = ACCEPTED_DEVIATION_COPY.records;
+  return (
+    <SectionCard title={copy.heading} id="stored-acceptances">
+      <Suspense fallback={<p aria-busy="true">{copy.loading}</p>}>
+        <Await resolve={records} errorElement={<Banner tone="denial">{copy.unavailable}</Banner>}>
+          {(result: RegistryResult<AcceptedDeviationRecord[]>) => {
+            if (result.kind === "ok") {
+              const now = Date.now();
+              return result.value.length === 0 ? (
+                <EmptyState icon="deviation" title={copy.empty} description={copy.emptyExplanation} />
+              ) : (
+                <ul className="acceptance-list">
+                  {result.value.map((record) => (
+                    <AcceptanceCard key={record.id} record={record} now={now} />
+                  ))}
+                </ul>
+              );
+            }
+            return isPlanRefusal(result) ? (
+              // A Community tenant's cold load: the plan refusal shows when
+              // the surface opens, not an outage.
+              <PlanRefusal message={ACCEPTED_DEVIATION_COPY.planRefusal} />
+            ) : (
+              <Banner tone="denial">{copy.unavailable}</Banner>
+            );
+          }}
+        </Await>
+      </Suspense>
+    </SectionCard>
+  );
+}
+
+/** One stored acceptance: the match key, window, buyer and a live badge. */
+function AcceptanceCard({ record, now }: { readonly record: AcceptedDeviationRecord; readonly now: number }) {
+  const copy = ACCEPTED_DEVIATION_COPY.records;
+  const status = acceptanceStatus(record, now);
+  const headingId = `acceptance-card-${record.id}`;
+  return (
+    <li>
+      <article className="acceptance-card" aria-labelledby={headingId}>
+        <header className="acceptance-card__header">
+          <h3 id={headingId} className="acceptance-card__subject">
+            {record.subject}
+          </h3>
+          <Badge tone={status === "active" ? "outline" : "neutral"} icon={status === "active" ? "check" : "clock"}>
+            {status === "active" ? copy.active : copy.expired}
+          </Badge>
+        </header>
+        <dl className="acceptance-card__meta">
+          <div className="acceptance-card__field">
+            <dt>{copy.application}</dt>
+            <dd>{record.applicationId}</dd>
+          </div>
+          <div className="acceptance-card__field">
+            <dt>{copy.standard}</dt>
+            <dd>
+              {record.standardId} <span className="acceptance-card__version">{copy.version(record.standardVersion)}</span>
+            </dd>
+          </div>
+          <div className="acceptance-card__field">
+            <dt>{copy.window}</dt>
+            <dd>{copy.windowValue(record.start, record.end)}</dd>
+          </div>
+          <div className="acceptance-card__field">
+            <dt>{copy.alertInterval}</dt>
+            <dd>{copy.alertIntervalValue(record.alertIntervalHours)}</dd>
+          </div>
+          <div className="acceptance-card__field">
+            <dt>{copy.recordedBy}</dt>
+            <dd>{record.buyer.name}</dd>
+          </div>
+        </dl>
+        <p className="acceptance-card__justification">{record.justification}</p>
+      </article>
+    </li>
+  );
+}
+
+interface AcceptanceFormProps {
+  /** The Applications: the list once it loads, or the busy or unavailable form. */
+  readonly applications: Promise<RegistryResult<readonly ApplicationInfo[]>>;
+  /** The chosen Application's Effective Standard set, for the resolved version; `null` when none is selected. */
+  readonly effective: Promise<RegistryResult<EffectiveStandardSet> | null>;
+  /** A refused submit: its values, field errors and in-place plan refusal, kept. */
+  readonly submitted: AcceptedDeviationActionData | undefined;
+}
+
+/**
+ * The acceptance form (the standard-form pattern), grouped into three
+ * fieldsets: Match the Deviation (paste area, parsed preview, the match-key
+ * fields and the resolved version), Justification and window, and Review.
+ * The paste area fills the match key client-side only: a line the contract's
+ * parser rejects leaves the fields untouched and shows the paste ink, and
+ * nothing is ever sent from it. The resolved Standard version comes from the
+ * chosen Application's Effective Standard set; the panel submits no version.
+ */
+function AcceptanceForm({ applications, effective, submitted }: AcceptanceFormProps) {
+  const errors = submitted?.fieldErrors ?? {};
+  const values = submitted?.values ?? {};
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // A Deviation row of the Application surface links here with the match key
+  // in the query; a refused submit keeps its own values instead.
+  const prefill = (name: AcceptedDeviationField): string => values[name] ?? searchParams.get(name) ?? "";
   const [paste, setPaste] = useState("");
   const [pasteError, setPasteError] = useState(false);
   // The match key, kept in state so the paste can pre-fill it and a refusal
@@ -454,244 +527,291 @@ function AcceptanceForm({ applications, effective, submitted }: AcceptanceFormPr
     setSubject(key.subject);
   };
 
+  const copy = ACCEPTED_DEVIATION_COPY;
   return (
-    <Form method="post" className="acceptance-form standard-form" aria-label={ACCEPTED_DEVIATION_COPY.heading} noValidate>
+    <Form method="post" className="acceptance-form" aria-label={copy.heading} noValidate>
       <input type="hidden" name="intent" value="record" />
-      {returnTo === null ? null : <Link to={returnTo}>{ACCEPTED_DEVIATION_COPY.back}</Link>}
-      <div className="standard-form__fields" aria-busy={false}>
-        <label htmlFor="accepted-deviation-ci-line" className="type-label">
-          {ACCEPTED_DEVIATION_COPY.paste.label}
-        </label>
-        <textarea
-          id="accepted-deviation-ci-line"
-          rows={2}
-          value={paste}
-          onChange={(event) => {
-            setPaste(event.target.value);
-            setPasteError(false);
-          }}
-        />
-        <p>{ACCEPTED_DEVIATION_COPY.paste.hint}</p>
-        {pasteError ? (
-          <p id="accepted-deviation-ci-line-error" className="field-error">
-            {ACCEPTED_DEVIATION_COPY.paste.error}
-          </p>
-        ) : null}
-        <Button variant="inverse" type="button" onClick={useLine}>
-          {ACCEPTED_DEVIATION_COPY.paste.use}
-        </Button>
-      </div>
-      <Suspense
-        fallback={
-          <div className="standard-form__fields">
-            <label htmlFor="accepted-deviation-applicationId" className="type-label">
-              {ACCEPTED_DEVIATION_COPY.labels.applicationId}
-            </label>
-            <select id="accepted-deviation-applicationId" name="applicationId" defaultValue="" aria-busy="true">
-              <option value="">{ACCEPTED_DEVIATION_COPY.chooseApplication}</option>
-            </select>
+
+      <fieldset className="acceptance-group">
+        <legend className="acceptance-group__legend">{copy.groups.match}</legend>
+        <div className="acceptance-group__fields">
+          <label htmlFor="accepted-deviation-ci-line" className="type-label">
+            {copy.paste.label}
+          </label>
+          <textarea
+            id="accepted-deviation-ci-line"
+            rows={2}
+            value={paste}
+            onChange={(event) => {
+              setPaste(event.target.value);
+              setPasteError(false);
+            }}
+            aria-invalid={pasteError ? true : undefined}
+            aria-describedby={pasteError ? "accepted-deviation-ci-line-error" : undefined}
+          />
+          <p>{copy.paste.hint}</p>
+          {pasteError ? (
+            <p id="accepted-deviation-ci-line-error" className="field-error">
+              {copy.paste.error}
+            </p>
+          ) : null}
+          <Button variant="inverse" type="button" onClick={useLine}>
+            {copy.paste.use}
+          </Button>
+
+          <div className="acceptance-preview" role="group" aria-label={copy.preview.label}>
+            <span className="acceptance-preview__chip">
+              <span className="acceptance-preview__chip-label">{copy.preview.standard}</span>
+              <span className="acceptance-preview__chip-value">{standardId === "" ? copy.preview.empty : standardId}</span>
+            </span>
+            <span className="acceptance-preview__chip">
+              <span className="acceptance-preview__chip-label">{copy.preview.slot}</span>
+              <span className="acceptance-preview__chip-value">{slot === "" ? copy.preview.empty : slot}</span>
+            </span>
+            <span className="acceptance-preview__chip">
+              <span className="acceptance-preview__chip-label">{copy.preview.subject}</span>
+              <span className="acceptance-preview__chip-value">{subject === "" ? copy.preview.empty : subject}</span>
+            </span>
           </div>
-        }
-      >
-        <Await
-          resolve={applications}
-          errorElement={
-            <div className="standard-form__fields">
-              <label htmlFor="accepted-deviation-applicationId" className="type-label">
-                {ACCEPTED_DEVIATION_COPY.labels.applicationId}
+
+          <Suspense
+            fallback={
+              <div className="acceptance-field">
+                <label htmlFor="accepted-deviation-applicationId" className="type-label">
+                  {copy.labels.applicationId}
+                </label>
+                <select id="accepted-deviation-applicationId" name="applicationId" defaultValue="" aria-busy="true">
+                  <option value="">{copy.chooseApplication}</option>
+                </select>
+              </div>
+            }
+          >
+            <Await
+              resolve={applications}
+              errorElement={
+                <Banner tone="denial">{copy.unavailable}</Banner>
+              }
+            >
+              {(result: RegistryResult<readonly ApplicationInfo[]>) =>
+                result.kind === "ok" ? (
+                  <div className="acceptance-field">
+                    <label htmlFor="accepted-deviation-applicationId" className="type-label">
+                      {copy.labels.applicationId}
+                    </label>
+                    <select
+                      id="accepted-deviation-applicationId"
+                      name="applicationId"
+                      defaultValue={applicationValue}
+                      aria-invalid={errors["applicationId"] === undefined ? undefined : true}
+                      aria-describedby={errors["applicationId"] === undefined ? undefined : "accepted-deviation-applicationId-error"}
+                      onChange={(event) => {
+                        const applicationId = event.target.value;
+                        void navigate(
+                          applicationId === "" ? PAGE : `${PAGE}?application=${encodeURIComponent(applicationId)}`,
+                          { preventScrollReset: true },
+                        );
+                      }}
+                    >
+                      <option value="">{copy.chooseApplication}</option>
+                      {result.value.map((application) => (
+                        <option key={application.id} value={application.id}>
+                          {application.description} ({application.project.name})
+                        </option>
+                      ))}
+                    </select>
+                    {errors["applicationId"] === undefined ? null : (
+                      <p id="accepted-deviation-applicationId-error" className="field-error">
+                        {errors["applicationId"]}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <Banner tone="denial">{copy.unavailable}</Banner>
+                )
+              }
+            </Await>
+          </Suspense>
+
+          <div className="acceptance-field">
+            <label htmlFor="accepted-deviation-standardId" className="type-label">
+              {copy.labels.standardId}
+            </label>
+            <input
+              id="accepted-deviation-standardId"
+              name="standardId"
+              type="text"
+              autoComplete="off"
+              value={standardId}
+              onChange={(event) => {
+                setStandardId(event.target.value);
+              }}
+              aria-invalid={errors["standardId"] === undefined ? undefined : true}
+              aria-describedby={errors["standardId"] === undefined ? undefined : "accepted-deviation-standardId-error"}
+            />
+            {errors["standardId"] === undefined ? null : (
+              <p id="accepted-deviation-standardId-error" className="field-error">
+                {errors["standardId"]}
+              </p>
+            )}
+          </div>
+
+          <div className="acceptance-field">
+            <label htmlFor="accepted-deviation-slot" className="type-label">
+              {copy.labels.slot}
+            </label>
+            <input
+              id="accepted-deviation-slot"
+              name="slot"
+              type="text"
+              autoComplete="off"
+              value={slot}
+              onChange={(event) => {
+                setSlot(event.target.value);
+              }}
+              aria-invalid={errors["slot"] === undefined ? undefined : true}
+              aria-describedby={errors["slot"] === undefined ? undefined : "accepted-deviation-slot-error"}
+            />
+            {errors["slot"] === undefined ? null : (
+              <p id="accepted-deviation-slot-error" className="field-error">
+                {errors["slot"]}
+              </p>
+            )}
+          </div>
+
+          <div className="acceptance-field">
+            <label htmlFor="accepted-deviation-subject" className="type-label">
+              {copy.labels.subject}
+            </label>
+            <input
+              id="accepted-deviation-subject"
+              name="subject"
+              type="text"
+              autoComplete="off"
+              value={subject}
+              onChange={(event) => {
+                setSubject(event.target.value);
+              }}
+              aria-invalid={errors["subject"] === undefined ? undefined : true}
+              aria-describedby={errors["subject"] === undefined ? undefined : "accepted-deviation-subject-error"}
+            />
+            {errors["subject"] === undefined ? null : (
+              <p id="accepted-deviation-subject-error" className="field-error">
+                {errors["subject"]}
+              </p>
+            )}
+          </div>
+
+          <ResolvedVersion effective={effective} standardId={standardId} slotText={slot} />
+        </div>
+      </fieldset>
+
+      <fieldset className="acceptance-group">
+        <legend className="acceptance-group__legend">{copy.groups.window}</legend>
+        <div className="acceptance-group__fields">
+          <div className="acceptance-field">
+            <label htmlFor="accepted-deviation-justification" className="type-label">
+              {copy.labels.justification}
+            </label>
+            <textarea
+              id="accepted-deviation-justification"
+              name="justification"
+              rows={4}
+              defaultValue={values.justification ?? ""}
+              aria-invalid={errors["justification"] === undefined ? undefined : true}
+              aria-describedby={errors["justification"] === undefined ? undefined : "accepted-deviation-justification-error"}
+            />
+            {errors["justification"] === undefined ? null : (
+              <p id="accepted-deviation-justification-error" className="field-error">
+                {errors["justification"]}
+              </p>
+            )}
+          </div>
+
+          <div className="acceptance-window-row">
+            <div className="acceptance-field">
+              <label htmlFor="accepted-deviation-start" className="type-label">
+                {copy.labels.start}
               </label>
-              <select id="accepted-deviation-applicationId" name="applicationId" defaultValue="" disabled>
-                <option value="">{ACCEPTED_DEVIATION_COPY.unavailable}</option>
-              </select>
+              <input
+                id="accepted-deviation-start"
+                name="start"
+                type="date"
+                defaultValue={values.start === undefined ? "" : values.start.slice(0, 10)}
+                aria-invalid={errors["start"] === undefined ? undefined : true}
+                aria-describedby={errors["start"] === undefined ? undefined : "accepted-deviation-start-error"}
+              />
+              {errors["start"] === undefined ? null : (
+                <p id="accepted-deviation-start-error" className="field-error">
+                  {errors["start"]}
+                </p>
+              )}
             </div>
-          }
-        >
-          {(result: RegistryResult<readonly ApplicationInfo[]>) =>
-            result.kind === "ok" ? (
-              <div className="standard-form__fields">
-                <label htmlFor="accepted-deviation-applicationId" className="type-label">
-                  {ACCEPTED_DEVIATION_COPY.labels.applicationId}
-                </label>
-                <select
-                  id="accepted-deviation-applicationId"
-                  name="applicationId"
-                  defaultValue={applicationValue}
-                  aria-invalid={errors["applicationId"] === undefined ? undefined : true}
-                  aria-describedby={errors["applicationId"] === undefined ? undefined : "accepted-deviation-applicationId-error"}
-                  onChange={(event) => {
-                    const applicationId = event.target.value;
-                    void navigate(
-                      applicationId === "" ? PAGE : `${PAGE}?application=${encodeURIComponent(applicationId)}`,
-                      { preventScrollReset: true },
-                    );
-                  }}
-                >
-                  <option value="">{ACCEPTED_DEVIATION_COPY.chooseApplication}</option>
-                  {result.value.map((application) => (
-                    <option key={application.id} value={application.id}>
-                      {application.description} ({application.project.name})
-                    </option>
-                  ))}
-                </select>
-                {errors["applicationId"] === undefined ? null : (
-                  <p id="accepted-deviation-applicationId-error" className="field-error">
-                    {errors["applicationId"]}
-                  </p>
-                )}
+
+            <div className="acceptance-field">
+              <label htmlFor="accepted-deviation-end" className="type-label">
+                {copy.labels.end}
+              </label>
+              <input
+                id="accepted-deviation-end"
+                name="end"
+                type="date"
+                defaultValue={values.end === undefined ? "" : values.end.slice(0, 10)}
+                aria-invalid={errors["end"] === undefined ? undefined : true}
+                aria-describedby={errors["end"] === undefined ? undefined : "accepted-deviation-end-error"}
+              />
+              {errors["end"] === undefined ? null : (
+                <p id="accepted-deviation-end-error" className="field-error">
+                  {errors["end"]}
+                </p>
+              )}
+            </div>
+
+            <div className="acceptance-field acceptance-field--interval">
+              <label htmlFor="accepted-deviation-alertIntervalHours" className="type-label">
+                {copy.labels.alertIntervalHours}
+              </label>
+              <div className="acceptance-hours">
+                <input
+                  id="accepted-deviation-alertIntervalHours"
+                  name="alertIntervalHours"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  defaultValue={values.alertIntervalHours ?? ""}
+                  aria-invalid={errors["alertIntervalHours"] === undefined ? undefined : true}
+                  aria-describedby={
+                    errors["alertIntervalHours"] === undefined
+                      ? "accepted-deviation-alertIntervalHours-unit"
+                      : "accepted-deviation-alertIntervalHours-error accepted-deviation-alertIntervalHours-unit"
+                  }
+                />
+                <span id="accepted-deviation-alertIntervalHours-unit" className="acceptance-hours__suffix">
+                  {copy.hours}
+                </span>
               </div>
-            ) : (
-              <div className="standard-form__fields">
-                <label htmlFor="accepted-deviation-applicationId" className="type-label">
-                  {ACCEPTED_DEVIATION_COPY.labels.applicationId}
-                </label>
-                <select id="accepted-deviation-applicationId" name="applicationId" defaultValue="" disabled>
-                  <option value="">{ACCEPTED_DEVIATION_COPY.unavailable}</option>
-                </select>
-              </div>
-            )
-          }
-        </Await>
-      </Suspense>
-      <div className="standard-form__fields">
-        <label htmlFor="accepted-deviation-standardId" className="type-label">
-          {ACCEPTED_DEVIATION_COPY.labels.standardId}
-        </label>
-        <input
-          id="accepted-deviation-standardId"
-          name="standardId"
-          type="text"
-          autoComplete="off"
-          value={standardId}
-          onChange={(event) => {
-            setStandardId(event.target.value);
-          }}
-          aria-invalid={errors["standardId"] === undefined ? undefined : true}
-          aria-describedby={errors["standardId"] === undefined ? undefined : "accepted-deviation-standardId-error"}
-        />
-        {errors["standardId"] === undefined ? null : (
-          <p id="accepted-deviation-standardId-error" className="field-error">
-            {errors["standardId"]}
-          </p>
-        )}
-        <label htmlFor="accepted-deviation-slot" className="type-label">
-          {ACCEPTED_DEVIATION_COPY.labels.slot}
-        </label>
-        <input
-          id="accepted-deviation-slot"
-          name="slot"
-          type="text"
-          autoComplete="off"
-          value={slot}
-          onChange={(event) => {
-            setSlot(event.target.value);
-          }}
-          aria-invalid={errors["slot"] === undefined ? undefined : true}
-          aria-describedby={errors["slot"] === undefined ? undefined : "accepted-deviation-slot-error"}
-        />
-        {errors["slot"] === undefined ? null : (
-          <p id="accepted-deviation-slot-error" className="field-error">
-            {errors["slot"]}
-          </p>
-        )}
-        <label htmlFor="accepted-deviation-subject" className="type-label">
-          {ACCEPTED_DEVIATION_COPY.labels.subject}
-        </label>
-        <input
-          id="accepted-deviation-subject"
-          name="subject"
-          type="text"
-          autoComplete="off"
-          value={subject}
-          onChange={(event) => {
-            setSubject(event.target.value);
-          }}
-          aria-invalid={errors["subject"] === undefined ? undefined : true}
-          aria-describedby={errors["subject"] === undefined ? undefined : "accepted-deviation-subject-error"}
-        />
-        {errors["subject"] === undefined ? null : (
-          <p id="accepted-deviation-subject-error" className="field-error">
-            {errors["subject"]}
-          </p>
-        )}
-        <ResolvedVersion effective={effective} standardId={standardId} slotText={slot} />
-      </div>
-      <label htmlFor="accepted-deviation-justification" className="type-label">
-        {ACCEPTED_DEVIATION_COPY.labels.justification}
-      </label>
-      <textarea
-        id="accepted-deviation-justification"
-        name="justification"
-        rows={4}
-        defaultValue={values.justification ?? ""}
-        aria-invalid={errors["justification"] === undefined ? undefined : true}
-        aria-describedby={errors["justification"] === undefined ? undefined : "accepted-deviation-justification-error"}
-      />
-      {errors["justification"] === undefined ? null : (
-        <p id="accepted-deviation-justification-error" className="field-error">
-          {errors["justification"]}
-        </p>
-      )}
-      <div className="standard-form__fields">
-        <label htmlFor="accepted-deviation-start" className="type-label">
-          {ACCEPTED_DEVIATION_COPY.labels.start}
-        </label>
-        <input
-          id="accepted-deviation-start"
-          name="start"
-          type="date"
-          defaultValue={values.start === undefined ? "" : values.start.slice(0, 10)}
-          aria-invalid={errors["start"] === undefined ? undefined : true}
-          aria-describedby={errors["start"] === undefined ? undefined : "accepted-deviation-start-error"}
-        />
-        {errors["start"] === undefined ? null : (
-          <p id="accepted-deviation-start-error" className="field-error">
-            {errors["start"]}
-          </p>
-        )}
-        <label htmlFor="accepted-deviation-end" className="type-label">
-          {ACCEPTED_DEVIATION_COPY.labels.end}
-        </label>
-        <input
-          id="accepted-deviation-end"
-          name="end"
-          type="date"
-          defaultValue={values.end === undefined ? "" : values.end.slice(0, 10)}
-          aria-invalid={errors["end"] === undefined ? undefined : true}
-          aria-describedby={errors["end"] === undefined ? undefined : "accepted-deviation-end-error"}
-        />
-        {errors["end"] === undefined ? null : (
-          <p id="accepted-deviation-end-error" className="field-error">
-            {errors["end"]}
-          </p>
-        )}
-        <label htmlFor="accepted-deviation-alertIntervalHours" className="type-label">
-          {ACCEPTED_DEVIATION_COPY.labels.alertIntervalHours}
-        </label>
-        <input
-          id="accepted-deviation-alertIntervalHours"
-          name="alertIntervalHours"
-          type="text"
-          inputMode="numeric"
-          autoComplete="off"
-          defaultValue={values.alertIntervalHours ?? ""}
-          aria-invalid={errors["alertIntervalHours"] === undefined ? undefined : true}
-          aria-describedby={
-            errors["alertIntervalHours"] === undefined ? undefined : "accepted-deviation-alertIntervalHours-error"
-          }
-        />
-        {errors["alertIntervalHours"] === undefined ? null : (
-          <p id="accepted-deviation-alertIntervalHours-error" className="field-error">
-            {errors["alertIntervalHours"]}
-          </p>
-        )}
-      </div>
-      <p>{ACCEPTED_DEVIATION_COPY.storedNote}</p>
-      <Button variant="primary" type="submit">
-        {ACCEPTED_DEVIATION_COPY.submit}
-      </Button>
+              {errors["alertIntervalHours"] === undefined ? null : (
+                <p id="accepted-deviation-alertIntervalHours-error" className="field-error">
+                  {errors["alertIntervalHours"]}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset className="acceptance-group">
+        <legend className="acceptance-group__legend">{copy.groups.review}</legend>
+        <div className="acceptance-group__fields">
+          <p>{copy.storedNote}</p>
+          <Button variant="primary" type="submit">
+            {copy.submit}
+          </Button>
+        </div>
+      </fieldset>
+
       <PlanRefusal message={submitted?.planRefusal} />
     </Form>
-  )
+  );
 }
 
 /** The Conflict slot's name comparison, as the evaluator's slot rule normalizes it. */
@@ -728,10 +848,7 @@ function ResolvedVersion({
 }) {
   return (
     <Suspense fallback={<p aria-busy="true">{ACCEPTED_DEVIATION_COPY.resolvedLoading}</p>}>
-      <Await
-        resolve={effective}
-        errorElement={<p>{ACCEPTED_DEVIATION_COPY.unavailable}</p>}
-      >
+      <Await resolve={effective} errorElement={<Banner tone="denial">{ACCEPTED_DEVIATION_COPY.unavailable}</Banner>}>
         {(result: RegistryResult<EffectiveStandardSet> | null) => {
           // No Application selected: the resolved area shows nothing (this is
           // not an outage).
@@ -740,7 +857,7 @@ function ResolvedVersion({
             // A Community tenant's read streams its plan refusal in place.
             return <PlanRefusal message={ACCEPTED_DEVIATION_COPY.planRefusal} />;
           }
-          if (result.kind !== "ok") return <p>{ACCEPTED_DEVIATION_COPY.unavailable}</p>;
+          if (result.kind !== "ok") return <Banner tone="denial">{ACCEPTED_DEVIATION_COPY.unavailable}</Banner>;
           const entry = resolvedEntry(result.value, standardId, slotText);
           if (entry === null && (standardId.trim() === "" || slotText.trim() === "")) return null;
           return (

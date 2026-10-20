@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent } from "react";
 import { Form } from "react-router";
 import { MODULE_KIND_LABELS } from "@domain-harness/contract";
 import type {
@@ -11,7 +11,10 @@ import type {
   ProjectTree,
   RoledAccountRef,
 } from "@domain-harness/contract";
+import { Badge } from "./badge.tsx";
 import { Button } from "./button.tsx";
+import { Icon } from "./icon.tsx";
+import type { IconName } from "./icon.tsx";
 
 /** The fields of the two Project tree forms. */
 export type ProjectFormField = "name" | "levelName" | "parentId";
@@ -45,8 +48,20 @@ export const PROJECT_TREE_COPY = {
   rootFixed: "The root Project has no parent, and its parent cannot be changed. Nothing was changed.",
   createHeading: "Create a Project",
   create: "Create Project",
+  createAction: "Create project",
+  contextLabel: "Project context",
   changeHeading: (name: string) => `Change the parent of ${name}`,
   change: "Change parent",
+  saveParent: "Save parent",
+  header: {
+    level: "Level name",
+    parent: "Parent",
+  },
+  tabs: {
+    effective: "Effective standards",
+    access: "Access",
+    builds: "Build grants",
+  },
   option: (project: ProjectInfo) =>
     project.parentId === null
       ? `${project.name} (root Project)`
@@ -100,8 +115,8 @@ export const PROJECT_TREE_COPY = {
     /** "<account> (<role>), granted by <Buyer> on <YYYY-MM-DD>" with the UTC date of the ISO timestamp. */
     grant: (account: RoledAccountRef, grantedBy: string, grantedAt: string) =>
       `${account.name} (${account.role}), granted by ${grantedBy} on ${grantedAt.slice(0, 10)}`,
-    accountLabel: "Account",
-    chooseAccount: "Choose an account",
+    grantedLabel: "Granted",
+    notGrantedLabel: "Not granted",
     grantButton: "Grant permission",
     revoke: "Revoke",
     granted: (account: string, projectName: string) => `${account} can now create child Projects under ${projectName}.`,
@@ -123,8 +138,8 @@ export const PROJECT_TREE_COPY = {
     /** "<account> (<role>), granted by <Buyer> on <YYYY-MM-DD>" with the UTC date of the ISO timestamp. */
     grant: (account: RoledAccountRef, grantedBy: string, grantedAt: string) =>
       `${account.name} (${account.role}), granted by ${grantedBy} on ${grantedAt.slice(0, 10)}`,
-    accountLabel: "Account",
-    chooseAccount: "Choose an account",
+    grantedLabel: "Granted",
+    notGrantedLabel: "Not granted",
     grantButton: "Grant build",
     revoke: "Revoke",
     granted: (account: string, projectName: string) => `${account} can now place Applications on ${projectName}.`,
@@ -180,6 +195,27 @@ export function PlanRefusal({ message }: { readonly message: string | undefined 
   );
 }
 
+/** What the page header shows about the selected Project. */
+export interface ProjectTreeHeader {
+  readonly parent: string;
+  readonly level: string;
+  readonly children: number;
+}
+
+/**
+ * The selected Project's header facts: its parent's name (or "None" for the
+ * root), its level name (or "None"), and how many child Projects it holds.
+ */
+export function projectTreeHeader(tree: ProjectTree, selected: ProjectInfo): ProjectTreeHeader {
+  const parent = tree.projects.find((project) => project.id === selected.parentId);
+  const children = tree.projects.filter((project) => project.parentId === selected.id).length;
+  return {
+    parent: parent?.name ?? "None",
+    level: selected.levelName ?? "None",
+    children,
+  };
+}
+
 export interface ProjectTreeViewProps {
   readonly tree: ProjectTree;
   readonly selectedId: string;
@@ -191,14 +227,40 @@ export interface ProjectTreeViewProps {
  * project-node tree: `role="tree"` with nested `role="group"` lists and one
  * `role="treeitem"` per Project, each announcing its name and level name.
  * Roving tabindex: one node is in the tab order; Up/Down/Home/End move focus
- * in depth-first order and Enter/Space select.
+ * in depth-first order, ArrowRight/ArrowLeft expand and collapse, and
+ * Enter/Space select.
  */
 export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewProps) {
   const [focusedId, setFocusedId] = useState(selectedId);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => {
+    const withChildren = new Set<string>();
+    for (const project of tree.projects) {
+      if (project.parentId !== null) withChildren.add(project.parentId);
+    }
+    return withChildren;
+  });
   const nodes = useRef(new Map<string, HTMLLIElement>());
   const moved = useRef(false);
-  const order: readonly string[] = tree.projects.map((project) => project.id);
-  const focused = order.includes(focusedId) ? focusedId : selectedId;
+
+  const childrenMap = new Map<string, ProjectInfo[]>();
+  for (const project of tree.projects) {
+    if (project.parentId === null) continue;
+    const siblings = childrenMap.get(project.parentId);
+    if (siblings === undefined) childrenMap.set(project.parentId, [project]);
+    else siblings.push(project);
+  }
+  const parentOf = new Map<string, string | null>(tree.projects.map((project) => [project.id, project.parentId]));
+
+  // Depth-first order respecting collapse: exactly the rendered nodes.
+  const order: string[] = [];
+  const walk = (id: string): void => {
+    order.push(id);
+    if (expanded.has(id)) for (const kid of childrenMap.get(id) ?? []) walk(kid.id);
+  };
+  const root = tree.projects.find((project) => project.id === tree.rootId);
+  if (root !== undefined) walk(root.id);
+
+  const focused = order.includes(focusedId) ? focusedId : order.includes(selectedId) ? selectedId : (order[0] ?? selectedId);
 
   useEffect(() => {
     setFocusedId(selectedId);
@@ -210,14 +272,20 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
     nodes.current.get(focused)?.focus();
   }, [focused]);
 
-  const children = new Map<string, ProjectInfo[]>();
-  for (const project of tree.projects) {
-    if (project.parentId === null) continue;
-    children.set(project.parentId, [...(children.get(project.parentId) ?? []), project]);
-  }
+  const setExpandedFor = (id: string, value: boolean) => {
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      if (value) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
     const index = order.indexOf(focused);
+    if (index < 0) return;
+    const id = order[index] ?? focused;
+    const hasChildren = (childrenMap.get(id)?.length ?? 0) > 0;
     let next: string | undefined;
     switch (event.key) {
       case "ArrowDown":
@@ -232,10 +300,30 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
       case "End":
         next = order.at(-1);
         break;
+      case "ArrowRight":
+        event.preventDefault();
+        if (hasChildren && !expanded.has(id)) {
+          setExpandedFor(id, true);
+          return;
+        }
+        if (hasChildren) next = order[index + 1];
+        break;
+      case "ArrowLeft":
+        event.preventDefault();
+        if (hasChildren && expanded.has(id)) {
+          setExpandedFor(id, false);
+          return;
+        }
+        {
+          const parent = parentOf.get(id);
+          if (parent === null || parent === undefined) return;
+          next = parent;
+        }
+        break;
       case "Enter":
       case " ":
         event.preventDefault();
-        onSelect(focused);
+        onSelect(id);
         return;
       default:
         return;
@@ -245,14 +333,16 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
     moved.current = true;
     setFocusedId(next);
     // Focus at once when the id does not change (the first or last node).
-    if (next === focused) nodes.current.get(next)?.focus();
+    if (next === id) nodes.current.get(next)?.focus();
   };
 
   const lockedCounts = new Map<string, number>();
   for (const mark of tree.lockedRules) lockedCounts.set(mark.projectId, (lockedCounts.get(mark.projectId) ?? 0) + 1);
 
   const renderNode = (project: ProjectInfo, level: number) => {
-    const kids = children.get(project.id) ?? [];
+    const kids = childrenMap.get(project.id) ?? [];
+    const hasChildren = kids.length > 0;
+    const isExpanded = expanded.has(project.id);
     const lockedCount = lockedCounts.get(project.id) ?? 0;
     const selected = project.id === selectedId;
     const onClick = (event: MouseEvent<HTMLLIElement>) => {
@@ -271,24 +361,43 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
         role="treeitem"
         aria-level={level}
         aria-selected={selected}
+        aria-expanded={hasChildren ? isExpanded : undefined}
         aria-label={nodeName(project, lockedCount)}
         tabIndex={project.id === focused ? 0 : -1}
         className="project-node"
         onClick={onClick}
       >
-        <span className="project-node__label">
-          <span className="project-node__name">{project.name}</span>{" "}
-          <span className="project-node__level type-label">
-            {levelText(project)}
-            {lockedCount === 0 ? null : <span className="project-node__locked">, {lockedText(lockedCount)}</span>}
+        <span className="project-node__row">
+          {hasChildren ? (
+            <button
+              type="button"
+              className={`project-node__chevron${isExpanded ? "" : " project-node__chevron--collapsed"}`}
+              aria-label={isExpanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
+              tabIndex={-1}
+              onClick={(event) => {
+                event.stopPropagation();
+                setFocusedId(project.id);
+                setExpandedFor(project.id, !isExpanded);
+              }}
+            >
+              <Icon name="chevron" />
+            </button>
+          ) : (
+            <span className="project-node__chevron project-node__chevron--leaf" aria-hidden="true" />
+          )}
+          <span className="project-node__label">
+            <span className="project-node__name">{project.name}</span>{" "}
+            <span className="project-node__level type-label">
+              {levelText(project)}
+              {lockedCount === 0 ? null : <span className="project-node__locked">, {lockedText(lockedCount)}</span>}
+            </span>
           </span>
         </span>
-        {kids.length === 0 ? null : <ul role="group">{kids.map((kid) => renderNode(kid, level + 1))}</ul>}
+        {hasChildren && isExpanded ? <ul role="group">{kids.map((kid) => renderNode(kid, level + 1))}</ul> : null}
       </li>
     );
   };
 
-  const root = tree.projects.find((project) => project.id === tree.rootId);
   return (
     <ul role="tree" aria-label={PROJECT_TREE_COPY.heading} className="project-tree" onKeyDown={onKeyDown}>
       {root === undefined ? null : renderNode(root, 1)}
@@ -400,68 +509,46 @@ export function ChangeParentForm({ tree, selected, submitted }: ProjectFormProps
       <input type="hidden" name="projectId" value={selected.id} />
       <ParentSelect form="parent" errors={errors} tree={tree} value={kept ?? selected.parentId ?? ""} />
       <Button variant="inverse" type="submit">
-        {PROJECT_TREE_COPY.change}
+        {PROJECT_TREE_COPY.saveParent}
       </Button>
       <PlanRefusal message={submitted?.planRefusal} />
     </Form>
   );
 }
 
-export interface EffectiveSetSectionProps {
-  /** The selected Project's name, for the heading. */
-  readonly projectName: string;
-  /** True while the set is pending. */
-  readonly busy?: boolean;
-  /** A plan refusal of a Locked-rule mark, shown above the table. */
-  readonly planRefusal?: string | undefined;
-  readonly children: ReactNode;
-}
-
-/** The section under the Project tree holding the selected Project's Effective Standard set. */
-export function EffectiveSetSection({ projectName, busy = false, planRefusal, children }: EffectiveSetSectionProps) {
-  return (
-    <section
-      className="effective-set"
-      aria-labelledby="effective-set-heading"
-      {...(busy ? { "aria-busy": true as const } : {})}
-    >
-      <h2 id="effective-set-heading" className="type-title-sm">
-        {PROJECT_TREE_COPY.effective.heading(projectName)}
-      </h2>
-      <PlanRefusal message={planRefusal} />
-      {children}
-    </section>
-  );
-}
-
-/** The pending set: the header cells and one busy loading row. */
-export function EffectiveSetLoading() {
-  const copy = PROJECT_TREE_COPY.effective;
-  return (
-    <div className="table-scroll">
-      <table className="standards-table">
-        <thead>
-          <tr>
-            {copy.headers.map((header) => (
-              <th key={header} scope="col">
-                {header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody aria-busy="true">
-          <tr aria-busy="true">
-            <td colSpan={copy.headers.length}>{copy.loading}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export interface EffectiveSetTableProps {
   readonly set: EffectiveStandardSet;
 }
+
+/** The status word and icon of one Conflict slot's winner, in the monochrome status language. */
+function StatusBadge({ status }: { readonly status: string | null }) {
+  if (status === null) {
+    return (
+      <Badge tone="neutral" icon="dash">
+        {PROJECT_TREE_COPY.effective.none}
+      </Badge>
+    );
+  }
+  const config = STATUS_BADGE[status];
+  if (config === undefined) {
+    return (
+      <Badge tone="neutral" icon="dash">
+        {status}
+      </Badge>
+    );
+  }
+  return (
+    <Badge tone={config.tone} icon={config.icon}>
+      {status}
+    </Badge>
+  );
+}
+
+const STATUS_BADGE: Readonly<Record<string, { readonly tone: "neutral" | "outline" | "solid"; readonly icon: IconName }>> = {
+  approved: { tone: "outline", icon: "check" },
+  prohibited: { tone: "solid", icon: "dash" },
+  required: { tone: "solid", icon: "dot" },
+};
 
 /**
  * The Effective Standard set as a table with header cells: one row per
@@ -490,7 +577,9 @@ export function EffectiveSetTable({ set }: EffectiveSetTableProps) {
           {set.standards.map((entry) => (
             <tr key={entry.standard.id}>
               <th scope="row">{copy.slot(entry.slot)}</th>
-              <td>{entry.status ?? copy.none}</td>
+              <td>
+                <StatusBadge status={entry.status} />
+              </td>
               <td>{entry.standard.version}</td>
               <td>
                 {entry.sourceProject.id === set.project.id
@@ -530,116 +619,70 @@ interface GrantCopy {
   readonly allGranted: string;
   readonly account: (account: RoledAccountRef) => string;
   readonly grant: (account: RoledAccountRef, grantedBy: string, grantedAt: string) => string;
-  readonly accountLabel: string;
-  readonly chooseAccount: string;
+  readonly grantedLabel: string;
+  readonly notGrantedLabel: string;
   readonly grantButton: string;
   readonly revoke: string;
 }
 
-/** What tells the two grant sections apart: their copy, their form intent and their class/id prefix. */
+/** What tells the two grant panels apart: their copy and their form intent. */
 interface GrantKind {
   readonly copy: GrantCopy;
   readonly intent: "permission" | "build";
-  readonly prefix: "child-permission" | "build-grant";
 }
 
-const CHILD_PERMISSION: GrantKind = { copy: PROJECT_TREE_COPY.permission, intent: "permission", prefix: "child-permission" };
-const BUILD_GRANT: GrantKind = { copy: PROJECT_TREE_COPY.build, intent: "build", prefix: "build-grant" };
-
-interface GrantSectionProps {
-  readonly kind: GrantKind;
-  readonly projectName: string;
-  readonly busy: boolean;
-  readonly children: ReactNode;
-}
-
-function GrantSection({ kind, projectName, busy, children }: GrantSectionProps) {
-  return (
-    <section
-      className={`grant-section ${kind.prefix}`}
-      aria-labelledby={`${kind.prefix}-heading`}
-      {...(busy ? { "aria-busy": true as const } : {})}
-    >
-      <h2 id={`${kind.prefix}-heading`} className="type-title-sm">
-        {kind.copy.heading(projectName)}
-      </h2>
-      {children}
-    </section>
-  );
-}
+const CHILD_PERMISSION: GrantKind = { copy: PROJECT_TREE_COPY.permission, intent: "permission" };
+const BUILD_GRANT: GrantKind = { copy: PROJECT_TREE_COPY.build, intent: "build" };
 
 /**
- * The current grants on a Project, each with a Revoke button, then the form
- * to grant an eligible account that has none yet. Shown to every role: the
- * registry refuses a non-Buyer.
+ * The current grants on a Project as one row per eligible account: the
+ * account's name and role, a Granted/Not granted badge, and a compact commit
+ * to grant or revoke. Shown to every role: the registry refuses a non-Buyer.
  */
 function GrantPanel({ kind, list }: { readonly kind: GrantKind; readonly list: ChildPermissionList | BuildGrantList }) {
-  const { copy, intent, prefix } = kind;
+  const { copy, intent } = kind;
   const granted = new Set(list.grants.map((grant) => grant.account.accountId));
-  const grantable = list.eligibleAccounts.filter((account) => !granted.has(account.accountId));
+  const grantByAccount = new Map(list.grants.map((grant) => [grant.account.accountId, grant]));
+  if (list.eligibleAccounts.length === 0) {
+    return <p>{copy.empty}</p>;
+  }
   return (
     <>
-      {list.grants.length === 0 ? (
-        <p>{copy.empty}</p>
-      ) : (
-        <ul className="grant-section__grants">
-          {list.grants.map((grant) => (
-            <li key={grant.account.accountId} className="grant-section__grant">
-              <span>{copy.grant(grant.account, grant.grantedBy.name, grant.grantedAt)}</span>
-              <Form method="post">
+      <ul className="grant-section__grants">
+        {list.eligibleAccounts.map((account) => {
+          const isGranted = granted.has(account.accountId);
+          const grant = grantByAccount.get(account.accountId);
+          return (
+            <li key={account.accountId} className="grant-section__grant">
+              <span className="grant-section__account">
+                {isGranted && grant !== undefined
+                  ? copy.grant(account, grant.grantedBy.name, grant.grantedAt)
+                  : copy.account(account)}
+              </span>
+              <Badge tone={isGranted ? "outline" : "neutral"} icon={isGranted ? "check" : "dash"}>
+                {isGranted ? copy.grantedLabel : copy.notGrantedLabel}
+              </Badge>
+              <Form method="post" className="grant-commit">
                 <input type="hidden" name="intent" value={intent} />
                 <input type="hidden" name="projectId" value={list.project.id} />
-                <input type="hidden" name="accountId" value={grant.account.accountId} />
-                <input type="hidden" name="granted" value="false" />
+                <input type="hidden" name="accountId" value={account.accountId} />
+                <input type="hidden" name="granted" value={isGranted ? "false" : "true"} />
                 <Button variant="inverse" type="submit">
-                  {copy.revoke} <span className="visually-hidden">{grant.account.name}</span>
+                  {isGranted ? copy.revoke : copy.grantButton}
+                  {isGranted ? (
+                    <>
+                      {" "}
+                      <span className="visually-hidden">{account.name}</span>
+                    </>
+                  ) : null}
                 </Button>
               </Form>
             </li>
-          ))}
-        </ul>
-      )}
-      {grantable.length === 0 ? (
-        <p>{copy.allGranted}</p>
-      ) : (
-        <Form method="post" className="standard-form">
-          <input type="hidden" name="intent" value={intent} />
-          <input type="hidden" name="projectId" value={list.project.id} />
-          <input type="hidden" name="granted" value="true" />
-          <label htmlFor={`${prefix}-account`} className="type-label">
-            {copy.accountLabel}
-          </label>
-          <select id={`${prefix}-account`} name="accountId" defaultValue="">
-            <option value="">{copy.chooseAccount}</option>
-            {grantable.map((account) => (
-              <option key={account.accountId} value={account.accountId}>
-                {copy.account(account)}
-              </option>
-            ))}
-          </select>
-          <Button variant="inverse" type="submit">
-            {copy.grantButton}
-          </Button>
-        </Form>
-      )}
+          );
+        })}
+      </ul>
+      {list.eligibleAccounts.every((account) => granted.has(account.accountId)) ? <p>{copy.allGranted}</p> : null}
     </>
-  );
-}
-
-export interface ChildPermissionSectionProps {
-  /** The selected Project's name, for the heading. */
-  readonly projectName: string;
-  /** True while the grants are pending. */
-  readonly busy?: boolean;
-  readonly children: ReactNode;
-}
-
-/** The section under the Effective Standard set holding the selected Project's child-Project permission. */
-export function ChildPermissionSection({ projectName, busy = false, children }: ChildPermissionSectionProps) {
-  return (
-    <GrantSection kind={CHILD_PERMISSION} projectName={projectName} busy={busy}>
-      {children}
-    </GrantSection>
   );
 }
 
@@ -647,21 +690,12 @@ export interface ChildPermissionPanelProps {
   readonly list: ChildPermissionList;
 }
 
-/** The child-Project permission grants on a Project, with Revoke buttons and the grant form. */
+/** The child-Project permission grants on a Project, with a Granted/Not granted badge and a compact commit. */
 export function ChildPermissionPanel({ list }: ChildPermissionPanelProps) {
   return <GrantPanel kind={CHILD_PERMISSION} list={list} />;
 }
 
-/** The section under the child-Project permission holding the selected Project's build grants. */
-export function BuildGrantSection({ projectName, busy = false, children }: ChildPermissionSectionProps) {
-  return (
-    <GrantSection kind={BUILD_GRANT} projectName={projectName} busy={busy}>
-      {children}
-    </GrantSection>
-  );
-}
-
-/** The build grants on a Project, with Revoke buttons and the grant form (intent `build`). */
+/** The build grants on a Project, with a Granted/Not granted badge and a compact commit (intent `build`). */
 export function BuildGrantPanel({ list }: { readonly list: BuildGrantList }) {
   return <GrantPanel kind={BUILD_GRANT} list={list} />;
 }

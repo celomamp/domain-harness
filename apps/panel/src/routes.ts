@@ -8,6 +8,9 @@ export default [
   // The alert band's dismissal is a resource action outside the layout: it
   // has no UI and it must never navigate the current page.
   { path: "accepted-deviation-alerts/dismissals", file: "routes/accepted-deviation-alert-dismiss.ts" },
+  // Sign-out is also a resource action outside the layout: the account block's
+  // form clears the session and lands on sign-in.
+  { path: "sign-out", file: "routes/sign-out.ts" },
   {
     id: "routes/panel-layout",
     file: "routes/panel-layout.tsx",

@@ -1,0 +1,205 @@
+/* accepted-deviation.css — the Accepted deviation page. Owned by Task 12. */
+
+/* The two-column surface: the acceptance form on the left, the stored
+   acceptances on the right from 1280px (80rem). */
+.accepted-deviation-layout {
+  display: grid;
+  gap: var(--space-6);
+  align-items: start;
+  min-width: 0;
+}
+
+@media (min-width: 80rem) {
+  .accepted-deviation-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+/* The acceptance form lives inside the "Record acceptance" SectionCard, so it
+   sheds the standalone card chrome and keeps the field styling. */
+.acceptance-form {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  gap: var(--space-5);
+}
+
+/* Each form group: a fieldset with a section-title legend over a field grid. */
+.acceptance-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.acceptance-group__legend {
+  padding: 0;
+  margin: 0 0 var(--space-3);
+  color: var(--color-ink);
+  font-family: var(--type-section-title-family);
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  line-height: var(--type-section-title-line-height);
+  letter-spacing: var(--type-section-title-letter-spacing);
+}
+
+.acceptance-group__fields {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* A labelled field: label, control, then its ink text. */
+.acceptance-field {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  min-width: 0;
+}
+
+/* The parsed match-key preview: three chips (Standard, Conflict slot, Subject). */
+.acceptance-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.acceptance-preview__chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-base);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.acceptance-preview__chip-label {
+  color: var(--color-ink-muted);
+  font-family: var(--type-caption-family);
+  font-size: var(--type-caption-size);
+  font-weight: var(--type-caption-weight);
+  line-height: var(--type-caption-line-height);
+  letter-spacing: var(--type-caption-letter-spacing);
+}
+
+.acceptance-preview__chip-value {
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+/* Start, end and the alert interval share a two-column row from 768px; the
+   alert interval (with its "hours" suffix) spans the full width. */
+.acceptance-window-row {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.acceptance-field--interval {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 48rem) {
+  .acceptance-window-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The alert-interval control with its "hours" suffix. */
+.acceptance-hours {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.acceptance-hours input {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.acceptance-hours__suffix {
+  flex-shrink: 0;
+  color: var(--color-ink-secondary);
+}
+
+/* The stored acceptances: one card per record. */
+.acceptance-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.acceptance-card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--color-surface-base);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow-wrap: anywhere;
+}
+
+.acceptance-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.acceptance-card__subject {
+  color: var(--color-ink);
+  font-family: var(--type-section-title-family);
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  line-height: var(--type-section-title-line-height);
+  letter-spacing: var(--type-section-title-letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+.acceptance-card__meta {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  min-width: 0;
+}
+
+.acceptance-card__field {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.acceptance-card__field dt {
+  color: var(--color-ink-muted);
+}
+
+.acceptance-card__field dd {
+  margin: 0;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.acceptance-card__version {
+  color: var(--color-ink-secondary);
+}
+
+.acceptance-card__justification {
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}

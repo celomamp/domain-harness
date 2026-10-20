@@ -10,6 +10,8 @@ import type {
   ProjectInfo,
 } from "@domain-harness/contract";
 import { Button } from "./button.tsx";
+import { CopyButton } from "./copy-button.tsx";
+import { SectionCard } from "./section-card.tsx";
 import { PROJECT_TREE_COPY } from "./project-tree.tsx";
 
 /** The fields of the New-application flow form. */
@@ -50,6 +52,7 @@ export const NEW_APPLICATION_COPY = {
     targets: { "claude-code": "Claude Code", cursor: "Cursor" } satisfies Record<BoilerplateTarget, string>,
     submit: "Generate the Boilerplate",
     resultHeading: (target: string) => `Boilerplate for ${target}`,
+    commitIdentificationFile: (path: string) => `Commit ${path} to the repository root.`,
     ready: (target: string) => `The ${target} Boilerplate is ready to download.`,
     download: "Download the archive",
     artifacts: {
@@ -350,25 +353,36 @@ export function BoilerplateForm({ applicationId }: { readonly applicationId: str
 }
 
 /**
- * boilerplate-result: a raised surface listing each artifact in plain text
- * ("<label>: <path>", no badges), and the archive download.
+ * boilerplate-result: artifact cards with copyable paths and the original
+ * archive download. The archive stays opaque to the panel.
  */
 export function BoilerplateResultSection({ result }: { readonly result: BoilerplateResult }) {
   const copy = NEW_APPLICATION_COPY.boilerplate;
+  const identificationFile = result.artifacts.find((artifact) => artifact.kind === "identification-file");
   return (
-    <section className="boilerplate-result" aria-labelledby="boilerplate-result-heading">
-      <h2 id="boilerplate-result-heading" className="type-title-sm">
-        {copy.resultHeading(copy.targets[result.target])}
-      </h2>
-      <ul>
+    <SectionCard title={copy.heading} description={copy.resultHeading(copy.targets[result.target])}>
+      <div className="artifact-grid">
         {result.artifacts.map((artifact) => (
-          <li key={artifact.path}>{`${copy.artifacts[artifact.kind]}: ${artifact.path}`}</li>
+          <article className="artifact-card" key={artifact.path}>
+            <p className="artifact-card__kind">{copy.artifacts[artifact.kind]}</p>
+            <p className="artifact-card__path">
+              <code>{artifact.path}</code>
+            </p>
+            <CopyButton value={artifact.path} />
+          </article>
         ))}
-      </ul>
-      <a href={`data:application/gzip;base64,${result.archiveBase64}`} download={result.archiveName}>
+      </div>
+      {identificationFile === undefined ? null : (
+        <p className="artifact-note">{copy.commitIdentificationFile(identificationFile.path)}</p>
+      )}
+      <a
+        className="artifact-download"
+        href={`data:application/gzip;base64,${result.archiveBase64}`}
+        download={result.archiveName}
+      >
         {copy.download}
       </a>
-    </section>
+    </SectionCard>
   );
 }
 

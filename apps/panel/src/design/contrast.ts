@@ -42,6 +42,10 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   { foreground: "ink", background: "surface-raised", use: "Large text (title)", min: 3 },
   { foreground: "ink", background: "surface-base", use: "Focus ring (non-text)", min: 3 },
   { foreground: "accent", background: "surface-raised", use: "Series accent marks (non-text)", min: 3 },
+  { foreground: "ink-muted", background: "surface-base", use: "secondary labels", min: 4.5 },
+  { foreground: "sidebar-muted", background: "sidebar", use: "rail section labels", min: 4.5 },
+  { foreground: "sidebar-ink", background: "sidebar", use: "rail text", min: 4.5 },
+  { foreground: "ink", background: "surface-subtle", use: "table header text", min: 4.5 },
 ];
 
 /** A pair DESIGN.md mandates that cannot meet its target with the mandated values. */

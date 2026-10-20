@@ -1,0 +1,100 @@
+/* project-tree.css — the Project tree page. Owned by Task 11.
+   Every value is a token custom property; no literal colors or pixel sizes.
+   Raw rem media-query breakpoints are allowed. */
+
+/* The two panes: the tree on the left, the selected Project's context on the
+   right from 1280px (80rem); stacked below. */
+.project-tree-layout {
+  display: grid;
+  gap: var(--space-6);
+  align-items: start;
+  min-width: 0;
+}
+
+@media (min-width: 80rem) {
+  .project-tree-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+}
+
+/* The context pane: the tab list and the active tabpanel. */
+.tree-context {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.tree-context [role="tabpanel"] {
+  min-width: 0;
+}
+
+/* A Project node: a row of chevron + label, indented by the nested group. */
+.project-node__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The expand/collapse chevron: a quiet 24px control, never gold. */
+.project-node__chevron {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  align-self: center;
+  width: var(--size-target-min);
+  height: var(--size-target-min);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-secondary);
+  cursor: pointer;
+}
+
+.project-node__chevron:hover {
+  background: var(--color-surface-subtle);
+}
+
+/* A collapsed node's chevron points right; the static rotation is not motion. */
+.project-node__chevron--collapsed svg {
+  transform: rotate(-90deg);
+}
+
+/* A leaf keeps the row aligned with an empty chevron-sized gap. */
+.project-node__chevron--leaf {
+  width: var(--size-target-min);
+  height: var(--size-target-min);
+  flex-shrink: 0;
+}
+
+/* Long Project and level names wrap instead of overflowing at 320px. */
+.project-node__name,
+.project-node__level {
+  overflow-wrap: anywhere;
+}
+
+/* The selected node: cream surface and 600 weight, never gold. */
+.project-node[aria-selected="true"] {
+  background: var(--color-surface-base);
+  border-radius: var(--radius-sm);
+}
+
+.project-node[aria-selected="true"] .project-node__name {
+  font-weight: var(--type-label-strong-weight);
+}
+
+/* Access and Build grants: the account label takes the room; the commit sits
+   at the end of the row. */
+.grant-section__account {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.grant-commit {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}

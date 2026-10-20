@@ -1,0 +1,199 @@
+/* guidance-access.css — the Guidance access page. Owned by Task 14. */
+
+.guidance-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.guidance-layout > * {
+  min-width: 0;
+}
+
+.guidance-settings {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  min-width: 0;
+  margin: 0;
+}
+
+.retention-card {
+  min-width: 0;
+}
+
+.guidance-role-list {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.role-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+  padding-block: var(--space-3);
+  border-bottom: var(--size-hairline) solid var(--color-border);
+}
+
+.role-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.role-row__control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: var(--size-target-min);
+  color: var(--color-ink);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line-height);
+}
+
+.role-row__control input {
+  flex: 0 0 auto;
+  accent-color: var(--color-ink-secondary);
+}
+
+.role-row__name,
+.role-row__description {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.role-row__name {
+  font-weight: var(--type-label-strong-weight);
+}
+
+.role-row__description {
+  grid-column: 1 / -1;
+  color: var(--color-ink-secondary);
+  font-family: var(--type-body-sm-family);
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-line-height);
+}
+
+.retention-current {
+  margin-bottom: var(--space-4);
+}
+
+.retention-control {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  max-width: var(--size-form-measure);
+  color: var(--color-ink-secondary);
+  font-family: var(--type-body-sm-family);
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-line-height);
+}
+
+.retention-control input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--size-field-min);
+  padding: var(--space-2) var(--space-3);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+.retention-help,
+.retention-error {
+  margin-top: var(--space-2);
+  color: var(--color-ink-secondary);
+  font-family: var(--type-body-sm-family);
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-line-height);
+}
+
+.retention-error {
+  font-weight: var(--type-label-strong-weight);
+}
+
+.save-bar {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-base);
+  box-shadow: var(--shadow-card);
+}
+
+.guidance-settings[data-dirty="true"] {
+  padding-bottom: calc(var(--space-8) + var(--size-field-min));
+}
+
+.token-block {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-top: var(--space-4);
+}
+
+.token-block__instructions {
+  font-weight: var(--type-label-strong-weight);
+}
+
+.token-block__value {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+}
+
+.token-block__value pre {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.token-block__expiry {
+  color: var(--color-ink-secondary);
+  font-family: var(--type-body-sm-family);
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-line-height);
+}
+
+@media (max-width: 48rem) {
+  .save-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .save-bar > button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (min-width: 80rem) {
+  .guidance-layout {
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}

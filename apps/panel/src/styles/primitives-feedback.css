@@ -1,0 +1,272 @@
+/*
+  Feedback primitives: empty-state, skeleton, banner, tabs, side-sheet and
+  copy-button. Every value is a token custom property from src/design/tokens.ts
+  (no literal colors or pixel sizes; a test scans for them).
+*/
+
+/* empty-state: a centered placeholder with a decorative icon, a title, an
+   explanation and an optional action. */
+.empty-state {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-7) var(--space-4);
+  text-align: center;
+}
+
+.empty-state__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--size-target-min);
+  min-height: var(--size-target-min);
+  color: var(--color-ink-muted);
+}
+
+.empty-state__title {
+  color: var(--color-ink);
+  font-family: var(--type-section-title-family);
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  line-height: var(--type-section-title-line-height);
+  letter-spacing: var(--type-section-title-letter-spacing);
+}
+
+.empty-state__description {
+  max-width: var(--size-form-measure);
+  color: var(--color-ink-secondary);
+  font-family: var(--type-body-sm-family);
+  font-size: var(--type-body-sm-size);
+  font-weight: var(--type-body-sm-weight);
+  line-height: var(--type-body-sm-line-height);
+  letter-spacing: var(--type-body-sm-letter-spacing);
+}
+
+.empty-state__action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* skeleton: text-shaped placeholder lines. It is aria-hidden; the owning
+   region announces its busy state through aria-busy. */
+.skeleton {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.skeleton__line {
+  display: block;
+  height: var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton__line {
+    animation: skeleton-pulse 2.4s ease-in-out infinite;
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* banner: a message surface with a title, content and optional action. The
+   tone maps to a neutral surface; gold is reserved for button-primary and the
+   accepted-deviation-alert band. */
+.banner {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+}
+
+.banner--notice {
+  background: var(--color-surface-sunken);
+}
+
+.banner--denial {
+  background: var(--color-surface-raised);
+}
+
+.banner--success {
+  background: var(--color-surface-subtle);
+}
+
+.banner__title {
+  color: var(--color-ink);
+  font-family: var(--type-label-strong-family);
+  font-size: var(--type-label-strong-size);
+  font-weight: var(--type-label-strong-weight);
+  line-height: var(--type-label-strong-line-height);
+  letter-spacing: var(--type-label-strong-letter-spacing);
+}
+
+.banner__content {
+  color: var(--color-ink);
+  font-family: var(--type-body-family);
+  font-size: var(--type-body-size);
+  font-weight: var(--type-body-weight);
+  line-height: var(--type-body-line-height);
+  letter-spacing: var(--type-body-letter-spacing);
+}
+
+.banner__action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* tabs: a controlled ARIA tab list; the selected tab is ink at weight 600 with
+   an ink underline, never gold. */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  border-bottom: var(--size-hairline) solid var(--color-border);
+}
+
+.tabs__tab {
+  appearance: none;
+  min-height: var(--size-target-min);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 0;
+  border-bottom: var(--size-focus-ring) solid transparent;
+  color: var(--color-ink-secondary);
+  cursor: pointer;
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  line-height: var(--type-label-line-height);
+  letter-spacing: var(--type-label-letter-spacing);
+}
+
+.tabs__tab:hover {
+  color: var(--color-ink);
+}
+
+.tabs__tab[aria-selected="true"] {
+  color: var(--color-ink);
+  font-weight: var(--type-label-strong-weight);
+  border-bottom-color: var(--color-ink);
+}
+
+/* side-sheet: a modal side panel over a dimmed backdrop. Full width below
+   768px (48rem) and a right-side panel from 768px. */
+.side-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.side-sheet__backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--color-ink) 45%, transparent);
+}
+
+.side-sheet__panel {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 100%;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  overflow-y: auto;
+}
+
+@media (min-width: 48rem) {
+  .side-sheet__panel {
+    inline-size: var(--size-form-measure);
+    box-shadow: var(--shadow-popover);
+  }
+}
+
+.side-sheet__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.side-sheet__title {
+  min-width: 0;
+  color: var(--color-ink);
+  font-family: var(--type-section-title-family);
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  line-height: var(--type-section-title-line-height);
+  letter-spacing: var(--type-section-title-letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+.side-sheet__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: var(--size-target-min);
+  min-height: var(--size-target-min);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.side-sheet__close:hover {
+  background: var(--color-surface-subtle);
+}
+
+.side-sheet__description {
+  color: var(--color-ink-secondary);
+  font-family: var(--type-body-sm-family);
+  font-size: var(--type-body-sm-size);
+  font-weight: var(--type-body-sm-weight);
+  line-height: var(--type-body-sm-line-height);
+  letter-spacing: var(--type-body-sm-letter-spacing);
+}
+
+.side-sheet__body {
+  min-width: 0;
+}
+
+/* copy-button: a quiet action that copies a value; check mark and "Copied"
+   while confirmed. */
+.copy-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-target-min);
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink);
+  cursor: pointer;
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  line-height: var(--type-label-line-height);
+  letter-spacing: var(--type-label-letter-spacing);
+}
+
+.copy-button:hover {
+  background: var(--color-surface-subtle);
+}

@@ -1,0 +1,131 @@
+/* new-application.css — the New-application flow. Owned by Task 10. */
+.new-application-flow {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.flow-rail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flow-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-block-start: var(--space-2);
+  border-block-start: var(--size-hairline) solid var(--color-border);
+  color: var(--color-ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.flow-step__number {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  inline-size: var(--size-target-min);
+  block-size: var(--size-target-min);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-ink-secondary);
+  font-family: var(--type-caption-family);
+  font-size: var(--type-caption-size);
+  font-weight: var(--type-label-strong-weight);
+}
+
+.flow-step[aria-current="step"] {
+  color: var(--color-ink);
+  font-weight: var(--type-label-strong-weight);
+  border-block-start-color: var(--color-ink);
+}
+
+.flow-step[aria-current="step"] .flow-step__number {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+}
+
+.new-application__panel {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.new-application__panel[hidden] {
+  display: none;
+}
+
+.artifact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--size-form-measure)), 1fr));
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.artifact-card {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+  color: var(--color-ink);
+}
+
+.artifact-card__kind,
+.artifact-card__path {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.artifact-card__kind {
+  color: var(--color-ink-secondary);
+  font-weight: var(--type-label-strong-weight);
+}
+
+.artifact-card__path code {
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.artifact-note {
+  margin: 0;
+  color: var(--color-ink-secondary);
+  overflow-wrap: anywhere;
+}
+
+.artifact-download {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  min-height: var(--size-target-min);
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 47.999rem) {
+  .flow-rail {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .flow-step {
+    padding-inline-start: var(--space-2);
+    border-block-start: 0;
+    border-inline-start: var(--size-hairline) solid var(--color-border);
+  }
+
+  .flow-step[aria-current="step"] {
+    border-inline-start-color: var(--color-ink);
+  }
+}

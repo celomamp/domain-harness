@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Await, data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { COMPILATION_CATALOG_VERSION, COMPILATION_SCHEMA_DOCS, ROLE_DENIED, SESSION_INVALID } from "@domain-harness/contract";
@@ -9,8 +9,17 @@ import type {
   CompilationSchemaDoc,
   ErrorEnvelope,
 } from "@domain-harness/contract";
+import { Badge } from "../components/badge.tsx";
+import { Banner } from "../components/banner.tsx";
 import { Button } from "../components/button.tsx";
+import { CopyButton } from "../components/copy-button.tsx";
+import { EmptyState } from "../components/empty-state.tsx";
+import { PageHeader } from "../components/page-header.tsx";
+import { SectionCard } from "../components/section-card.tsx";
+import { Skeleton } from "../components/skeleton.tsx";
+import { Stat } from "../components/stat.tsx";
 import { Status } from "../components/status.tsx";
+import { Tabs } from "../components/tabs.tsx";
 import { getBundleStatus, getCatalogRead, getCollectorHealth, recordCatalogRead } from "../registry.server.ts";
 import type { RegistryResult } from "../registry.server.ts";
 import { readSessionToken } from "../session.server.ts";
@@ -45,6 +54,7 @@ export const COMPILATIONS_COPY = {
     frozen: "frozen",
     unfrozen: "not frozen",
     stale: "stale",
+    fresh: "fresh",
   },
   health: {
     heading: "Collector health",
@@ -58,6 +68,8 @@ export const COMPILATIONS_COPY = {
     heading: "Compilation drops",
     empty: "No compilation drops reported.",
     unavailable: "The compilation drops are unavailable right now. Try again in a few minutes.",
+    banner: (count: number) => `Compilation drops reported: ${String(count)}. See Drops for details.`,
+    emptyDescription: "No drop records have arrived from the Collector.",
   },
   actionUnavailable: "The surface is unavailable right now, so nothing was recorded. Try again in a few minutes.",
   sessionEnded: "Your session has ended, so the surface cannot be shown.",
@@ -147,20 +159,79 @@ function refusal(error: ErrorEnvelope | undefined) {
 export default function Compilations() {
   const { readState, bundleStatus, collectorHealth } = useLoaderData<CompilationsLoaderData>();
   const actionData = useActionData<CompilationsActionData>();
+  const [activeTab, setActiveTab] = useState<"overview" | "schemas" | "drops">("overview");
+  const [dropStatusMessage, setDropStatusMessage] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let current = true;
+    void collectorHealth.then(
+      (result) => {
+        if (!current) return;
+        const drops = result.kind === "ok" ? compilationsSummary([], result.value).drops : 0;
+        setDropStatusMessage(drops > 0 ? COMPILATIONS_COPY.drops.banner(drops) : undefined);
+      },
+      () => { if (current) setDropStatusMessage(undefined); },
+    );
+    return () => { current = false; };
+  }, [collectorHealth]);
+
+  const tabs = [
+    { id: "overview", label: "Overview", panelId: "overview-panel" },
+    { id: "schemas", label: "Schemas", panelId: "schemas-panel" },
+    { id: "drops", label: "Drops", panelId: "drops-panel" },
+  ] as const;
   return (
     <>
-      <h1 className="type-title">{COMPILATIONS_COPY.heading}</h1>
-      <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
-      <section aria-label={COMPILATIONS_COPY.schemas.heading}>
-        <h2 className="type-title-sm">{COMPILATIONS_COPY.schemas.heading}</h2>
-        {COMPILATION_SCHEMA_DOCS.map((doc) => (
-          <SchemaReader key={doc.name} doc={doc} />
-        ))}
+      <PageHeader title={COMPILATIONS_COPY.heading} />
+      <Status
+        tone={actionData?.status?.tone ?? "notice"}
+        message={actionData?.status?.message ?? dropStatusMessage}
+      />
+      <CompilationsSummarySection bundles={bundleStatus} health={collectorHealth} />
+      <Tabs
+        label="Compilations views"
+        tabs={tabs}
+        value={activeTab}
+        onChange={(id) => { setActiveTab(id as typeof activeTab); }}
+      />
+      <section
+        id="overview-panel"
+        className="compilations-panel"
+        role="tabpanel"
+        aria-labelledby="tab-overview"
+        tabIndex={0}
+        hidden={activeTab !== "overview"}
+      >
+        <DropOverviewBanner health={collectorHealth} />
+        <BundleStatusSection status={bundleStatus} />
+        <CollectorHealthSection health={collectorHealth} />
       </section>
-      <ReadState readState={readState} formKey={actionData?.recordedAt ?? "form"} />
-      <BundleStatusSection status={bundleStatus} />
-      <CollectorHealthSection health={collectorHealth} />
-      <DropsSection health={collectorHealth} />
+      <section
+        id="schemas-panel"
+        className="compilations-panel"
+        role="tabpanel"
+        aria-labelledby="tab-schemas"
+        tabIndex={0}
+        hidden={activeTab !== "schemas"}
+      >
+        <ReadState readState={readState} formKey={actionData?.recordedAt ?? "form"} />
+        <section className="schema-accordion" aria-label={COMPILATIONS_COPY.schemas.heading}>
+          <h2 className="type-title-sm">{COMPILATIONS_COPY.schemas.heading}</h2>
+          {COMPILATION_SCHEMA_DOCS.map((doc) => (
+            <SchemaReader key={doc.name} doc={doc} />
+          ))}
+        </section>
+      </section>
+      <section
+        id="drops-panel"
+        className="compilations-panel"
+        role="tabpanel"
+        aria-labelledby="tab-drops"
+        tabIndex={0}
+        hidden={activeTab !== "drops"}
+      >
+        <DropsSection health={collectorHealth} />
+      </section>
     </>
   );
 }
@@ -173,6 +244,23 @@ export function bundleAgeHours(issuedAt: string, nowMs: number): number {
 /** True when the age is past the bound: the row must carry the word "stale". */
 export function isBundleStale(ageHours: number, boundHours: number): boolean {
   return ageHours > boundHours;
+}
+
+/** Aggregate the four overview metrics from the latest registry reads. */
+export function compilationsSummary(
+  bundles: readonly BundleStatusView[],
+  health: readonly CollectorHealthView[],
+): { services: number; stale: number; pending: number; drops: number } {
+  const now = Date.now();
+  return {
+    services: bundles.length,
+    stale: bundles.filter((row) => isBundleStale(bundleAgeHours(row.issuedAt, now), row.stalenessBoundHours)).length,
+    pending: health.reduce((total, report) => total + report.pendingCount, 0),
+    drops: health.reduce(
+      (total, report) => total + Object.values(report.droppedByReason).reduce((count, dropped) => count + dropped, 0),
+      0,
+    ),
+  };
 }
 
 /**
@@ -192,21 +280,86 @@ export function dropAnnouncement(reason: string, count: number): string {
   return `Compilation drop ${where}: no partial payload was stored.`;
 }
 
+/** Four independently resolved values, with an honest placeholder per read. */
+function CompilationsSummarySection({
+  bundles,
+  health,
+}: {
+  readonly bundles: Promise<RegistryResult<BundleStatusView[]>>;
+  readonly health: Promise<RegistryResult<CollectorHealthView[]>>;
+}) {
+  const [bundleSummary, setBundleSummary] = useState<ReturnType<typeof compilationsSummary> | null>(null);
+  const [healthSummary, setHealthSummary] = useState<ReturnType<typeof compilationsSummary> | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    void bundles.then(
+      (result) => { if (current) setBundleSummary(result.kind === "ok" ? compilationsSummary(result.value, []) : null); },
+      () => { if (current) setBundleSummary(null); },
+    );
+    return () => { current = false; };
+  }, [bundles]);
+
+  useEffect(() => {
+    let current = true;
+    void health.then(
+      (result) => { if (current) setHealthSummary(result.kind === "ok" ? compilationsSummary([], result.value) : null); },
+      () => { if (current) setHealthSummary(null); },
+    );
+    return () => { current = false; };
+  }, [health]);
+
+  return (
+    <div className="compilations-summary" role="group" aria-label="Compilations summary">
+      <BundleSummaryStats summary={bundleSummary} />
+      <HealthSummaryStats summary={healthSummary} />
+    </div>
+  );
+}
+
+function BundleSummaryStats({
+  summary,
+}: {
+  readonly summary: ReturnType<typeof compilationsSummary> | null;
+}) {
+  return (
+    <div className="compilations-summary__group">
+      <Stat label="Services reporting" value={summary === null ? "—" : String(summary.services)} />
+      <Stat label="Stale" value={summary === null ? "—" : String(summary.stale)} />
+    </div>
+  );
+}
+
+function HealthSummaryStats({
+  summary,
+}: {
+  readonly summary: ReturnType<typeof compilationsSummary> | null;
+}) {
+  return (
+    <div className="compilations-summary__group">
+      <Stat label="Pending" value={summary === null ? "—" : String(summary.pending)} />
+      <Stat label="Drops" value={summary === null ? "—" : String(summary.drops)} />
+    </div>
+  );
+}
+
 /** One Compilation type's schema in ink on white: the version and every field. */
 function SchemaReader({ doc }: { readonly doc: CompilationSchemaDoc }) {
   return (
-    <section className="schema-reader" aria-label={doc.name}>
-      <h3 className="type-title-sm">{doc.name}</h3>
-      <p>{COMPILATIONS_COPY.schemas.version(doc.version)}</p>
-      <dl>
-        {doc.fields.map((fieldDoc) => (
-          <div key={fieldDoc.name}>
-            <dt>{fieldDoc.name}</dt>
-            <dd>{fieldDoc.description}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
+    <details className="schema-reader">
+      <summary>{doc.name}</summary>
+      <div className="schema-reader__content">
+        <p>{COMPILATIONS_COPY.schemas.version(doc.version)}</p>
+        <dl>
+          {doc.fields.map((fieldDoc) => (
+            <div key={fieldDoc.name}>
+              <dt>{fieldDoc.name}</dt>
+              <dd>{fieldDoc.description}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </details>
   );
 }
 
@@ -222,7 +375,7 @@ function ReadState({ readState, formKey }: ReadStateProps) {
   const unavailable = (
     <section aria-label={copy.heading}>
       <h2 className="type-title-sm">{copy.heading}</h2>
-      <p>{copy.unavailable}</p>
+      <Banner tone="notice">{copy.unavailable}</Banner>
       <RecordForm formKey={formKey} />
     </section>
   );
@@ -232,6 +385,7 @@ function ReadState({ readState, formKey }: ReadStateProps) {
         <section aria-label={copy.heading} aria-busy="true">
           <h2 className="type-title-sm">{copy.heading}</h2>
           <p>{copy.loading}</p>
+          <Skeleton lines={2} />
         </section>
       }
     >
@@ -240,7 +394,7 @@ function ReadState({ readState, formKey }: ReadStateProps) {
           result.kind === "ok" ? (
             <section aria-label={copy.heading}>
               <h2 className="type-title-sm">{copy.heading}</h2>
-              <p>
+              <p className="catalog-read-state">
                 {result.value.read
                   ? copy.read(result.value.catalogVersion, result.value.readAt.slice(0, 10))
                   : copy.unread(result.value.catalogVersion)}
@@ -289,7 +443,7 @@ function SectionSessionEnded({ heading }: { readonly heading: string }) {
   );
 }
 
-/** The bundle-status rows: per service the active hash, sequence, age against the bound, freeze state and "stale". */
+/** The bundle-status table: one row per service. */
 function BundleStatusSection({
   status,
   now = Date.now(),
@@ -300,10 +454,9 @@ function BundleStatusSection({
 }) {
   const copy = COMPILATIONS_COPY.status;
   const unavailable = (
-    <section aria-label={copy.heading}>
-      <h2 className="type-title-sm">{copy.heading}</h2>
-      <p>{copy.unavailable}</p>
-    </section>
+    <SectionCard title={copy.heading}>
+      <Banner tone="notice">{copy.unavailable}</Banner>
+    </SectionCard>
   );
   return (
     <Suspense
@@ -311,20 +464,40 @@ function BundleStatusSection({
         <section aria-label={copy.heading} aria-busy="true">
           <h2 className="type-title-sm">{copy.heading}</h2>
           <p>{copy.loading}</p>
+          <Skeleton lines={5} />
         </section>
       }
     >
       <Await resolve={status} errorElement={unavailable}>
         {(result: RegistryResult<BundleStatusView[]>) =>
           result.kind === "ok" ? (
-            <section aria-label={copy.heading}>
-              <h2 className="type-title-sm">{copy.heading}</h2>
+            <SectionCard title={copy.heading}>
               {result.value.length === 0 ? (
-                <p>{copy.empty}</p>
+                <EmptyState icon="compilations" title={copy.empty} />
               ) : (
-                result.value.map((row) => <BundleStatusRow key={row.applicationId} row={row} now={now} />)
+                <div className="bundle-table-scroll" role="region" aria-label="Bundle status table" tabIndex={0}>
+                  <table className="bundle-table">
+                    <caption>{copy.heading}</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Application</th>
+                        <th scope="col">Agent tool</th>
+                        <th scope="col">Active hash</th>
+                        <th scope="col">Sequence</th>
+                        <th scope="col">Age vs bound</th>
+                        <th scope="col">Freeze state</th>
+                        <th scope="col">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.value.map((row) => (
+                        <BundleStatusRow key={row.applicationId} row={row} now={now} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
-            </section>
+            </SectionCard>
           ) : result.kind === "refused" && result.error.code === SESSION_INVALID ? (
             <SectionSessionEnded heading={copy.heading} />
           ) : (
@@ -336,49 +509,36 @@ function BundleStatusSection({
   );
 }
 
-/** One service's bundle-status row: the facts plus the "stale" word when past the bound. */
+/** One service's status, including a copyable hash and freshness/freeze badges. */
 function BundleStatusRow({ row, now }: { readonly row: BundleStatusView; readonly now: number }) {
   const copy = COMPILATIONS_COPY.status;
   const ageHours = bundleAgeHours(row.issuedAt, now);
   const stale = isBundleStale(ageHours, row.stalenessBoundHours);
   return (
-    <article aria-label={row.applicationId}>
-      <dl>
-        <div>
-          <dt>Application</dt>
-          <dd>{row.applicationId}</dd>
-        </div>
-        <div>
-          <dt>Agent tool</dt>
-          <dd>{row.agentToolName}</dd>
-        </div>
-        <div>
-          <dt>Active hash</dt>
-          <dd>{row.bundleHash}</dd>
-        </div>
-        <div>
-          <dt>Sequence</dt>
-          <dd>{row.bundleSequence}</dd>
-        </div>
-        <div>
-          <dt>Age</dt>
-          <dd>{copy.age(ageHours, row.stalenessBoundHours)}</dd>
-        </div>
-        <div>
-          <dt>Freeze state</dt>
-          <dd>{row.frozen ? copy.frozen : copy.unfrozen}</dd>
-        </div>
-      </dl>
-      {stale ? (
-        <p>
-          <strong>{copy.stale}</strong>
-        </p>
-      ) : null}
-    </article>
+    <tr>
+      <td className="bundle-table__application">{row.applicationId}</td>
+      <td>{row.agentToolName}</td>
+      <td className="bundle-table__hash-cell">
+        <code className="bundle-table__hash">{row.bundleHash}</code>
+        <CopyButton value={row.bundleHash} label="Copy hash" copiedLabel="Hash copied" />
+      </td>
+      <td>{row.bundleSequence}</td>
+      <td>{copy.age(ageHours, row.stalenessBoundHours)}</td>
+      <td>
+        <Badge tone={row.frozen ? "solid" : "neutral"} icon={row.frozen ? "lock" : "dash"}>
+          {row.frozen ? copy.frozen : copy.unfrozen}
+        </Badge>
+      </td>
+      <td>
+        <Badge tone={stale ? "solid" : "outline"} icon={stale ? "alert" : "check"}>
+          {stale ? copy.stale : copy.fresh}
+        </Badge>
+      </td>
+    </tr>
   );
 }
 
-/** The Collector-health rows: the pending count and the dropped counts by reason, per service. */
+/** Collector health cards: pending items and dropped counts grouped by reason. */
 function CollectorHealthSection({
   health,
 }: {
@@ -386,10 +546,9 @@ function CollectorHealthSection({
 }) {
   const copy = COMPILATIONS_COPY.health;
   const unavailable = (
-    <section aria-label={copy.heading}>
-      <h2 className="type-title-sm">{copy.heading}</h2>
-      <p>{copy.unavailable}</p>
-    </section>
+    <SectionCard title={copy.heading}>
+      <Banner tone="notice">{copy.unavailable}</Banner>
+    </SectionCard>
   );
   return (
     <Suspense
@@ -397,29 +556,37 @@ function CollectorHealthSection({
         <section aria-label={copy.heading} aria-busy="true">
           <h2 className="type-title-sm">{copy.heading}</h2>
           <p>{copy.loading}</p>
+          <Skeleton lines={4} />
         </section>
       }
     >
       <Await resolve={health} errorElement={unavailable}>
         {(result: RegistryResult<CollectorHealthView[]>) =>
           result.kind === "ok" ? (
-            <section aria-label={copy.heading}>
-              <h2 className="type-title-sm">{copy.heading}</h2>
+            <SectionCard title={copy.heading}>
               {result.value.length === 0 ? (
-                <p>{copy.empty}</p>
+                <EmptyState icon="compilations" title={copy.empty} />
               ) : (
-                result.value.map((report) => (
-                  <article key={report.applicationId} aria-label={report.applicationId}>
-                    <p>{copy.pending(report.pendingCount)}</p>
-                    <ul>
-                      {Object.entries(report.droppedByReason).map(([reason, count]) => (
-                        <li key={reason}>{copy.dropped(reason, count)}</li>
-                      ))}
-                    </ul>
-                  </article>
-                ))
+                <div className="health-cards">
+                  {result.value.map((report) => (
+                    <article key={report.applicationId} className="health-card" aria-label={report.applicationId}>
+                      <h3>{report.applicationId}</h3>
+                      <p>{copy.pending(report.pendingCount)}</p>
+                      <h4>Dropped by reason</h4>
+                      {Object.entries(report.droppedByReason).length === 0 ? (
+                        <p>No drops reported for this Application.</p>
+                      ) : (
+                        <ul>
+                          {Object.entries(report.droppedByReason).map(([reason, count]) => (
+                            <li key={reason}>{copy.dropped(reason, count)}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </article>
+                  ))}
+                </div>
               )}
-            </section>
+            </SectionCard>
           ) : result.kind === "refused" && result.error.code === SESSION_INVALID ? (
             <SectionSessionEnded heading={copy.heading} />
           ) : (
@@ -431,19 +598,43 @@ function CollectorHealthSection({
   );
 }
 
-/**
- * The drop announcements: one status-text line per reason with a count above
- * zero across the health rows. Schema failures name the schema failure and
- * the stored-nothing guarantee; the empty state names that no drops were
- * reported.
- */
+/** A non-live overview notice; the Drops tab carries the complete reason lines. */
+function DropOverviewBanner({ health }: { readonly health: Promise<RegistryResult<CollectorHealthView[]>> }) {
+  return (
+    <Suspense fallback={null}>
+      <Await resolve={health} errorElement={null}>
+        {(result: RegistryResult<CollectorHealthView[]>) => {
+          if (result.kind !== "ok") return null;
+          const count = compilationsSummary([], result.value).drops;
+          return count > 0 ? (
+            <div className="drop-banner">
+              <Banner tone="notice">{COMPILATIONS_COPY.drops.banner(count)}</Banner>
+            </div>
+          ) : null;
+        }}
+      </Await>
+    </Suspense>
+  );
+}
+
+/** Aggregate reason counts without mutating the streamed reports. */
+function dropTotals(health: readonly CollectorHealthView[]): [string, number][] {
+  const totals = new Map<string, number>();
+  for (const report of health) {
+    for (const [reason, count] of Object.entries(report.droppedByReason)) {
+      totals.set(reason, (totals.get(reason) ?? 0) + count);
+    }
+  }
+  return [...totals].filter(([, count]) => count > 0);
+}
+
+/** One drop-announcement line per reason, including the stored-nothing guarantee. */
 function DropsSection({ health }: { readonly health: Promise<RegistryResult<CollectorHealthView[]>> }) {
   const copy = COMPILATIONS_COPY.drops;
   const unavailable = (
-    <section aria-label={copy.heading}>
-      <h2 className="type-title-sm">{copy.heading}</h2>
-      <p>{copy.unavailable}</p>
-    </section>
+    <SectionCard title={copy.heading}>
+      <Banner tone="notice">{copy.unavailable}</Banner>
+    </SectionCard>
   );
   return (
     <Suspense
@@ -451,6 +642,7 @@ function DropsSection({ health }: { readonly health: Promise<RegistryResult<Coll
         <section aria-label={copy.heading} aria-busy="true">
           <h2 className="type-title-sm">{copy.heading}</h2>
           <p>{COMPILATIONS_COPY.health.loading}</p>
+          <Skeleton lines={3} />
         </section>
       }
     >
@@ -463,22 +655,21 @@ function DropsSection({ health }: { readonly health: Promise<RegistryResult<Coll
               unavailable
             );
           }
-          const totals = new Map<string, number>();
-          for (const report of result.value) {
-            for (const [reason, count] of Object.entries(report.droppedByReason)) {
-              totals.set(reason, (totals.get(reason) ?? 0) + count);
-            }
-          }
-          const announced = [...totals].filter(([, count]) => count > 0);
+          const announced = dropTotals(result.value);
           return (
-            <section aria-label={copy.heading}>
-              <h2 className="type-title-sm">{copy.heading}</h2>
+            <SectionCard title={copy.heading}>
               {announced.length === 0 ? (
-                <p>{copy.empty}</p>
+                <EmptyState
+                  icon="compilations"
+                  title={copy.empty}
+                  description={copy.emptyDescription}
+                />
               ) : (
-                announced.map(([reason, count]) => <p key={reason}>{dropAnnouncement(reason, count)}</p>)
+                <div className="drop-announcements">
+                  {announced.map(([reason, count]) => <p key={reason}>{dropAnnouncement(reason, count)}</p>)}
+                </div>
               )}
-            </section>
+            </SectionCard>
           );
         }}
       </Await>

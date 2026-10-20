@@ -1,0 +1,91 @@
+/* standards.css — the Standards and Module Standards pages. Owned by Task 9.
+   Every value is a token custom property; no literal colors or pixel sizes. */
+
+/* The summary row of Stats (Modules by kind/ownership; a Module's Standards). */
+.standards-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* The toolbar's single-select filters (kind/owner on Modules; kind/status/sort on Standards). */
+.standards-filter {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--color-ink-secondary);
+  font: var(--type-body-sm-size) / var(--type-body-sm-line-height) var(--type-body-sm-family);
+}
+
+.standards-filter select {
+  box-sizing: border-box;
+  min-block-size: var(--size-field-min);
+  border: var(--size-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+}
+
+/* Long Module and Standard names and ids wrap instead of overflowing. */
+.module-name,
+.standard-name,
+.owner-cell,
+.standard-detail__id,
+.standards-table th,
+.standards-table td {
+  overflow-wrap: anywhere;
+}
+
+.standard-detail__id {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The expandable Standard detail row: its id and copy control on a subtle surface. */
+.standard-detail td {
+  background: var(--color-surface-subtle);
+}
+
+.standard-detail-toggle {
+  appearance: none;
+  min-height: var(--size-target-min);
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink);
+  cursor: pointer;
+  font: var(--type-label-size) / var(--type-label-line-height) var(--type-label-family);
+}
+
+.standard-detail-toggle:hover {
+  background: var(--color-surface-subtle);
+}
+
+/* The publish/edit forms sit flush inside a side sheet (no double surface). */
+.side-sheet__body .standard-form {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* The success banner's facts sit flush inside the banner surface. */
+.banner .published-facts {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.published-facts__id {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}

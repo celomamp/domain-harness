@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createRoutesStub, Outlet } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import Inventory from "../routes/inventory.tsx";
@@ -14,12 +14,9 @@ afterEach(() => {
 
 function renderPanel(url: string) {
   const Layout = () => (
-    <>
-      <PanelChrome role="Buyer" />
-      <main>
-        <Outlet />
-      </main>
-    </>
+    <PanelChrome role="Buyer">
+      <Outlet />
+    </PanelChrome>
   );
   const Stub = createRoutesStub([
     {
@@ -42,30 +39,87 @@ function renderPanel(url: string) {
 }
 
 describe("panel-chrome", () => {
-  it("shows the wordmark, the role as text and a nav listing only Inventory, Standards, Project tree, New-application flow, Accepted deviation, Compilations and Guidance access", async () => {
+  it("shows the wordmark and the signed-in role as text, grouped under Monitor, Govern and Operate", async () => {
     renderPanel("/inventory");
-    expect(await screen.findByText("Domain Harness")).toBeTruthy();
+    expect((await screen.findAllByText("Domain Harness")).length).toBeGreaterThan(0);
     expect(screen.getByText("Buyer")).toBeTruthy();
     const nav = screen.getByRole("navigation", { name: "Management panel" });
-    const links = [...nav.querySelectorAll("a")];
-    expect(links.map((a) => a.textContent)).toEqual([
-      "Inventory",
-      "Standards",
-      "Project tree",
-      "New-application flow",
-      "Accepted deviation",
-      "Compilations",
-      "Guidance access",
+    expect(nav.textContent).toContain("Monitor");
+    expect(nav.textContent).toContain("Govern");
+    expect(nav.textContent).toContain("Operate");
+  });
+
+  it("groups the seven destinations and marks the current page", async () => {
+    renderPanel("/inventory");
+    const nav = await screen.findByRole("navigation", { name: "Management panel" });
+    expect(nav.textContent).toContain("Monitor");
+    expect(nav.textContent).toContain("Govern");
+    expect(nav.textContent).toContain("Operate");
+    expect([...nav.querySelectorAll("a")].map((a) => a.textContent)).toEqual([
+      "Inventory", "Compilations", "Standards", "Project tree", "Guidance access",
+      "New-application flow", "Accepted deviation",
     ]);
-    expect(links.map((a) => a.getAttribute("href"))).toEqual([
-      "/inventory",
-      "/standards",
-      "/projects",
-      "/new-application",
-      "/accepted-deviation",
-      "/compilations",
-      "/guidance-access",
-    ]);
+    expect(screen.getByRole("link", { current: "page" }).textContent).toBe("Inventory");
+  });
+
+  it("offers a sign-out form in the account block", async () => {
+    renderPanel("/inventory");
+    const signOut = await screen.findByRole("button", { name: "Sign out" });
+    expect(signOut.closest("form")?.getAttribute("action")).toBe("/sign-out");
+    expect(signOut.closest("form")?.getAttribute("method")).toBe("post");
+  });
+
+  it("opens and closes the mobile drawer with the keyboard", async () => {
+    renderPanel("/inventory");
+    const menu = await screen.findByRole("button", { name: "Menu" });
+    fireEvent.click(menu);
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(menu);
+  });
+
+  it("closes the drawer with the close button and returns focus to the menu button", async () => {
+    renderPanel("/inventory");
+    const menu = await screen.findByRole("button", { name: "Menu" });
+    fireEvent.click(menu);
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close menu" }));
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(menu);
+  });
+
+  it("moves focus into the drawer and wraps Tab within it", async () => {
+    renderPanel("/inventory");
+    const menu = await screen.findByRole("button", { name: "Menu" });
+    fireEvent.click(menu);
+    // Focus enters the drawer on the close control.
+    const close = screen.getByRole("button", { name: "Close menu" });
+    expect(document.activeElement).toBe(close);
+    // Shift+Tab wraps from the first focusable back to the last (Sign out).
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sign out" }));
+    // Tab wraps from the last focusable back to the first (Close menu).
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
+  });
+
+  it("closes the drawer when a destination is chosen", async () => {
+    renderPanel("/inventory");
+    const menu = await screen.findByRole("button", { name: "Menu" });
+    fireEvent.click(menu);
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("link", { name: "Standards" }));
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("offers a skip link to the content", async () => {
+    renderPanel("/inventory");
+    const skip = await screen.findByRole("link", { name: "Skip to content" });
+    expect(skip.getAttribute("href")).toBe("#main");
+    const main = document.querySelector("#main");
+    expect(main).not.toBeNull();
+    expect(main?.getAttribute("tabindex")).toBe("-1");
   });
 
   it("marks Inventory as the current destination on /inventory, with the empty state", async () => {
@@ -74,7 +128,7 @@ describe("panel-chrome", () => {
     expect(current.textContent).toBe("Inventory");
     expect(screen.getByRole("link", { name: "Standards" }).getAttribute("aria-current")).toBeNull();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Inventory");
-    expect((await screen.findByText("No Application yet.")).className).toBe("type-display");
+    expect(await screen.findByRole("heading", { name: "No Application yet." })).toBeTruthy();
   });
 
   it("marks Standards as current on /standards", async () => {
@@ -85,18 +139,35 @@ describe("panel-chrome", () => {
 
   it("keeps tab order equal to reading order with no positive tabindex", async () => {
     renderPanel("/inventory");
-    await screen.findByRole("navigation");
+    // Wait for the Inventory's empty state so the page content is in the DOM.
+    await screen.findByRole("heading", { name: "No Application yet." });
+    const nav = screen.getByRole("navigation", { name: "Management panel" });
     const focusables = [...document.querySelectorAll<HTMLElement>("a[href], button, input")];
-    expect(focusables.map((el) => el.textContent)).toEqual([
+
+    // The skip link is the first focusable element.
+    expect(focusables[0]?.textContent).toBe("Skip to content");
+
+    // The seven destinations stay in the grouped reading order inside the rail.
+    expect([...nav.querySelectorAll("a")].map((a) => a.textContent)).toEqual([
       "Inventory",
+      "Compilations",
       "Standards",
       "Project tree",
+      "Guidance access",
       "New-application flow",
       "Accepted deviation",
-      "Compilations",
-      "Guidance access",
     ]);
-    expect(document.querySelectorAll("[tabindex]").length).toBe(0);
+
+    // The page header's primary action follows the rail in the reading order.
+    const headerAction = screen.getAllByRole("link", { name: "New application" })[0] as HTMLElement;
+    expect(nav.compareDocumentPosition(headerAction) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // No positive tabindex anywhere: only 0 and -1 are allowed.
+    expect(
+      [...document.querySelectorAll<HTMLElement>("[tabindex]")].every(
+        (el) => Number(el.getAttribute("tabindex")) <= 0,
+      ),
+    ).toBe(true);
   });
 });
 

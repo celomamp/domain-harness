@@ -1,0 +1,216 @@
+/* compilations.css — the Compilations page. Owned by Task 13. */
+
+.compilations-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.compilations-summary__group {
+  display: contents;
+}
+
+.compilations-summary .stat {
+  min-width: 0;
+}
+
+@media (min-width: 48rem) {
+  .compilations-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.compilations-panel {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-5);
+}
+
+.compilations-panel[hidden] {
+  display: none;
+}
+
+.compilations-panel .section-card,
+.compilations-panel .section-card__body,
+.bundle-table-scroll {
+  min-width: 0;
+}
+
+.bundle-table-scroll {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.bundle-table {
+  width: 100%;
+  min-width: max-content;
+  border-collapse: collapse;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+}
+
+.bundle-table caption {
+  padding-bottom: var(--space-3);
+  text-align: start;
+  font-weight: var(--type-label-strong-weight);
+}
+
+.bundle-table th,
+.bundle-table td {
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  vertical-align: top;
+  border-bottom: var(--size-hairline) solid var(--color-border);
+}
+
+.bundle-table thead th {
+  color: var(--color-ink-secondary);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-strong-weight);
+}
+
+.bundle-table tbody tr:hover {
+  background: var(--color-surface-base);
+}
+
+.bundle-table__application,
+.bundle-table__hash {
+  overflow-wrap: anywhere;
+}
+
+.bundle-table__hash {
+  display: block;
+  min-width: 0;
+}
+
+.bundle-table__hash-cell {
+  max-width: var(--size-form-measure);
+}
+
+.schema-accordion {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+}
+
+.schema-accordion > h2 {
+  margin-block: 0;
+}
+
+.schema-reader {
+  min-width: 0;
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.schema-reader summary {
+  min-height: var(--size-target-min);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-ink);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-strong-weight);
+  cursor: pointer;
+}
+
+.schema-reader__content {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--size-hairline) solid var(--color-border);
+}
+
+.schema-reader__content p {
+  margin: 0;
+}
+
+.schema-reader__content dl {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.schema-reader__content dl > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.schema-reader__content dt {
+  color: var(--color-ink-secondary);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-strong-weight);
+  overflow-wrap: anywhere;
+}
+
+.schema-reader__content dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.health-cards {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.health-card {
+  min-width: 0;
+  padding: var(--space-4);
+  border: var(--size-hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  overflow-wrap: anywhere;
+}
+
+.health-card h3,
+.health-card h4 {
+  margin-block: 0 var(--space-2);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-strong-weight);
+  line-height: var(--type-label-line-height);
+}
+
+.health-card p,
+.health-card ul {
+  margin-block: 0 var(--space-3);
+}
+
+.health-card ul {
+  padding-inline-start: var(--space-5);
+}
+
+.health-card li + li {
+  margin-block-start: var(--space-2);
+}
+
+.drop-banner {
+  min-width: 0;
+}
+
+.drop-announcements {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.drop-announcements p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 48rem) {
+  .health-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .schema-reader__content dl > div {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    align-items: start;
+  }
+}

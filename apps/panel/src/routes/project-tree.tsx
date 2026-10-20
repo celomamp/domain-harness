@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Await, data, Link, redirect, useActionData, useLoaderData, useNavigate } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
@@ -23,21 +23,27 @@ import type {
   ProjectTree,
   StandardInfo,
 } from "@domain-harness/contract";
+import { Banner } from "../components/banner.tsx";
+import { Breadcrumbs } from "../components/breadcrumbs.tsx";
+import { Button } from "../components/button.tsx";
+import { EmptyState } from "../components/empty-state.tsx";
+import { PageHeader } from "../components/page-header.tsx";
 import {
   BuildGrantPanel,
-  BuildGrantSection,
   ChangeParentForm,
   ChildPermissionPanel,
-  ChildPermissionSection,
   CreateProjectForm,
-  EffectiveSetLoading,
-  EffectiveSetSection,
   EffectiveSetTable,
   PROJECT_TREE_COPY,
+  projectTreeHeader,
+  PlanRefusal,
   ProjectTreeView,
 } from "../components/project-tree.tsx";
 import type { ProjectFormField, ProjectTreeActionData } from "../components/project-tree.tsx";
+import { SectionCard } from "../components/section-card.tsx";
+import { SideSheet } from "../components/side-sheet.tsx";
 import { Status } from "../components/status.tsx";
+import { Tabs } from "../components/tabs.tsx";
 import {
   changeProjectParent,
   createProject,
@@ -334,7 +340,7 @@ async function refusal(token: string, submitted: Submitted, error: ErrorEnvelope
   return denial(503, PROJECT_TREE_COPY.actionUnavailable);
 }
 
-/** The Project tree surface: the tree, then the forms to create a Project and change a parent. */
+/** The Project tree surface: the tree pane, the context tabs, and the two side-sheet commits. */
 export default function ProjectTreePage() {
   const { projectParam, tree, effective, permissions, builds } = useLoaderData<ProjectTreeLoaderData>();
   return (
@@ -371,7 +377,7 @@ const UNAVAILABLE: RegistryResult<ProjectTree> = { kind: "unavailable" };
 function ColdLoad() {
   return (
     <>
-      <h1 className="type-title">{PROJECT_TREE_COPY.heading}</h1>
+      <PageHeader title={PROJECT_TREE_COPY.heading} />
       <Status tone="notice" message={undefined} />
       <section className="project-tree-section" aria-label={PROJECT_TREE_COPY.heading} aria-busy="true">
         <p>{PROJECT_TREE_COPY.loading}</p>
@@ -393,68 +399,145 @@ function Loaded({ projectParam, result, effective, permissions, builds }: Loaded
   const navigate = useNavigate();
   const tree = result.kind === "ok" ? result.value : null;
   const sessionEnded = result.kind === "refused" && result.error.code === SESSION_INVALID;
-  const loaderStatus =
-    result.kind === "ok"
-      ? null
-      : { tone: "denial" as const, message: sessionEnded ? PROJECT_TREE_COPY.sessionEnded : PROJECT_TREE_COPY.unavailable };
-  const status = actionData?.status ?? loaderStatus;
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
+  const changed = actionData?.changed;
+  // A success closes the submitted sheet; a refusal keeps it open with values.
+  useEffect(() => {
+    if (changed !== undefined) {
+      setCreateOpen(false);
+      setChangeOpen(false);
+    }
+  }, [changed]);
 
   const selected = tree === null ? null : selectedProject(tree, projectParam);
   const refused = actionData?.changed === undefined ? actionData : undefined;
   // A success remounts the forms empty; a refusal keeps the submitted values.
-  const formKey = `${selected?.id ?? ""}:${actionData?.changed === undefined ? "" : `${actionData.changed.id}:${actionData.changed.parentId ?? ""}`}`;
+  const formKey = `${selected?.id ?? ""}:${changed === undefined ? "" : `${changed.id}:${changed.parentId ?? ""}`}`;
   const select = (projectId: string) => {
     void navigate(`${PAGE}?project=${encodeURIComponent(projectId)}`, { preventScrollReset: true });
   };
 
+  if (tree === null || selected === null) {
+    return (
+      <>
+        <PageHeader title={PROJECT_TREE_COPY.heading} />
+        <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
+        <Banner tone="denial">
+          <p>{sessionEnded ? PROJECT_TREE_COPY.sessionEnded : PROJECT_TREE_COPY.unavailable}</p>
+          {sessionEnded ? <Link to="/sign-in">{PROJECT_TREE_COPY.signInAgain}</Link> : null}
+        </Banner>
+      </>
+    );
+  }
+
+  const header = projectTreeHeader(tree, selected);
+
   return (
     <>
-      <h1 className="type-title">{PROJECT_TREE_COPY.heading}</h1>
-      <Status tone={status?.tone ?? "notice"} message={status?.message} />
-      {sessionEnded ? (
-        <p>
-          <Link to="/sign-in">{PROJECT_TREE_COPY.signInAgain}</Link>
-        </p>
-      ) : null}
-      {tree === null || selected === null ? null : (
-        <>
-          <div className="project-tree-layout">
-            <section className="project-tree-section" aria-label={PROJECT_TREE_COPY.heading}>
-              <ProjectTreeView tree={tree} selectedId={selected.id} onSelect={select} />
-              {tree.projects.length === 1 ? <p>{PROJECT_TREE_COPY.empty}</p> : null}
-            </section>
-            <div className="project-tree-side">
-              <EffectiveSet
-                projectName={selected.name}
-                effective={effective}
-                planRefusal={actionData?.intent === "lock" ? actionData.planRefusal : undefined}
-              />
-              <ChildPermissions projectName={selected.name} permissions={permissions} />
-              <BuildGrants projectName={selected.name} builds={builds} />
-            </div>
-          </div>
-          <CreateProjectForm
-            key={`create:${formKey}`}
+      <Breadcrumbs items={[{ label: PROJECT_TREE_COPY.heading, to: PAGE }, { label: selected.name }]} />
+      <PageHeader
+        title={selected.name}
+        meta={
+          <>
+            <span>
+              {PROJECT_TREE_COPY.header.level}: {header.level}
+            </span>
+            <span>
+              {PROJECT_TREE_COPY.header.parent}: {header.parent}
+            </span>
+            <span>
+              {header.children} child Project{header.children === 1 ? "" : "s"}
+            </span>
+          </>
+        }
+        actions={
+          <>
+            <Button variant="primary" onClick={() => { setCreateOpen(true); }}>
+              {PROJECT_TREE_COPY.createAction}
+            </Button>
+            {selected.parentId === null ? null : (
+              <Button variant="secondary" onClick={() => { setChangeOpen(true); }}>
+                {PROJECT_TREE_COPY.change}
+              </Button>
+            )}
+          </>
+        }
+      />
+      <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
+      <div className="project-tree-layout">
+        <SectionCard title={PROJECT_TREE_COPY.heading}>
+          <ProjectTreeView tree={tree} selectedId={selected.id} onSelect={select} />
+          {tree.projects.length === 1 ? <EmptyState icon="projects" title={PROJECT_TREE_COPY.empty} /> : null}
+        </SectionCard>
+        <ContextPane
+          effective={effective}
+          permissions={permissions}
+          builds={builds}
+          planRefusal={actionData?.intent === "lock" ? actionData.planRefusal : undefined}
+        />
+      </div>
+      <SideSheet open={createOpen} onClose={() => { setCreateOpen(false); }} title={PROJECT_TREE_COPY.createAction}>
+        <CreateProjectForm
+          key={`create:${formKey}`}
+          tree={tree}
+          selected={selected}
+          submitted={refused?.intent === "create" ? refused : undefined}
+        />
+      </SideSheet>
+      {selected.parentId === null ? null : (
+        <SideSheet
+          open={changeOpen}
+          onClose={() => { setChangeOpen(false); }}
+          title={PROJECT_TREE_COPY.changeHeading(selected.name)}
+        >
+          <ChangeParentForm
+            key={`parent:${formKey}`}
             tree={tree}
             selected={selected}
-            submitted={refused?.intent === "create" ? refused : undefined}
+            submitted={refused?.intent === "parent" ? refused : undefined}
           />
-          {selected.parentId === null ? null : (
-            <ChangeParentForm
-              key={`parent:${formKey}`}
-              tree={tree}
-              selected={selected}
-              submitted={refused?.intent === "parent" ? refused : undefined}
-            />
-          )}
-        </>
+        </SideSheet>
       )}
     </>
   );
 }
 
+const CONTEXT_TABS = [
+  { id: "effective", label: PROJECT_TREE_COPY.tabs.effective, panelId: "project-context-effective" },
+  { id: "access", label: PROJECT_TREE_COPY.tabs.access, panelId: "project-context-access" },
+  { id: "builds", label: PROJECT_TREE_COPY.tabs.builds, panelId: "project-context-builds" },
+] as const;
+
+interface ContextPaneProps {
+  readonly effective: Promise<RegistryResult<EffectiveStandardSet>>;
+  readonly permissions: Promise<RegistryResult<ChildPermissionList>>;
+  readonly builds: Promise<RegistryResult<BuildGrantList>>;
+  /** A plan refusal of a Locked-rule mark, shown in place above the table. */
+  readonly planRefusal: string | undefined;
+}
+
+/** The selected Project's context: three tabs (Effective standards, Access, Build grants). */
+function ContextPane({ effective, permissions, builds, planRefusal }: ContextPaneProps) {
+  const [tab, setTab] = useState("effective");
+  return (
+    <section className="tree-context" aria-label={PROJECT_TREE_COPY.contextLabel}>
+      <Tabs label={PROJECT_TREE_COPY.contextLabel} tabs={CONTEXT_TABS} value={tab} onChange={setTab} />
+      <div role="tabpanel" id="project-context-effective" aria-labelledby="tab-effective" hidden={tab !== "effective"}>
+        <EffectiveSet effective={effective} planRefusal={planRefusal} />
+      </div>
+      <div role="tabpanel" id="project-context-access" aria-labelledby="tab-access" hidden={tab !== "access"}>
+        <ChildPermissions permissions={permissions} />
+      </div>
+      <div role="tabpanel" id="project-context-builds" aria-labelledby="tab-builds" hidden={tab !== "builds"}>
+        <BuildGrants builds={builds} />
+      </div>
+    </section>
+  );
+}
+
 interface EffectiveSetProps {
-  readonly projectName: string;
   readonly effective: Promise<RegistryResult<EffectiveStandardSet>>;
   /** A plan refusal of a Locked-rule mark, shown in place above the table. */
   readonly planRefusal: string | undefined;
@@ -462,29 +545,20 @@ interface EffectiveSetProps {
 
 /**
  * The selected Project's Effective Standard set under its own Suspense: the
- * tree and forms show first, the section is busy while the set loads, and a
- * failure shows the unavailable text without touching the tree or forms.
+ * tree shows first, the panel is busy while the set loads, and a failure shows
+ * the unavailable text without touching the tree.
  */
-function EffectiveSet({ projectName, effective, planRefusal }: EffectiveSetProps) {
-  const unavailable = (
-    <EffectiveSetSection projectName={projectName} planRefusal={planRefusal}>
-      <p>{PROJECT_TREE_COPY.effective.unavailable}</p>
-    </EffectiveSetSection>
-  );
+function EffectiveSet({ effective, planRefusal }: EffectiveSetProps) {
+  const unavailable = <Banner tone="denial">{PROJECT_TREE_COPY.effective.unavailable}</Banner>;
   return (
-    <Suspense
-      fallback={
-        <EffectiveSetSection projectName={projectName} planRefusal={planRefusal} busy>
-          <EffectiveSetLoading />
-        </EffectiveSetSection>
-      }
-    >
+    <Suspense fallback={<p className="type-body-sm">{PROJECT_TREE_COPY.effective.loading}</p>}>
       <Await resolve={effective} errorElement={unavailable}>
         {(result: RegistryResult<EffectiveStandardSet>) =>
           result.kind === "ok" ? (
-            <EffectiveSetSection projectName={projectName} planRefusal={planRefusal}>
+            <>
+              <PlanRefusal message={planRefusal} />
               <EffectiveSetTable set={result.value} />
-            </EffectiveSetSection>
+            </>
           ) : (
             unavailable
           )
@@ -495,39 +569,21 @@ function EffectiveSet({ projectName, effective, planRefusal }: EffectiveSetProps
 }
 
 interface ChildPermissionsProps {
-  readonly projectName: string;
   readonly permissions: Promise<RegistryResult<ChildPermissionList>>;
 }
 
 /**
  * The selected Project's child-Project permission under its own Suspense:
  * busy while the grants load, and a failure shows the unavailable text
- * without touching the tree, the table or the forms.
+ * without touching the tree or the table.
  */
-function ChildPermissions({ projectName, permissions }: ChildPermissionsProps) {
-  const copy = PROJECT_TREE_COPY.permission;
-  const unavailable = (
-    <ChildPermissionSection projectName={projectName}>
-      <p>{copy.unavailable}</p>
-    </ChildPermissionSection>
-  );
+function ChildPermissions({ permissions }: ChildPermissionsProps) {
+  const unavailable = <Banner tone="denial">{PROJECT_TREE_COPY.permission.unavailable}</Banner>;
   return (
-    <Suspense
-      fallback={
-        <ChildPermissionSection projectName={projectName} busy>
-          <p>{copy.loading}</p>
-        </ChildPermissionSection>
-      }
-    >
+    <Suspense fallback={<p className="type-body-sm">{PROJECT_TREE_COPY.permission.loading}</p>}>
       <Await resolve={permissions} errorElement={unavailable}>
         {(result: RegistryResult<ChildPermissionList>) =>
-          result.kind === "ok" ? (
-            <ChildPermissionSection projectName={projectName}>
-              <ChildPermissionPanel list={result.value} />
-            </ChildPermissionSection>
-          ) : (
-            unavailable
-          )
+          result.kind === "ok" ? <ChildPermissionPanel list={result.value} /> : unavailable
         }
       </Await>
     </Suspense>
@@ -535,39 +591,21 @@ function ChildPermissions({ projectName, permissions }: ChildPermissionsProps) {
 }
 
 interface BuildGrantsProps {
-  readonly projectName: string;
   readonly builds: Promise<RegistryResult<BuildGrantList>>;
 }
 
 /**
  * The selected Project's build grants under their own Suspense: busy while
  * the grants load, and a failure shows the unavailable text without touching
- * the tree, the table, the child-Project permission or the forms.
+ * the tree, the table or the child-Project permission.
  */
-function BuildGrants({ projectName, builds }: BuildGrantsProps) {
-  const copy = PROJECT_TREE_COPY.build;
-  const unavailable = (
-    <BuildGrantSection projectName={projectName}>
-      <p>{copy.unavailable}</p>
-    </BuildGrantSection>
-  );
+function BuildGrants({ builds }: BuildGrantsProps) {
+  const unavailable = <Banner tone="denial">{PROJECT_TREE_COPY.build.unavailable}</Banner>;
   return (
-    <Suspense
-      fallback={
-        <BuildGrantSection projectName={projectName} busy>
-          <p>{copy.loading}</p>
-        </BuildGrantSection>
-      }
-    >
+    <Suspense fallback={<p className="type-body-sm">{PROJECT_TREE_COPY.build.loading}</p>}>
       <Await resolve={builds} errorElement={unavailable}>
         {(result: RegistryResult<BuildGrantList>) =>
-          result.kind === "ok" ? (
-            <BuildGrantSection projectName={projectName}>
-              <BuildGrantPanel list={result.value} />
-            </BuildGrantSection>
-          ) : (
-            unavailable
-          )
+          result.kind === "ok" ? <BuildGrantPanel list={result.value} /> : unavailable
         }
       </Await>
     </Suspense>

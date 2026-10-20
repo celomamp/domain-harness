@@ -4,7 +4,7 @@ import { createRoutesStub } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UuidV7 } from "@domain-harness/contract";
-import Application, { deriveEvidence, loader } from "./application.tsx";
+import Application, { applicationFacts, compilationHistory, deriveEvidence, loader } from "./application.tsx";
 
 const APP = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
 const STANDARD = "01928c7e-5b2a-7c3d-be4f-a1b2c3d4e5f9";
@@ -108,12 +108,47 @@ afterEach(() => {
 });
 
 describe("Application surface", () => {
-  it("shows the description, the latest Adherence as text, the verdict and Guidance consultation", async () => {
-    renderApplication(Promise.resolve(ok({ application, compilations: [guidance, gateRun, deviation] })));
+  it("shows the application description as the page heading", async () => {
+    renderApplication(Promise.resolve(ok({ application, compilations: [] })));
     expect((await screen.findByRole("heading", { level: 1 })).textContent).toBe("Expense cards");
-    expect(screen.getByText("Adherence 13 of 14 checked Standards on the last Gate run.")).toBeTruthy();
-    expect(screen.getByText("Gate run: fail.")).toBeTruthy();
-    expect(screen.getByText("Guidance was consulted: yes.")).toBeTruthy();
+  });
+
+  it("shows adherence, verdict, guidance and open deviations as summary facts", async () => {
+    renderApplication(Promise.resolve(ok({ application, compilations: [guidance, gateRun, deviation] })));
+    expect(await screen.findByText("Adherence")).toBeTruthy();
+    expect(screen.getByText("13 of 14")).toBeTruthy();
+    expect(screen.getByText("fail")).toBeTruthy();
+    expect(screen.getByText("Guidance consulted")).toBeTruthy();
+    expect(screen.getByText("yes")).toBeTruthy();
+    expect(screen.getByText("Open deviations")).toBeTruthy();
+    expect(screen.getByText("1 open")).toBeTruthy();
+  });
+
+  it("lists the stored Compilations in reverse sequence order", async () => {
+    renderApplication(Promise.resolve(ok({ application, compilations: [guidance, gateRun, deviation] })));
+    const heading = await screen.findByRole("heading", { name: "History" });
+    const section = heading.closest("section");
+    expect(section).toBeTruthy();
+    const items = within(section as HTMLElement)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent);
+    expect(items).toHaveLength(3);
+    expect(items[0]).toContain("Deviation");
+    expect(items[1]).toContain("Gate run");
+    expect(items[2]).toContain("Guidance");
+  });
+
+  it("keeps the deviation table and the correction copy action", async () => {
+    renderApplication(Promise.resolve(ok({ application, compilations: [guidance, gateRun, deviation] })));
+    expect(await screen.findByRole("table", { name: "Deviations" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+  });
+
+  it("keeps a 500-character description visible and wrapped", async () => {
+    const long = "A".repeat(500);
+    renderApplication(Promise.resolve(ok({ application: { ...application, description: long }, compilations: [] })));
+    const heading = await screen.findByRole("heading", { level: 1, name: long });
+    expect(heading.className).toContain("type-page-title");
   });
 
   it("renders deviation rows with the status word, key fields, the cream-inset Correction and a copyable control", async () => {
@@ -167,27 +202,27 @@ describe("Application surface", () => {
 
   it("says Guidance was not consulted when no Guidance Compilation exists", async () => {
     renderApplication(Promise.resolve(ok({ application, compilations: [gateRun] })));
-    expect(await screen.findByText("Guidance was consulted: no.")).toBeTruthy();
+    expect(await screen.findByText("no")).toBeTruthy();
   });
 
   it("shows the listed-without-evidence text when there is no Gate run and no Guidance event", async () => {
     renderApplication(Promise.resolve(ok({ application, compilations: [] })));
-    expect(await screen.findByText("This Application is listed and has no Guidance event and no Gate run.")).toBeTruthy();
+    expect(await screen.findByText(/no Guidance event and no Gate run/)).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
 
   it("shows the unbound failure sentence with its recovery when the refusal is the latest evidence", async () => {
     renderApplication(Promise.resolve(ok({ application, compilations: [guidance, gateRun, refusal] })));
-    const failure = await screen.findByRole("status");
-    expect(failure.textContent).toContain("unbound Application.");
-    expect(failure.textContent).toContain("The Project identification file is missing or unreadable");
-    expect(failure.textContent).toContain("Restore that file or ask the Buyer to place the Application.");
+    expect(await screen.findByText(/unbound Application\./)).toBeTruthy();
+    expect(screen.getByText(/The Project identification file is missing or unreadable/)).toBeTruthy();
+    expect(screen.getByText(/Restore that file or ask the Buyer to place the Application\./)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to Inventory" })).toBeTruthy();
   });
 
   it("hides the failure once a later Gate run arrives", async () => {
     renderApplication(Promise.resolve(ok({ application, compilations: [{ ...refusal, sequence: 1 }, guidance, gateRun, deviation] })));
-    await screen.findByText("Adherence 13 of 14 checked Standards on the last Gate run.");
-    expect(screen.queryByRole("status")).toBeNull();
+    await screen.findByText("Adherence");
+    expect(screen.queryByText(/unbound Application\./)).toBeNull();
   });
 
   it("says the Compilation did not arrive when the evidence is refused or the registry is down", async () => {
@@ -240,5 +275,26 @@ describe("deriveEvidence", () => {
     expect(derived.rows[0]?.correction).toBe("Replace lodash with the approved entry in this conflict slot.");
     expect(derived.rows[1]?.correction).toBeNull();
     expect(derived.refusal?.sequence).toBe(4);
+  });
+});
+
+describe("compilationHistory", () => {
+  it("lists Compilations in reverse sequence order with a type and a short fact", () => {
+    const history = compilationHistory([guidance, gateRun, deviation, refusal] as never);
+    expect(history.map((entry) => entry.type)).toEqual(["Binding refusal", "Deviation", "Gate run", "Guidance"]);
+    expect(history.map((entry) => entry.sequence)).toEqual([4, 3, 2, 1]);
+    expect(history[2]?.detail).toBe("Verdict fail.");
+    expect(history[3]?.detail).toBe("Outcome hit.");
+    expect(history[0]?.occurredAt).toBe("15 Oct 2026, 12:00 UTC");
+  });
+});
+
+describe("applicationFacts", () => {
+  it("returns the project name, agent tool and created date", () => {
+    expect(applicationFacts(application as never)).toEqual({
+      project: "Platform",
+      agentTool: "claude-code",
+      created: "13 Oct 2026",
+    });
   });
 });

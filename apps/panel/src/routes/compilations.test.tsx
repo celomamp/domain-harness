@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Compilations, {
   action,
   bundleAgeHours,
+  compilationsSummary,
   COMPILATIONS_COPY,
   dropAnnouncement,
   isBundleStale,
@@ -38,6 +39,14 @@ function renderCompilations(
     },
   ]);
   render(<Stub initialEntries={["/compilations"]} />);
+}
+
+async function openSchemas() {
+  fireEvent.click(await screen.findByRole("tab", { name: "Schemas" }));
+}
+
+async function openDrops() {
+  fireEvent.click(await screen.findByRole("tab", { name: "Drops" }));
 }
 
 function loaderArgs(headers: Record<string, string> = COOKIE): LoaderFunctionArgs {
@@ -75,11 +84,17 @@ afterEach(() => {
 describe("Compilations", () => {
   it("lists every Compilation type's schema with its version and fields, ink on white", async () => {
     renderCompilations(Promise.resolve({ kind: "unavailable" }));
+    await openSchemas();
     const readers = await screen.findAllByText("Schema version 1.0.0.");
     expect(readers).toHaveLength(6);
-    for (const name of ["guidance", "gate_run", "deviation", "binding_refusal", "bundle_status", "collector_health"]) {
-      expect(screen.getByRole("heading", { name }).textContent).toBe(name);
-    }
+    expect([...document.querySelectorAll(".schema-reader > summary")].map((summary) => summary.textContent)).toEqual([
+      "guidance",
+      "gate_run",
+      "deviation",
+      "binding_refusal",
+      "bundle_status",
+      "collector_health",
+    ]);
     expect(document.querySelectorAll(".schema-reader")).toHaveLength(6);
     expect(screen.getAllByText("idempotencyKey")).toHaveLength(6);
   });
@@ -91,6 +106,7 @@ describe("Compilations", () => {
         value: { catalogVersion: "1.0.0", read: true, readBy: record.readBy, readAt: record.readAt },
       }),
     );
+    await openSchemas();
     expect(await screen.findByText("Read catalog 1.0.0 on 2026-10-15.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "I have read catalog 1.0.0" })).toBeTruthy();
   });
@@ -99,6 +115,7 @@ describe("Compilations", () => {
     renderCompilations(
       Promise.resolve({ kind: "ok", value: { catalogVersion: "1.0.0", read: false, readBy: null, readAt: null } }),
     );
+    await openSchemas();
     expect(
       await screen.findByText("Not read yet. The Collector cannot send until the Buyer records reading catalog 1.0.0."),
     ).toBeTruthy();
@@ -108,6 +125,7 @@ describe("Compilations", () => {
     renderCompilations(
       Promise.resolve({ kind: "refused", error: { code: "session_invalid", message: "m", subject: "session" } }),
     );
+    await openSchemas();
     expect(await screen.findByText(COMPILATIONS_COPY.sessionEnded)).toBeTruthy();
     expect(screen.getByRole("link", { name: COMPILATIONS_COPY.signInAgain }).getAttribute("href")).toBe("/sign-in");
     expect(screen.queryByText(COMPILATIONS_COPY.read.unavailable)).toBeNull();
@@ -116,6 +134,7 @@ describe("Compilations", () => {
   it("is busy while the read state loads, with the heading and the schemas already there", async () => {
     renderCompilations(new Promise(() => undefined));
     expect((await screen.findByRole("heading", { level: 1 })).textContent).toBe("Compilations");
+    await openSchemas();
     expect(screen.getByText("Loading the read state…").closest("[aria-busy]")?.getAttribute("aria-busy")).toBe("true");
     expect((await screen.findAllByText("Schema version 1.0.0.")).length).toBe(6);
   });
@@ -133,6 +152,7 @@ describe("Compilations", () => {
     ],
   ])("says the read state is unavailable on %s, keeping the schemas", async (_label, answer: () => Promise<unknown>) => {
     renderCompilations(answer());
+    await openSchemas();
     expect(await screen.findByText(COMPILATIONS_COPY.read.unavailable)).toBeTruthy();
     expect((await screen.findAllByText("Schema version 1.0.0.")).length).toBe(6);
   });
@@ -271,10 +291,12 @@ describe("/compilations bundle status (Story 6.4)", () => {
 
   it("shows the active hash, sequence, age against the bound, freeze state and the word stale when past the bound", async () => {
     renderStatus({ kind: "ok", value: [row] });
+    expect(await screen.findByRole("columnheader", { name: "Application" })).toBeTruthy();
     expect(await screen.findByText("a".repeat(64))).toBeTruthy();
     expect(screen.getByText("Age 144h of 24h bound.")).toBeTruthy();
     expect(screen.getByText("not frozen")).toBeTruthy();
     expect(screen.getByText("stale")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy hash" })).toBeTruthy();
   });
 
   it("shows no stale word and the frozen state when within the bound", async () => {
@@ -321,6 +343,7 @@ describe("/compilations bundle status (Story 6.4)", () => {
         ],
       },
     );
+    await openDrops();
     const announcement = await screen.findByText(/the schema failed and no partial payload was stored/);
     expect(announcement.textContent).toMatch(/schema_failed/);
     expect(announcement.textContent).toMatch(/count 2/);
@@ -342,6 +365,7 @@ describe("/compilations bundle status (Story 6.4)", () => {
         ],
       },
     );
+    await openDrops();
     const announcement = await screen.findByText(/those sequences never arrived/);
     expect(announcement.textContent).toMatch(/queue_gap/);
   });
@@ -350,7 +374,9 @@ describe("/compilations bundle status (Story 6.4)", () => {
     renderCompilations(Promise.resolve({ kind: "unavailable" }));
     expect(await screen.findByText("No bundle status yet. Nothing has arrived from the Collector.")).toBeTruthy();
     expect(screen.getByText("No Collector health yet. Nothing has arrived from the Collector.")).toBeTruthy();
+    await openDrops();
     expect(screen.getByText("No compilation drops reported.")).toBeTruthy();
+    await openSchemas();
     expect(screen.getByRole("heading", { name: "Compilation schemas" })).toBeTruthy();
     expect(document.querySelectorAll(".schema-reader")).toHaveLength(6);
   });
@@ -359,6 +385,100 @@ describe("/compilations bundle status (Story 6.4)", () => {
     renderStatus({ kind: "unavailable" }, { kind: "unavailable" });
     expect(await screen.findByText("The bundle status is unavailable right now. Try again in a few minutes.")).toBeTruthy();
     expect(screen.getByText("The Collector health is unavailable right now. Try again in a few minutes.")).toBeTruthy();
+  });
+
+  it("shows a health summary before the tabs", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+    renderCompilations(
+      Promise.resolve({ kind: "ok", value: { catalogVersion: "1.0.0", read: false, readBy: null, readAt: null } }),
+      Promise.resolve({ kind: "ok", value: [row] }),
+      Promise.resolve({
+        kind: "ok",
+        value: [
+          {
+            applicationId: APP,
+            agentToolName: "claude-code",
+            occurredAt: "2026-10-16T12:00:00.000Z",
+            pendingCount: 2,
+            droppedByReason: { schema_failed: 1 },
+          },
+        ],
+      }),
+    );
+    const services = await screen.findByRole("group", { name: "Services reporting" });
+    expect(await screen.findByRole("columnheader", { name: "Application" })).toBeTruthy();
+    expect(await within(services).findByText("1")).toBeTruthy();
+    const pending = screen.getByRole("group", { name: "Pending" });
+    expect(await within(pending).findByText("2")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Stale" })).getByText("1")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Drops" })).getByText("1")).toBeTruthy();
+    expect(services.compareDocumentPosition(screen.getByRole("tablist")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows an em dash for summary values when their read is unavailable", async () => {
+    renderCompilations(
+      Promise.resolve({ kind: "unavailable" }),
+      Promise.resolve({ kind: "unavailable" }),
+      Promise.resolve({ kind: "unavailable" }),
+    );
+    for (const label of ["Services reporting", "Stale", "Pending", "Drops"]) {
+      const stat = await screen.findByRole("group", { name: label });
+      expect(within(stat).getByText("—")).toBeTruthy();
+      expect(within(stat).queryByText("undefined")).toBeNull();
+    }
+  });
+
+  it("keeps the schemas behind the Schemas tab and available on a cold load", async () => {
+    renderCompilations(new Promise(() => undefined));
+    expect(await screen.findByRole("tab", { name: "Schemas" })).toBeTruthy();
+    expect(screen.queryByRole("tabpanel", { name: "Schemas" })).toBeNull();
+    expect(document.querySelectorAll(".schema-reader")).toHaveLength(6);
+    await openSchemas();
+    expect(await screen.findByText("Compilation schemas")).toBeTruthy();
+    expect((await screen.findAllByText("Schema version 1.0.0.")).length).toBe(6);
+  });
+
+  it("announces Overview drops in the existing status region and keeps the banner non-live", async () => {
+    renderCompilations(
+      Promise.resolve({ kind: "unavailable" }),
+      Promise.resolve({ kind: "ok", value: [] }),
+      Promise.resolve({
+        kind: "ok",
+        value: [
+          {
+            applicationId: APP,
+            agentToolName: "claude-code",
+            occurredAt: "2026-10-16T12:00:00.000Z",
+            pendingCount: 0,
+            droppedByReason: { schema_failed: 1 },
+          },
+        ],
+      }),
+    );
+    const status = await screen.findByRole("status");
+    const message = "Compilation drops reported: 1. See Drops for details.";
+    expect(await within(status).findByText(message)).toBeTruthy();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    const banner = document.querySelector(".drop-banner");
+    expect(banner?.textContent).toBe(message);
+    expect(banner?.getAttribute("role")).toBeNull();
+  });
+
+  it("summarizes services, stale bundles, pending entries, and drops", () => {
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+    const summary = compilationsSummary(
+      [row, { ...row, issuedAt: "2026-10-16T11:00:00.000Z" }] as unknown as Parameters<typeof compilationsSummary>[0],
+      [
+        {
+          applicationId: APP,
+          agentToolName: "claude-code",
+          occurredAt: "2026-10-16T12:00:00.000Z",
+          pendingCount: 2,
+          droppedByReason: { schema_failed: 1, ignored: 0 },
+        },
+      ] as unknown as Parameters<typeof compilationsSummary>[1],
+    );
+    expect(summary).toEqual({ services: 2, stale: 1, pending: 2, drops: 1 });
   });
 
   it("derives the age in whole hours, clamped at zero, with stale past the bound", () => {

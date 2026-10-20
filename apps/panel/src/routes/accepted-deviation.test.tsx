@@ -2,16 +2,17 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRoutesStub, Outlet } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ApplicationInfo, EffectiveStandardSet, Role, StandardInfo, UuidV7 } from "@domain-harness/contract";
+import type { AcceptedDeviationRecord, ApplicationInfo, EffectiveStandardSet, Role, StandardInfo, UuidV7 } from "@domain-harness/contract";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { PanelChrome } from "../components/panel-chrome.tsx";
-import AcceptedDeviationPage, { action, loader } from "./accepted-deviation.tsx";
+import AcceptedDeviationPage, { acceptanceStatus, action, loader } from "./accepted-deviation.tsx";
 
 const TENANT = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5f6";
 const PROJECT = "01928c7e-5b2a-7c3d-9e4f-a1b2c3d4e5f7";
 const APP = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5f8";
 const STANDARD = "01928c7e-5b2a-7c3d-be4f-a1b2c3d4e5f9";
 const RECORDED_ID = "01928c7e-5b2a-7c3d-ae4f-a1b2c3d4e5fa";
+const EXPIRED_ID = "01928c7e-5b2a-7c3d-be4f-a1b2c3d4e5fc";
 const BUYER_ID = "01928c7e-5b2a-7c3d-8e4f-a1b2c3d4e5fb";
 const SESSION_TOKEN = `${TENANT}.${"S".repeat(43)}`;
 const COOKIE = `dh_session=${SESSION_TOKEN}`;
@@ -50,7 +51,7 @@ const effectiveSet: EffectiveStandardSet = {
   ],
 };
 
-const storedRecord = {
+const storedRecord: AcceptedDeviationRecord = {
   id: RECORDED_ID as UuidV7,
   applicationId: APP as UuidV7,
   standardId: STANDARD as UuidV7,
@@ -78,12 +79,9 @@ interface Seed {
 
 function renderPage({ role, entry = "/accepted-deviation", applications = Promise.resolve(ok([application])), effective = Promise.resolve(ok(effectiveSet)), records = Promise.resolve(ok([])) }: Seed) {
   const Layout = () => (
-    <>
-      <PanelChrome role={role} />
-      <main>
-        <Outlet />
-      </main>
-    </>
+    <PanelChrome role={role}>
+      <Outlet />
+    </PanelChrome>
   );
   const Stub = createRoutesStub([
     {
@@ -187,17 +185,31 @@ describe("Accepted-deviation page (cold load)", () => {
     await applicationLoaded();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Accepted deviation");
     expect(screen.getByRole("link", { name: "Accepted deviation" }).getAttribute("aria-current")).toBe("page");
-    expect(screen.getByText("Stored Accepted deviations")).toBeTruthy();
+    expect(screen.getByText("Stored acceptances")).toBeTruthy();
     await screen.findByText("No Accepted deviation is recorded yet.");
     expect(screen.getByText("Stored: Buyer, justification, start, end, match key.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Record Accepted deviation" }).className).toBe("button-primary");
   });
 
-  it("lists the stored records with every stored field (Buyer, justification, start, end, match key, recorded date)", async () => {
+  it("lists the stored records as cards with every stored field (Application, Standard + version, window, alert interval, recorded by, justification)", async () => {
     renderPage({ role: "Buyer", records: Promise.resolve(ok([storedRecord])) });
-    await screen.findByText(
-      `lodash, Standard version 3, slot (code-stack, library, "react") on Application ${APP}: by Bea Buyer, recorded 2026-10-13, from 2026-10-01 to 2026-11-01, alert every 168 hours. known exception`,
-    );
+    await screen.findByText("lodash");
+    expect(screen.getByText(APP)).toBeTruthy();
+    expect(screen.getByText(STANDARD)).toBeTruthy();
+    expect(screen.getByText("Version 3")).toBeTruthy();
+    expect(screen.getByText("01 Oct 2026 to 01 Nov 2026")).toBeTruthy();
+    expect(screen.getByText("168 hours")).toBeTruthy();
+    expect(screen.getByText("Bea Buyer")).toBeTruthy();
+    expect(screen.getByText("known exception")).toBeTruthy();
+  });
+
+  it("renders stored acceptances as cards with an Active or Expired badge computed from the end", async () => {
+    const active = { ...storedRecord, end: new Date(Date.now() + 86_400_000).toISOString() };
+    const expired = { ...storedRecord, id: EXPIRED_ID as UuidV7, end: new Date(Date.now() - 1000).toISOString() };
+    renderPage({ role: "Buyer", records: Promise.resolve(ok([active, expired])) });
+    expect(await screen.findByText("Stored acceptances")).toBeTruthy();
+    expect(await screen.findByText("Active")).toBeTruthy();
+    expect(screen.getByText("Expired")).toBeTruthy();
   });
 
   it("shows the plan refusal on a Community tenant's cold load, naming Team (first sale), with no outage copy", async () => {
@@ -329,6 +341,34 @@ describe("the paste area", () => {
       "That line is not a Gate Deviation line. Nothing is filled; enter the match key by hand.",
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("puts the paste area first and shows the parsed match key", async () => {
+    renderPage({ role: "Buyer" });
+    await applicationLoaded();
+    const paste = screen.getByLabelText("CI Gate deviation log line");
+    // The paste area precedes the manual match-key fields.
+    expect(paste.compareDocumentPosition(standardField()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.change(paste, {
+      target: { value: `${STANDARD} code-stack/library/react lodash: Use the approved library instead.` },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use this line" }));
+    // The parsed preview chips carry the match key.
+    expect(screen.getByText(STANDARD)).toBeTruthy();
+    expect(screen.getByText("code-stack/library/react")).toBeTruthy();
+    expect(screen.getByText("lodash")).toBeTruthy();
+    expect(standardField().value).toBe(STANDARD);
+    expect(slotField().value).toBe("code-stack/library/react");
+    expect(subjectField().value).toBe("lodash");
+  });
+});
+
+describe("acceptanceStatus", () => {
+  it("is active before the exclusive end and expired at or after it", () => {
+    const record = { ...storedRecord, end: "2026-11-01T00:00:00.000Z" };
+    expect(acceptanceStatus(record, Date.parse("2026-10-31T23:59:59.999Z"))).toBe("active");
+    expect(acceptanceStatus(record, Date.parse("2026-11-01T00:00:00.000Z"))).toBe("expired");
+    expect(acceptanceStatus(record, Date.parse("2026-11-02T00:00:00.000Z"))).toBe("expired");
   });
 });
 

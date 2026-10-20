@@ -1,5 +1,5 @@
-import { Suspense } from "react";
-import { Await, data, redirect, useActionData, useLoaderData } from "react-router";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { Await, data, redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   BOILERPLATE_CONFLICT,
@@ -10,7 +10,7 @@ import {
   SESSION_INVALID,
   UNSUPPORTED_ECOSYSTEM,
 } from "@domain-harness/contract";
-import type { ErrorEnvelope, GuidanceEndpointState, ProjectTree } from "@domain-harness/contract";
+import type { ErrorEnvelope, GuidanceEndpointState, ProjectTree, Role } from "@domain-harness/contract";
 import {
   BoilerplateForm,
   BoilerplateResultSection,
@@ -24,7 +24,13 @@ import {
   RegistrationResultSection,
 } from "../components/new-application.tsx";
 import type { NewApplicationActionData, NewApplicationField } from "../components/new-application.tsx";
+import { Badge } from "../components/badge.tsx";
+import { Banner } from "../components/banner.tsx";
+import { EmptyState } from "../components/empty-state.tsx";
+import { PageHeader } from "../components/page-header.tsx";
+import { SectionCard } from "../components/section-card.tsx";
 import { Status } from "../components/status.tsx";
+import { Tabs } from "../components/tabs.tsx";
 import {
   createApplication,
   generateBoilerplate,
@@ -236,96 +242,203 @@ async function boilerplateAction(token: string, applicationId: string, target: s
   }
 }
 
-/** The New-application flow surface: the heading, the status region and the forms. */
+export type NewApplicationStep = "place" | "boilerplate" | "result";
+
+/** The rail describes progress from action data without gating access to a tab. */
+export function newApplicationStep(actionData: NewApplicationActionData | undefined): NewApplicationStep {
+  if (actionData?.boilerplate !== undefined) return "result";
+  if (actionData?.placedId !== undefined) return "boilerplate";
+  return "place";
+}
+
+type NewApplicationTab = "place" | "generate" | "register";
+
+const APPLICATION_TABS = [
+  { id: "place", label: "Place an application", panelId: "place-panel" },
+  { id: "generate", label: "Generate Boilerplate", panelId: "generate-panel" },
+  { id: "register", label: "Register existing", panelId: "register-panel" },
+] as const;
+
+const flowDescription = (role: Role) =>
+  role === "Buyer"
+    ? "Buyers can place an Application, register existing Applications, and manage the Company Guidance endpoint."
+    : "Builders place an Application on a Project where they have a build grant. Ask the Buyer to register existing Applications or manage the Company Guidance endpoint.";
+
+/** The New-application flow surface: its explanatory rail, tabs and role-aware forms. */
 export default function NewApplicationPage() {
   const { tree, endpoint } = useLoaderData<NewApplicationLoaderData>();
   const actionData = useActionData<NewApplicationActionData>();
+  const panelLayout = useRouteLoaderData<{ readonly role?: Role }>("routes/panel-layout");
+  const role = panelLayout?.role ?? "Builder";
+  const [activeTab, setActiveTab] = useState<NewApplicationTab>("place");
+  const focusGenerateAfterPlacement = useRef(false);
+  useEffect(() => {
+    if (actionData?.intent === "register") {
+      setActiveTab("register");
+    } else if (actionData?.intent === "place" && actionData.placedId !== undefined) {
+      focusGenerateAfterPlacement.current = true;
+      setActiveTab("generate");
+    } else if (actionData?.placedId !== undefined) {
+      setActiveTab("generate");
+    } else if (actionData?.intent === "place") {
+      setActiveTab("place");
+    }
+  }, [actionData]);
+  useEffect(() => {
+    if (activeTab !== "generate" || !focusGenerateAfterPlacement.current) return;
+    focusGenerateAfterPlacement.current = false;
+    document.getElementById("tab-generate")?.focus();
+  }, [activeTab]);
   // A success remounts the form empty; a refusal keeps the submitted values.
   const formKey = actionData?.placedId ?? "form";
   const submitted = actionData?.intent === "place" && actionData.placedId === undefined ? actionData : undefined;
-  const unavailable = <ProjectField projects={[]} note={NEW_APPLICATION_COPY.unavailable} submitted={submitted} />;
+  const unavailable = (
+    <>
+      <Banner tone="denial">{NEW_APPLICATION_COPY.unavailable}</Banner>
+      <ProjectField projects={[]} submitted={submitted} />
+    </>
+  );
   // The register form: cleared after a successful registration (the file's
   // content is unique, it embeds the minted id), values kept on a refusal.
   const registerSubmitted =
     actionData?.intent === "register" && actionData.registration === undefined ? actionData : undefined;
   const registerKey = actionData?.registration?.content ?? "register-form";
   const registerUnavailable = (
-    <ProjectField
-      projects={[]}
-      note={NEW_APPLICATION_COPY.unavailable}
-      submitted={registerSubmitted}
-      idPrefix={REGISTER_FIELD_PREFIX}
-    />
+    <>
+      <Banner tone="denial">{NEW_APPLICATION_COPY.unavailable}</Banner>
+      <ProjectField projects={[]} submitted={registerSubmitted} idPrefix={REGISTER_FIELD_PREFIX} />
+    </>
   );
   const endpointSubmitted = actionData?.endpoint;
   const endpointCopy = NEW_APPLICATION_COPY.endpoint;
   const endpointUnavailable = (
-    <GuidanceEndpointField state={undefined} note={endpointCopy.unavailable} submitted={endpointSubmitted} />
-  );
-  return (
     <>
-      <h1 className="type-title">{NEW_APPLICATION_COPY.heading}</h1>
-      <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
-      <NewApplicationForm key={formKey} submitted={submitted}>
-        <Suspense fallback={<ProjectField projects={[]} busy note={NEW_APPLICATION_COPY.loading} submitted={submitted} />}>
-          <Await resolve={tree} errorElement={unavailable}>
-            {(result: RegistryResult<ProjectTree>) =>
-              result.kind === "ok" ? (
-                <ProjectField projects={result.value.projects} submitted={submitted} />
-              ) : (
-                unavailable
-              )
-            }
-          </Await>
-        </Suspense>
-      </NewApplicationForm>
-      <RegisterApplicationForm key={registerKey} submitted={registerSubmitted}>
-        <Suspense
-          fallback={
-            <ProjectField
-              projects={[]}
-              busy
-              note={NEW_APPLICATION_COPY.loading}
-              submitted={registerSubmitted}
-              idPrefix={REGISTER_FIELD_PREFIX}
-            />
-          }
-        >
-          <Await resolve={tree} errorElement={registerUnavailable}>
-            {(result: RegistryResult<ProjectTree>) =>
-              result.kind === "ok" ? (
-                <ProjectField
-                  projects={result.value.projects}
-                  submitted={registerSubmitted}
-                  idPrefix={REGISTER_FIELD_PREFIX}
-                />
-              ) : (
-                registerUnavailable
-              )
-            }
-          </Await>
-        </Suspense>
-      </RegisterApplicationForm>
-      {actionData?.registration === undefined ? null : <RegistrationResultSection rendering={actionData.registration} />}
-      {actionData?.placedId === undefined ? null : <BoilerplateForm applicationId={actionData.placedId} />}
-      {actionData?.boilerplate === undefined ? null : <BoilerplateResultSection result={actionData.boilerplate} />}
-      <GuidanceEndpointForm placedId={actionData?.placedId}>
-        <Suspense
-          fallback={
-            <GuidanceEndpointField state={undefined} busy note={endpointCopy.loading} submitted={endpointSubmitted} />
-          }
-        >
-          <Await resolve={endpoint} errorElement={endpointUnavailable}>
-            {(result: RegistryResult<GuidanceEndpointState>) =>
-              result.kind === "ok" ? (
-                <GuidanceEndpointField state={result.value} submitted={endpointSubmitted} />
-              ) : (
-                endpointUnavailable
-              )
-            }
-          </Await>
-        </Suspense>
-      </GuidanceEndpointForm>
+      <Banner tone="denial">{endpointCopy.unavailable}</Banner>
+      <GuidanceEndpointField state={undefined} submitted={endpointSubmitted} />
     </>
+  );
+  const currentStep = newApplicationStep(actionData);
+  return (
+    <div className="new-application-flow">
+      <PageHeader title={NEW_APPLICATION_COPY.heading} description={flowDescription(role)} />
+      <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
+      <ol className="flow-rail" aria-label="Application flow progress">
+        {(["place", "boilerplate", "result"] as const).map((step, index) => (
+          <li className="flow-step" key={step} aria-current={currentStep === step ? "step" : undefined}>
+            <span className="flow-step__number" aria-hidden="true">{index + 1}</span>
+            <span>
+              {step === "place" ? "Place" : step === "boilerplate" ? "Generate" : "Result"}
+            </span>
+          </li>
+        ))}
+      </ol>
+      <Tabs
+        label="Application options"
+        tabs={APPLICATION_TABS}
+        value={activeTab}
+        onChange={(id) => {
+          setActiveTab(id as NewApplicationTab);
+        }}
+      />
+      <section
+        id="place-panel"
+        className="new-application__panel"
+        role="tabpanel"
+        aria-labelledby="tab-place"
+        tabIndex={0}
+        hidden={activeTab !== "place"}
+      >
+        <NewApplicationForm key={formKey} submitted={submitted}>
+          <Suspense fallback={<ProjectField projects={[]} busy note={NEW_APPLICATION_COPY.loading} submitted={submitted} />}>
+            <Await resolve={tree} errorElement={unavailable}>
+              {(result: RegistryResult<ProjectTree>) =>
+                result.kind === "ok" ? (
+                  <ProjectField projects={result.value.projects} submitted={submitted} />
+                ) : (
+                  unavailable
+                )
+              }
+            </Await>
+          </Suspense>
+        </NewApplicationForm>
+      </section>
+      <section
+        id="generate-panel"
+        className="new-application__panel"
+        role="tabpanel"
+        aria-labelledby="tab-generate"
+        tabIndex={0}
+        hidden={activeTab !== "generate"}
+      >
+        {actionData?.placedId === undefined ? (
+          <EmptyState
+            icon="application"
+            title="Place an Application first"
+            description="Place an Application on a Project to generate its Boilerplate."
+          />
+        ) : (
+          <>
+            <BoilerplateForm applicationId={actionData.placedId} />
+            {actionData.boilerplate === undefined ? null : <BoilerplateResultSection result={actionData.boilerplate} />}
+          </>
+        )}
+      </section>
+      <section
+        id="register-panel"
+        className="new-application__panel"
+        role="tabpanel"
+        aria-labelledby="tab-register"
+        tabIndex={0}
+        hidden={activeTab !== "register"}
+      >
+        <RegisterApplicationForm key={registerKey} submitted={registerSubmitted}>
+          <Suspense
+            fallback={
+              <ProjectField
+                projects={[]}
+                busy
+                note={NEW_APPLICATION_COPY.loading}
+                submitted={registerSubmitted}
+                idPrefix={REGISTER_FIELD_PREFIX}
+              />
+            }
+          >
+            <Await resolve={tree} errorElement={registerUnavailable}>
+              {(result: RegistryResult<ProjectTree>) =>
+                result.kind === "ok" ? (
+                  <ProjectField
+                    projects={result.value.projects}
+                    submitted={registerSubmitted}
+                    idPrefix={REGISTER_FIELD_PREFIX}
+                  />
+                ) : (
+                  registerUnavailable
+                )
+              }
+            </Await>
+          </Suspense>
+        </RegisterApplicationForm>
+        {actionData?.registration === undefined ? null : <RegistrationResultSection rendering={actionData.registration} />}
+      </section>
+      <SectionCard title="Company setup" action={<Badge tone="outline">Buyer</Badge>}>
+        <GuidanceEndpointForm placedId={actionData?.placedId}>
+          <Suspense
+            fallback={
+              <GuidanceEndpointField state={undefined} busy note={endpointCopy.loading} submitted={endpointSubmitted} />
+            }
+          >
+            <Await resolve={endpoint} errorElement={endpointUnavailable}>
+              {(result: RegistryResult<GuidanceEndpointState>) =>
+                result.kind === "ok" ? (
+                  <GuidanceEndpointField state={result.value} submitted={endpointSubmitted} />
+                ) : (
+                  endpointUnavailable
+                )
+              }
+            </Await>
+          </Suspense>
+        </GuidanceEndpointForm>
+      </SectionCard>
+    </div>
   );
 }
