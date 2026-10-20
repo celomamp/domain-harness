@@ -103,7 +103,7 @@ describe("cli bundle verify", () => {
     const first = run(["bundle", "verify", "--bundle", bundlePath, "--trust-keys", trustPath, "--tenant", TENANT, "--state", statePath, "--now", FRESH_NOW]);
     expect(first.exitCode).toBe(0);
     const before = readFileSync(statePath, "utf8");
-    const tampered = { ...signed, signature: `B${signed.signature.slice(1)}` };
+    const tampered = { ...signed, signature: `${signed.signature.startsWith("B") ? "C" : "B"}${signed.signature.slice(1)}` };
     writeFileSync(bundlePath, JSON.stringify(tampered));
     const result = run(["bundle", "verify", "--bundle", bundlePath, "--trust-keys", trustPath, "--tenant", TENANT, "--state", statePath, "--now", FRESH_NOW]);
     expect(result.exitCode).toBe(1);

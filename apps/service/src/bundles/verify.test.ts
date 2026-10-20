@@ -120,7 +120,7 @@ describe("verifyPulledBundle", () => {
 
   it("refuses a tampered signature as signature_failed", () => {
     const signed = signPayload(makeBundlePayload({ keyId: signer.keyId, sequence: 1, issuedAt: ISSUED_NOW }), signer);
-    const flipped: SignedStandardBundle = { ...signed, signature: `B${signed.signature.slice(1)}` };
+    const flipped: SignedStandardBundle = { ...signed, signature: `${signed.signature.startsWith("B") ? "C" : "B"}${signed.signature.slice(1)}` };
     const outcome = verifyWith(flipped);
     expect(outcome).toMatchObject({ ok: false, reason: "signature_failed", sequence: 1 });
   });

@@ -412,7 +412,7 @@ describe("domain-harness gate command", () => {
     expect(before.exitCode).toBe(0);
     const stateBefore = readFileSync(art.statePath, "utf8");
 
-    const tampered: SignedStandardBundle = { ...good, signature: `B${good.signature.slice(1)}` };
+    const tampered: SignedStandardBundle = { ...good, signature: `${good.signature.startsWith("B") ? "C" : "B"}${good.signature.slice(1)}` };
     writeFileSync(art.bundlePath, JSON.stringify(tampered));
     const tamperedResult = await runGateCommand(
       gateArgv({ bundlePath: art.bundlePath, trustPath: art.trustPath, root: repoDir, bindingPath: art.bindingPath, statePath: art.statePath, now: NOW }),

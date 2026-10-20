@@ -257,7 +257,7 @@ describe("bundle-file loader", () => {
     const signer = makeKey("key-1");
     const dir = scratch();
     const signed = signPayload(makePayload({ keyId: signer.keyId, sequence: 1, issuedAt: FRESH_ISSUED }), signer);
-    const broken: SignedStandardBundle = { ...signed, signature: `B${signed.signature.slice(1)}` };
+    const broken: SignedStandardBundle = { ...signed, signature: `${signed.signature.startsWith("B") ? "C" : "B"}${signed.signature.slice(1)}` };
     const { bundlePath, trustPath, statePath } = writeInputs(dir, broken, { [signer.keyId]: signer.publicPem });
     const outcome = loadBundleFile({ bundlePath, trustKeysPath: trustPath, tenantId: TENANT, statePath, now: FRESH_NOW });
     expect(outcome.ok).toBe(false);
