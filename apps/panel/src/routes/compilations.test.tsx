@@ -438,7 +438,7 @@ describe("/compilations bundle status (Story 6.4)", () => {
     expect((await screen.findAllByText("Schema version 1.0.0.")).length).toBe(6);
   });
 
-  it("shows a non-live compilation-drop banner on Overview when drops are above zero", async () => {
+  it("announces Overview drops in the existing status region and keeps the banner non-live", async () => {
     renderCompilations(
       Promise.resolve({ kind: "unavailable" }),
       Promise.resolve({ kind: "ok", value: [] }),
@@ -455,10 +455,12 @@ describe("/compilations bundle status (Story 6.4)", () => {
         ],
       }),
     );
-    expect(await screen.findByRole("status")).toBeTruthy();
-    expect(await screen.findByText("Compilation drops reported: 1. See Drops for details.")).toBeTruthy();
+    const status = await screen.findByRole("status");
+    const message = "Compilation drops reported: 1. See Drops for details.";
+    expect(await within(status).findByText(message)).toBeTruthy();
     expect(screen.getAllByRole("status")).toHaveLength(1);
     const banner = document.querySelector(".drop-banner");
+    expect(banner?.textContent).toBe(message);
     expect(banner?.getAttribute("role")).toBeNull();
   });
 

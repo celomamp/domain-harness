@@ -160,6 +160,21 @@ export default function Compilations() {
   const { readState, bundleStatus, collectorHealth } = useLoaderData<CompilationsLoaderData>();
   const actionData = useActionData<CompilationsActionData>();
   const [activeTab, setActiveTab] = useState<"overview" | "schemas" | "drops">("overview");
+  const [dropStatusMessage, setDropStatusMessage] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let current = true;
+    void collectorHealth.then(
+      (result) => {
+        if (!current) return;
+        const drops = result.kind === "ok" ? compilationsSummary([], result.value).drops : 0;
+        setDropStatusMessage(drops > 0 ? COMPILATIONS_COPY.drops.banner(drops) : undefined);
+      },
+      () => { if (current) setDropStatusMessage(undefined); },
+    );
+    return () => { current = false; };
+  }, [collectorHealth]);
+
   const tabs = [
     { id: "overview", label: "Overview", panelId: "overview-panel" },
     { id: "schemas", label: "Schemas", panelId: "schemas-panel" },
@@ -168,7 +183,10 @@ export default function Compilations() {
   return (
     <>
       <PageHeader title={COMPILATIONS_COPY.heading} />
-      <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
+      <Status
+        tone={actionData?.status?.tone ?? "notice"}
+        message={actionData?.status?.message ?? dropStatusMessage}
+      />
       <CompilationsSummarySection bundles={bundleStatus} health={collectorHealth} />
       <Tabs
         label="Compilations views"
