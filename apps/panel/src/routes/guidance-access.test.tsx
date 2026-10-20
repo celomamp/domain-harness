@@ -145,21 +145,52 @@ describe("Guidance access", () => {
     expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 
-  it("preserves pending grant edits when minting a token", async () => {
+  it("preserves edits made after a successful save when minting a token", async () => {
     const token = { token: "key.body.sig", role: "Standard owner", expiresAt: "2026-10-16T12:05:00.000Z" };
-    registryAnswers([201, token]);
-    const minted = (await action(actionArgs([["intent", "mint"]]))) as unknown as DataResult;
-    renderAccess(Promise.resolve({ kind: "ok", value: state }), undefined, minted.data);
+    const savedState = {
+      ...state,
+      grantedRoles: ["Standard owner", "Builder"],
+      retentionDays: 45,
+      updatedAt: "2026-10-19T12:00:00.000Z",
+    };
+    const fetch = registryAnswers([200, savedState], [201, token]);
+    let currentState = state;
+    const Stub = createRoutesStub([
+      {
+        path: "/guidance-access",
+        Component: GuidanceAccess,
+        loader: () => ({ access: Promise.resolve({ kind: "ok", value: currentState }) }),
+        action: async ({ request }) => {
+          const form = await request.formData();
+          const pairs: [string, string][] = [];
+          for (const [name, value] of form.entries()) {
+            if (typeof value === "string") pairs.push([name, value]);
+          }
+          const result = (await action(actionArgs(pairs))) as unknown as DataResult;
+          if (result.data.intent === "save" && result.data.savedAt !== undefined) currentState = savedState;
+          return result.data;
+        },
+      },
+    ]);
+    render(<Stub initialEntries={["/guidance-access"]} />);
 
     fireEvent.click(await screen.findByLabelText("Builder"));
     fireEvent.change(screen.getByLabelText("Keep Guidance events for (days)"), { target: { value: "45" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Guidance access" }));
+    expect(await screen.findByText(GUIDANCE_ACCESS_COPY.grant.saved)).toBeTruthy();
+    expect(await screen.findByText("Currently keeping Guidance events for 45 days.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save Guidance access" })).toBeNull();
+
+    fireEvent.click(screen.getByLabelText("Builder"));
+    fireEvent.change(screen.getByLabelText("Keep Guidance events for (days)"), { target: { value: "60" } });
     expect(screen.getByRole("button", { name: "Save Guidance access" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Mint a read token for my role" }));
 
     expect(await screen.findByText("Use this token inside the Company network")).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "Builder" })).toHaveProperty("checked", true);
-    expect(screen.getByLabelText("Keep Guidance events for (days)")).toHaveProperty("value", "45");
+    expect(screen.getByRole("checkbox", { name: "Builder" })).toHaveProperty("checked", false);
+    expect(screen.getByLabelText("Keep Guidance events for (days)")).toHaveProperty("value", "60");
     expect(screen.getByRole("button", { name: "Save Guidance access" })).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("announces invalid retention in Status and keeps the field association", async () => {

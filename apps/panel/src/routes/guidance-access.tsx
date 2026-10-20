@@ -1,4 +1,4 @@
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Await, data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { GRANTABLE_ROLES, ROLE_DENIED, SESSION_INVALID } from "@domain-harness/contract";
@@ -193,6 +193,12 @@ function refusal(
 export default function GuidanceAccess() {
   const { access } = useLoaderData<GuidanceAccessLoaderData>();
   const actionData = useActionData<GuidanceAccessActionData>();
+  const [grantFormKey, setGrantFormKey] = useState("form");
+  useEffect(() => {
+    if (actionData?.intent === "save" && actionData.savedAt !== undefined) {
+      setGrantFormKey(actionData.savedAt);
+    }
+  }, [actionData]);
   return (
     <>
       <PageHeader
@@ -203,7 +209,7 @@ export default function GuidanceAccess() {
       <Status tone={actionData?.status?.tone ?? "notice"} message={actionData?.status?.message} />
       <AccessState
         access={access}
-        grantFormKey={actionData?.savedAt ?? "form"}
+        grantFormKey={grantFormKey}
         mintFormKey={actionData?.mintedAt ?? "form"}
         actionData={actionData}
       />
