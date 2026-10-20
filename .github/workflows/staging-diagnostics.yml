@@ -50,6 +50,7 @@ jobs:
           curl -s -w "\nstatus %{http_code}\n" "$PANEL/sign-in.data" | head -c 2000; echo
           echo "=== POST /sign-in.data (the action, as the browser submits it)"
           curl -s -D - -o body.txt -X POST "$PANEL/sign-in.data?index" \
+            -H "Origin: $PANEL" \
             -H "Content-Type: application/x-www-form-urlencoded" \
             --data-urlencode "email=$EMAIL" | grep -iv '^set-cookie' || true
           head -c 3000 body.txt; echo
