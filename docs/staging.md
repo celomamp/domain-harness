@@ -38,6 +38,24 @@ guidance server delivers every recorded Guidance event to the registry
 through the Collector outbox (flushed every 30 s, `collector_flush` in the
 logs); the Buyer must have recorded reading the Compilation catalog first.
 
+**Hosted Gate runs (pilot mode):** the same token gates `POST /v1/gate-runs`
+on the guidance app. A Builder runs `domain-harness gate --endpoint
+https://dh-guidance-staging.fly.dev/mcp` (locally or as a CI step) with only
+`DH_GUIDANCE_TOKEN` set: the CLI extracts the revision's facts and sends them
+with the revision SHA and the bridge's identity headers; the server resolves
+the identity (Story 4.3, shared bindings), evaluates against its pinned
+active bundle with `runGate`, records the run in `gate_runs`, enqueues it to
+the Collector, and answers the Gate's sentence and Deviation lines. The run
+reaches the Application page as its latest Gate run within one flush (≤ 30 s),
+and Deviations are accepted from that row. Logs carry `gate_run` with the
+Application id, kind and counts only. What leaves the Builder's machine: the
+SHA, the Application id, the advisory Project id, the repository fingerprint
+and the facts — dependency names and versions, import specifiers,
+design-token names — never file contents or paths (an unreadable file
+refuses locally). This is a pilot-only exception to "code and prompts never
+leave the Company", accepted on 2026-10-21 because option A already hosts
+the Company side; a Company-hosted service keeps the facts in-network.
+
 Every app sets `auto_stop_machines = false, min_machines_running = 1` (the
 daemon has no services block to carry them — keep exactly one Machine running
 via `fly scale count 1`). Healthchecks are TCP only; no `/healthz` exists.
@@ -234,7 +252,8 @@ it never crashes on a failed pull.
 
 The bridge and the CLI are not on npm yet. `sh tooling/release/pack-pilot.sh
 <out-dir>` packs both as self-contained tarballs, attached to a GitHub Release
-(`pilot-0.2`, prerelease). The registry's `REGISTRY_MCP_BRIDGE_PACKAGE`
+(latest `pilot-0.3`, prerelease: it adds `gate --endpoint` to the CLI; the
+bridge is unchanged, so `REGISTRY_MCP_BRIDGE_PACKAGE` still names `pilot-0.2`). The registry's `REGISTRY_MCP_BRIDGE_PACKAGE`
 (`fly.registry-staging.toml`) makes every generated Boilerplate run
 `npx -y <release>/mcp-bridge.tgz <endpoint>`; the CLI installs with
 `npm install -g <release>/cli.tgz`. A new pilot build is a new release tag

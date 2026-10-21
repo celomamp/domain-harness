@@ -17,6 +17,11 @@
  * wire bundle through `core` exactly as the service does, and evaluates via
  * the shared `runGateDirect` adapter; its usage defects fail closed with
  * `run did not complete`.
+ *
+ * The one networked path is the hosted Gate (`domain-harness gate
+ * --endpoint <url>`, see `gate-remote.ts`): it sends the revision's facts to
+ * the Guidance server, which evaluates and records the run. Every other
+ * command stays offline.
  */
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -24,6 +29,7 @@ import { isAbsolute, join } from "node:path";
 import { BUNDLE_VERIFICATION_FAILED, RUN_DID_NOT_COMPLETE } from "@domain-harness/gate";
 import { loadBundleFile } from "./bundle-file.ts";
 import { runGateCommand } from "./gate.ts";
+import { isRemoteGateArgs, runRemoteGateCommand } from "./gate-remote.ts";
 import { formatHelpLine, formatVersionLine, isHelpArgs, isVersionArgs } from "./version.ts";
 
 export interface VerifyCommandOptions {
@@ -183,14 +189,16 @@ const ENTRY_FILE = /(^|[/\\])cli\.(js|ts)$/;
 export interface CliDispatchResult {
   readonly exitCode: number;
   readonly lines: readonly string[];
+  /** Lines for stderr (the hosted Gate's transport diagnostics); absent for every other command. */
+  readonly diagnostics?: readonly string[];
 }
 
 /**
  * Dispatch argv words to the version/help screens or the verify/gate
  * commands. Exact `--version`/`--help` answer exit 0 with no side effects;
  * the verify path is untouched (sync, one line); `gate ...` runs the offline
- * Gate and returns its sentence plus one line per open Deviation. Never
- * throws.
+ * Gate — or, with `--endpoint`, the hosted Gate — and returns its sentence
+ * plus one line per open Deviation. Never throws.
  */
 export async function runCli(argv: readonly string[]): Promise<CliDispatchResult> {
   try {
@@ -199,6 +207,10 @@ export async function runCli(argv: readonly string[]): Promise<CliDispatchResult
     }
     if (isHelpArgs(argv)) {
       return { exitCode: 0, lines: [formatHelpLine()] };
+    }
+    if (isRemoteGateArgs(argv)) {
+      const gate = await runRemoteGateCommand(argv);
+      return { exitCode: gate.exitCode, lines: [...gate.lines], ...(gate.diagnostics === undefined ? {} : { diagnostics: [...gate.diagnostics] }) };
     }
     if (argv.length >= 1 && argv[0] === "gate") {
       const gate = await runGateCommand(argv);
@@ -229,6 +241,7 @@ function main(): void {
     (result) => {
       try {
         for (const line of result.lines) process.stdout.write(`${line}\n`);
+        for (const line of result.diagnostics ?? []) process.stderr.write(`${line}\n`);
       } catch {
         // Ignore stdout failures on the way out.
       }

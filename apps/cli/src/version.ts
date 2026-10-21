@@ -49,7 +49,7 @@ export function formatVersionLine(): string {
 /** One usage line naming the CLI surface. Never throws. */
 export function formatHelpLine(): string {
   try {
-    return "domain-harness bundle verify --bundle <path> --trust-keys <path> --tenant <id> | domain-harness gate --bundle <path> --trust-keys <path> --tenant <id> | domain-harness --version";
+    return "domain-harness bundle verify --bundle <path> --trust-keys <path> --tenant <id> | domain-harness gate --bundle <path> --trust-keys <path> --tenant <id> | domain-harness gate --endpoint <url> | domain-harness --version";
   } catch {
     return "domain-harness";
   }

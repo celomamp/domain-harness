@@ -16,7 +16,10 @@
 // Inside the Company network it runs without authentication (the container
 // publishes no other inbound port); when the endpoint is exposed beyond it,
 // SERVICE_GUIDANCE_ACCESS_TOKEN makes every MCP request present that Bearer
-// token. The same service serves the
+// token. The same Bearer gate guards the hosted Gate run (`POST /v1/gate-runs`):
+// a Builder's CLI sends a revision's facts, the server evaluates them against
+// the pinned active bundle, records the run and enqueues it to the Collector.
+// The same service serves the
 // credentialed, read-only Company Read API (`GET /v1/standards` and
 // `GET /v1/projects/{id}/effective-standards`) from the pinned active bundle
 // through the shared derivation Guidance uses, and the token-gated
@@ -45,6 +48,9 @@ import { createPostgresGuidanceIdentityStore } from "./store.ts";
 import { createPostgresGuidanceEventStore } from "./events.ts";
 import { createGuidanceMcpHandler, GUIDANCE_MCP_PATH } from "./mcp.ts";
 import { mcpAccessDenied, mcpAccessGranted } from "./mcp-access.ts";
+import { handleGateRun, isGateRunPath } from "./gate-run.ts";
+import type { HostedGateRunDeps } from "./gate-run.ts";
+import { createPostgresGateRecordStore } from "../ci-gate/store.ts";
 import type { PinnedActiveBundle } from "./identity.ts";
 import { handleReadRequest, readRouteOf } from "../read/server.ts";
 import { handleGuidanceEventRead, isGuidanceEventReadPath } from "./events-read.ts";
@@ -140,7 +146,8 @@ export function createCollector(config: GuidanceServiceConfig, pool: Pool, log: 
 
 /**
  * The guidance HTTP server for a started record store: the bundle and
- * guidance identity stores over one pool, the MCP handler at `/mcp`, the
+ * guidance identity stores over one pool, the MCP handler at `/mcp` and the
+ * hosted Gate run at `/v1/gate-runs` (both behind the access token), the
  * credentialed Read API at its two GET routes, the token-gated Guidance-event
  * read at its GET route, and id-and-code logging.
  * Every request answers exactly one response; a request that is neither the
@@ -169,6 +176,17 @@ export function createGuidanceHttpServer(
     getBundledState: (now) => bundledState(bundleStore, config.tenantId, now),
     collector: collector ?? undefined,
   });
+  const gateRunDeps: HostedGateRunDeps = {
+    tenantId: config.tenantId,
+    identityStore,
+    gateStore: createPostgresGateRecordStore(pool),
+    getPinnedBundle: (tenantId) => pinnedActiveBundle(bundleStore, tenantId),
+    collector: collector ?? undefined,
+    // Ids, the outcome kind and counts only — never a fact name (NFR-9).
+    onRun: ({ applicationId, kind, checked, open }) => {
+      log({ event: "gate_run", applicationId, kind, checked, open });
+    },
+  };
 
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     const started = performance.now();
@@ -178,7 +196,11 @@ export function createGuidanceHttpServer(
         ? mcpAccessGranted(request, config.mcpAccessToken)
           ? handler(request, response)
           : unauthorized(response)
-        : handleReadRequest(
+        : isGateRunPath(path)
+          ? mcpAccessGranted(request, config.mcpAccessToken)
+            ? handleGateRun(gateRunDeps, request, response, path).then(() => undefined)
+            : unauthorized(response)
+          : handleReadRequest(
             {
               tenantId: config.tenantId,
               readCredential: config.readCredential,
@@ -215,7 +237,12 @@ export function createGuidanceHttpServer(
       log({
         event: "http_request",
         method: request.method ?? "",
-        route: path === GUIDANCE_MCP_PATH ? "guidance_mcp" : (readRouteOf(path) ?? eventRouteOf(path) ?? "unmatched"),
+        route:
+          path === GUIDANCE_MCP_PATH
+            ? "guidance_mcp"
+            : isGateRunPath(path)
+              ? "gate_run"
+              : (readRouteOf(path) ?? eventRouteOf(path) ?? "unmatched"),
         status: response.statusCode,
         ms: Math.round(performance.now() - started),
       });
@@ -283,7 +310,7 @@ function respondEnvelope(response: ServerResponse, status: number, envelope: Err
   response.end(body);
 }
 
-/** An MCP request without the configured access token answers 401 exactly once. */
+/** An MCP or Gate-run request without the configured access token answers 401 exactly once. */
 function unauthorized(response: ServerResponse): Promise<void> {
   response.setHeader("WWW-Authenticate", "Bearer");
   respondEnvelope(response, 401, mcpAccessDenied());
