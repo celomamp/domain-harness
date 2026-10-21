@@ -232,11 +232,23 @@ export interface ProjectTreeViewProps {
  */
 export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewProps) {
   const [focusedId, setFocusedId] = useState(selectedId);
+  // A new selection moves the roving focus to it during render, not in an
+  // effect: a passive effect still pending when the next key arrives would run
+  // after that key's update and send focus back to the selected node.
+  const [focusSyncedTo, setFocusSyncedTo] = useState(selectedId);
+  if (focusSyncedTo !== selectedId) {
+    setFocusSyncedTo(selectedId);
+    setFocusedId(selectedId);
+  }
+
   // Only what the person collapsed is remembered: every other branch is open,
   // so a Project created under a leaf shows at once under its new parent.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const nodes = useRef(new Map<string, HTMLLIElement>());
-  const moved = useRef(false);
+  // The node a key asked focus to move to, until it is focused. An id, not a
+  // flag: an effect still pending from an earlier commit (the router commits
+  // outside a key's update) must not take the move for its own node.
+  const moveTo = useRef<string | null>(null);
 
   const childrenMap = new Map<string, ProjectInfo[]>();
   for (const project of tree.projects) {
@@ -260,12 +272,8 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
   const focused = order.includes(focusedId) ? focusedId : order.includes(selectedId) ? selectedId : (order[0] ?? selectedId);
 
   useEffect(() => {
-    setFocusedId(selectedId);
-  }, [selectedId]);
-
-  useEffect(() => {
-    if (!moved.current) return;
-    moved.current = false;
+    if (moveTo.current !== focused) return;
+    moveTo.current = null;
     nodes.current.get(focused)?.focus();
   }, [focused]);
 
@@ -327,10 +335,10 @@ export function ProjectTreeView({ tree, selectedId, onSelect }: ProjectTreeViewP
     }
     event.preventDefault();
     if (next === undefined) return;
-    moved.current = true;
     setFocusedId(next);
     // Focus at once when the id does not change (the first or last node).
     if (next === id) nodes.current.get(next)?.focus();
+    else moveTo.current = next;
   };
 
   const lockedCounts = new Map<string, number>();
