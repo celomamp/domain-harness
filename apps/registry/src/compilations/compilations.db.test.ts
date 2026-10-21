@@ -18,6 +18,7 @@ import {
 } from "@domain-harness/contract";
 import type { Compilation, InventoryEvidence, UuidV7 } from "@domain-harness/contract";
 import { createRegistryDb } from "../db/client.ts";
+import { endPool } from "../db/end-pool.ts";
 import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
 import { compilationCatalogReads, compilations } from "../db/schema.ts";
@@ -299,7 +300,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Compilation catalog 
 
   afterAll(async () => {
     await new Promise((resolve) => server.close(resolve));
-    await appPool.end();
+    await endPool(appPool);
     await owner.end();
     await admin.query(`drop database if exists ${database} with (force)`);
     await admin.end();

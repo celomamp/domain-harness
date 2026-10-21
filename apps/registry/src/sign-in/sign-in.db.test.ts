@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isSessionCreated } from "@domain-harness/contract";
 import type { UuidV7 } from "@domain-harness/contract";
 import { createRegistryDb } from "../db/client.ts";
+import { endPool } from "../db/end-pool.ts";
 import type { RegistryDb } from "../db/client.ts";
 import { migrate } from "../db/migrate.ts";
 import { assertRuntimeRoleSafe } from "../db/tenant-scope.ts";
@@ -139,7 +140,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
   }, 60_000);
 
   afterAll(async () => {
-    await appPool.end();
+    await endPool(appPool);
     await owner.end();
     await admin.query(`drop database if exists ${database} with (force)`);
     await admin.end();
@@ -347,7 +348,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("sign-in against Post
           message: expect.stringContaining("dh_sign_in_lookup") as string,
         });
       } finally {
-        await pool.end();
+        await endPool(pool);
       }
     });
 
