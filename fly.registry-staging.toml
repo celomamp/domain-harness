@@ -36,7 +36,7 @@ primary_region = "iad"
   # Pilot: generated Boilerplates install the stdio bridge from the GitHub
   # Release (tooling/release/pack-pilot.sh) while it is not on npm. Remove to
   # fall back to the npm package @domain-harness/mcp-bridge.
-  REGISTRY_MCP_BRIDGE_PACKAGE = "https://github.com/celomamp/domain-harness/releases/download/pilot-0.1/mcp-bridge.tgz"
+  REGISTRY_MCP_BRIDGE_PACKAGE = "https://github.com/celomamp/domain-harness/releases/download/pilot-0.2/mcp-bridge.tgz"
 
 [[services]]
   protocol = "tcp"

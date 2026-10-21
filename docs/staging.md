@@ -234,7 +234,7 @@ it never crashes on a failed pull.
 
 The bridge and the CLI are not on npm yet. `sh tooling/release/pack-pilot.sh
 <out-dir>` packs both as self-contained tarballs, attached to a GitHub Release
-(`pilot-0.1`, prerelease). The registry's `REGISTRY_MCP_BRIDGE_PACKAGE`
+(`pilot-0.2`, prerelease). The registry's `REGISTRY_MCP_BRIDGE_PACKAGE`
 (`fly.registry-staging.toml`) makes every generated Boilerplate run
 `npx -y <release>/mcp-bridge.tgz <endpoint>`; the CLI installs with
 `npm install -g <release>/cli.tgz`. A new pilot build is a new release tag
