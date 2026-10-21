@@ -11,6 +11,8 @@
 //                                   Company and serve POST /v1/demo-sessions (no emailed link)
 //   REGISTRY_DEMO_ACCOUNTS          optional secret, the demo addresses as
 //                                   "Buyer=a@x.io;Standard owner=b@x.io;Builder=c@x.io"
+//   REGISTRY_MCP_BRIDGE_PACKAGE     optional: what generated Boilerplates have npx install
+//                                   (an https release tarball URL); default the npm package
 // Logs carry ids, codes and counts only. Any start-up error prints one envelope
 // to stderr and exits 1.
 import { EnvelopeError } from "../errors.ts";
@@ -66,6 +68,28 @@ function panelUrl(): string {
   return raw.replace(/\/+$/, "");
 }
 
+const BRIDGE_ENV = "REGISTRY_MCP_BRIDGE_PACKAGE";
+
+/** The bridge every Boilerplate installs: unset means the npm package; set must be an https URL. */
+function bridgePackage(): string | undefined {
+  const raw = process.env[BRIDGE_ENV]?.trim();
+  if (raw === undefined || raw === "") return undefined;
+  let url: URL | undefined;
+  try {
+    url = new URL(raw);
+  } catch {
+    url = undefined;
+  }
+  if (url?.protocol !== "https:") {
+    throw new EnvelopeError({
+      code: "invalid_configuration",
+      message: `${BRIDGE_ENV} must be an https URL`,
+      subject: BRIDGE_ENV,
+    });
+  }
+  return raw;
+}
+
 function port(): number {
   const raw = process.env["REGISTRY_HTTP_PORT"];
   if (raw === undefined || raw.trim() === "") return 4100;
@@ -90,6 +114,7 @@ async function main(): Promise<void> {
   const mailer = createTransportFromEnv(process.env);
   const host = process.env["REGISTRY_HTTP_HOST"]?.trim() || "127.0.0.1";
   const listenPort = port();
+  const bridge = bridgePackage();
 
   const pool = createPool(connectionString);
   const db = createRegistryDb(pool);
@@ -141,7 +166,7 @@ async function main(): Promise<void> {
       guidanceEndpoint: createGuidanceEndpointService(db),
       acceptedDeviations: createAcceptedDeviationsService(db),
       acceptedDeviationAlerts,
-      boilerplate: createBoilerplateService(db),
+      boilerplate: createBoilerplateService(db, bridge === undefined ? {} : { bridgePackage: bridge }),
       bundles: createBundleService(db, signer),
       compilations: createCompilationsService(db),
       guidanceAccess: createGuidanceAccessService(db, signer),

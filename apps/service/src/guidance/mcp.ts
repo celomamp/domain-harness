@@ -32,6 +32,7 @@ import type { GuidanceIdentityHeaders, PinnedActiveBundle } from "./identity.ts"
 import type { GuidanceIdentityStore } from "./store.ts";
 import type { GuidanceEventStore } from "./events.ts";
 import type { BundledStateOutcome } from "../bundles/puller.ts";
+import type { CollectorSubmission } from "../collector/client.ts";
 
 /** The versioned path the Streamable HTTP endpoint serves. */
 export const GUIDANCE_MCP_PATH = "/mcp";
@@ -54,6 +55,8 @@ export interface GuidanceMcpDeps {
   readonly getBundledState: (now: string) => Promise<BundledStateOutcome>;
   /** The clock of a call; defaults to the system time. */
   readonly now?: () => string;
+  /** The Collector client every recorded event is enqueued to; absent, nothing is delivered. */
+  readonly collector?: CollectorSubmission | undefined;
 }
 
 /** A ready-to-mount Streamable HTTP request listener (the `/mcp` endpoint). */
@@ -167,6 +170,7 @@ async function toolCallResult(
     onRecordError: deps.onRecordError,
     getPinnedBundle: deps.getPinnedBundle,
     getBundledState: deps.getBundledState,
+    collector: deps.collector,
   });
   return { content: [{ type: "text", text: canonicalJson(result) }] };
 }

@@ -10,10 +10,13 @@
 //   SERVICE_ROLE_TOKEN_TRUST_KEYS keyId → Ed25519 PEM public key of the registry (role-token verification)
 //   SERVICE_GUIDANCE_PORT         optional inbound port; default 8080
 //
-// The server serves the four Guidance tools over Streamable HTTP at `/mcp`,
-// without authentication: it is reachable only inside the Company network
-// (the container publishes no other inbound port; authentication is a
-// deployment concern the network edge handles). The same service serves the
+//   SERVICE_GUIDANCE_ACCESS_TOKEN optional Bearer token `/mcp` requires when set (never logged)
+//
+// The server serves the four Guidance tools over Streamable HTTP at `/mcp`.
+// Inside the Company network it runs without authentication (the container
+// publishes no other inbound port); when the endpoint is exposed beyond it,
+// SERVICE_GUIDANCE_ACCESS_TOKEN makes every MCP request present that Bearer
+// token. The same service serves the
 // credentialed, read-only Company Read API (`GET /v1/standards` and
 // `GET /v1/projects/{id}/effective-standards`) from the pinned active bundle
 // through the shared derivation Guidance uses, and the token-gated
@@ -41,10 +44,13 @@ import type { GuidanceServiceConfig } from "./config.ts";
 import { createPostgresGuidanceIdentityStore } from "./store.ts";
 import { createPostgresGuidanceEventStore } from "./events.ts";
 import { createGuidanceMcpHandler, GUIDANCE_MCP_PATH } from "./mcp.ts";
+import { mcpAccessDenied, mcpAccessGranted } from "./mcp-access.ts";
 import type { PinnedActiveBundle } from "./identity.ts";
 import { handleReadRequest, readRouteOf } from "../read/server.ts";
 import { handleGuidanceEventRead, isGuidanceEventReadPath } from "./events-read.ts";
 import { fetchRetentionDays, RETENTION_SWEEP_INTERVAL_MS, sweepGuidanceEvents } from "./retention.ts";
+import { CollectorClient } from "../collector/client.ts";
+import { createPostgresCollectorOutbox } from "../collector/outbox.ts";
 import type { FetchRetentionResult } from "./retention.ts";
 
 const RECORD_DATABASE_URL = "SERVICE_RECORD_DATABASE_URL";
@@ -112,6 +118,26 @@ export interface RetentionSweep {
   readonly fetchRetentionDays: () => Promise<FetchRetentionResult>;
 }
 
+/** How often the Collector outbox is flushed to the vendor registry. */
+export const COLLECTOR_FLUSH_INTERVAL_MS = 30_000;
+
+/**
+ * The deployed Collector (Story 6.3): every recorded Guidance event is
+ * enqueued to the record store's outbox and a background flusher delivers it
+ * to the vendor registry with the tenant credential. Ids and counts only in
+ * the logs.
+ */
+export function createCollector(config: GuidanceServiceConfig, pool: Pool, log: Logger): CollectorClient {
+  return new CollectorClient({
+    outbox: createPostgresCollectorOutbox(pool),
+    tenantKey: config.registryCredential,
+    panelBaseUrl: config.registryUrl,
+    onError: ({ applicationId, stage }) => {
+      log({ event: "collector_error", stage, applicationId: applicationId ?? "" });
+    },
+  });
+}
+
 /**
  * The guidance HTTP server for a started record store: the bundle and
  * guidance identity stores over one pool, the MCP handler at `/mcp`, the
@@ -125,6 +151,7 @@ export function createGuidanceHttpServer(
   pool: Pool,
   log: Logger = stdoutLogger,
   sweep: RetentionSweep | null = null,
+  collector: CollectorClient | null = null,
 ): Server {
   const bundleStore = createPostgresBundleRecordStore(pool);
   const identityStore = createPostgresGuidanceIdentityStore(pool);
@@ -140,6 +167,7 @@ export function createGuidanceHttpServer(
     },
     getPinnedBundle: (tenantId) => pinnedActiveBundle(bundleStore, tenantId),
     getBundledState: (now) => bundledState(bundleStore, config.tenantId, now),
+    collector: collector ?? undefined,
   });
 
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
@@ -147,7 +175,9 @@ export function createGuidanceHttpServer(
     const path = endpointPath(request.url);
     const handled: Promise<void> =
       path === GUIDANCE_MCP_PATH
-        ? handler(request, response)
+        ? mcpAccessGranted(request, config.mcpAccessToken)
+          ? handler(request, response)
+          : unauthorized(response)
         : handleReadRequest(
             {
               tenantId: config.tenantId,
@@ -216,6 +246,21 @@ export function createGuidanceHttpServer(
     });
   }
 
+  if (collector !== null) {
+    // Delivery never runs on the request path: one pass per tick, failures
+    // stay queued for the next pass.
+    const flush = async (): Promise<void> => {
+      const report = await collector.flushNow(new Date().toISOString());
+      if (report.attempted > 0) log({ event: "collector_flush", ...report });
+    };
+    const timer = setInterval(() => {
+      void flush();
+    }, COLLECTOR_FLUSH_INTERVAL_MS);
+    server.on("close", () => {
+      clearInterval(timer);
+    });
+  }
+
   return server;
 }
 
@@ -236,6 +281,13 @@ function respondEnvelope(response: ServerResponse, status: number, envelope: Err
     "Cache-Control": "no-store",
   });
   response.end(body);
+}
+
+/** An MCP request without the configured access token answers 401 exactly once. */
+function unauthorized(response: ServerResponse): Promise<void> {
+  response.setHeader("WWW-Authenticate", "Bearer");
+  respondEnvelope(response, 401, mcpAccessDenied());
+  return Promise.resolve();
 }
 
 /** Every path but the MCP endpoint answers 404 exactly once. */
@@ -304,11 +356,17 @@ async function endQuietly(pool: Pool): Promise<void> {
 async function main(): Promise<void> {
   const config = guidanceServiceConfigFromEnv(process.env);
   const pool = await openRecordStore(config);
-  const server = createGuidanceHttpServer(config, pool, stdoutLogger, {
-    intervalMs: RETENTION_SWEEP_INTERVAL_MS,
-    fetchRetentionDays: () =>
-      fetchRetentionDays({ baseUrl: config.registryUrl, credential: config.registryCredential }),
-  });
+  const server = createGuidanceHttpServer(
+    config,
+    pool,
+    stdoutLogger,
+    {
+      intervalMs: RETENTION_SWEEP_INTERVAL_MS,
+      fetchRetentionDays: () =>
+        fetchRetentionDays({ baseUrl: config.registryUrl, credential: config.registryCredential }),
+    },
+    createCollector(config, pool, stdoutLogger),
+  );
 
   await new Promise<void>((resolve, reject) => {
     server.once("listening", () => {

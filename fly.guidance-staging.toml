@@ -1,16 +1,13 @@
 # Staging: Company Standards guidance server — Guidance MCP endpoint plus the
 # credentialed Read API (Fly app dh-guidance-staging).
-# Region iad (next to the Supabase staging project in us-east-1). Public: no
-# — the server is reachable only inside the Company network over Fly private
-# networking at http://dh-guidance-staging.internal:8080. The ports below exist
-# only because the platform schema requires at least one [[services.ports]]
-# entry wherever checks run: this app is NEVER allocated a public IP (see
-# docs/staging.md — `fly ips list` must stay empty), so nothing here is
-# reachable from the internet. Authentication at the edge, if ever needed, is
-# a deployment concern outside this app (see server-cli.ts header).
+# Region iad (next to the Supabase staging project in us-east-1). Pilot mode:
+# public at https://dh-guidance-staging.fly.dev/mcp, gated by the Bearer token
+# in SERVICE_GUIDANCE_ACCESS_TOKEN (never allocate public IPs without it); also
+# reachable over Fly private networking at http://dh-guidance-staging.internal:8080.
 # Secrets (fly secrets set, never committed): SERVICE_TENANT_ID,
 # SERVICE_TENANT_CREDENTIAL, SERVICE_RECORD_DATABASE_URL,
-# SERVICE_READ_CREDENTIAL, SERVICE_ROLE_TOKEN_TRUST_KEYS. See docs/staging.md.
+# SERVICE_READ_CREDENTIAL, SERVICE_ROLE_TOKEN_TRUST_KEYS,
+# SERVICE_GUIDANCE_ACCESS_TOKEN. See docs/staging.md.
 app = "dh-guidance-staging"
 primary_region = "iad"
 
@@ -28,9 +25,8 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 1
 
-  # Schema-required (see header): no public IP is ever allocated to this app,
-  # so these ports are unreachable from the internet; internal traffic uses
-  # the 6PN address (dh-guidance-staging.internal:8080) directly.
+  # The pilot's public endpoint (token-gated, see header); internal traffic
+  # uses the 6PN address (dh-guidance-staging.internal:8080) directly.
   [[services.ports]]
     port = 80
     handlers = ["http"]

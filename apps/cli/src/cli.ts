@@ -18,6 +18,7 @@
  * the shared `runGateDirect` adapter; its usage defects fail closed with
  * `run did not complete`.
  */
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { BUNDLE_VERIFICATION_FAILED, RUN_DID_NOT_COMPLETE } from "@domain-harness/gate";
@@ -168,11 +169,15 @@ export function run(argv: readonly string[]): CliRunResult {
 export function isCliEntryPoint(argv1: string | undefined): boolean {
   try {
     if (typeof argv1 !== "string" || argv1 === "") return false;
-    return /(^|[/\\])cli\.(js|ts)$/.test(argv1);
+    if (ENTRY_FILE.test(argv1)) return true;
+    // An installed `domain-harness` bin is a symlink to dist/cli.js.
+    return ENTRY_FILE.test(realpathSync(argv1));
   } catch {
     return false;
   }
 }
+
+const ENTRY_FILE = /(^|[/\\])cli\.(js|ts)$/;
 
 /** The dispatched CLI result: one line per printed row. */
 export interface CliDispatchResult {

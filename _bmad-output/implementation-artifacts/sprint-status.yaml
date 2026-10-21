@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-10-2026 12:00
-last_updated: 10-18-2026 08:18
+last_updated: 10-20-2026 22:20
 project: domain harness
 project_key: NOKEY
 tracking_system: file-system
@@ -53,7 +53,7 @@ development_status:
   2-6-community-plan-refuses-tree-capabilities-in-place: done
   epic-2-retrospective: optional
 
-  epic-3: in-progress
+  epic-3: done
   3-1-builder-places-a-new-application-on-a-project: done
   3-2-define-the-project-identification-file: done
   3-3-generate-a-boilerplate-for-claude-code: done
@@ -70,7 +70,7 @@ development_status:
   4-6-read-the-effective-standard-set-through-the-read-api: done
   epic-4-retrospective: optional
 
-  epic-5: in-progress
+  epic-5: done
   5-1-extract-revision-facts-deterministically: done
   5-2-evaluate-deviations-in-the-core: done
   5-3-run-the-ci-gate-as-a-pipeline-step: done
@@ -79,7 +79,7 @@ development_status:
   5-6-buyer-receives-recurring-alerts-for-accepted-deviations: done
   epic-5-retrospective: optional
 
-  epic-6: in-progress
+  epic-6: done
   6-1-publish-the-compilation-catalog-and-gate-sending-on-the-buye: done
   6-2-project-records-into-compilations-through-one-collector-chok: done
   6-3-deliver-compilations-durably-without-touching-the-builder: done
@@ -98,7 +98,7 @@ development_status:
   7-6-active-governed-application-count-and-the-soft-band-banner: backlog
   epic-7-retrospective: optional
 
-  epic-8: in-progress
+  epic-8: done
   8-1-load-and-verify-a-bundle-file-offline: done
   8-2-run-the-gate-locally-with-the-same-result-as-ci: done
   8-3-distribute-the-cli: done
@@ -132,5 +132,5 @@ action_items:
     epic: 6
     action: "Confirm Epic 6 epic-status flip to done via sprint planning"
     owner: "PM"
-    status: open
+    status: done
     ref: "./_bmad-output/implementation-artifacts/epic-6-retro-10-18-2026.md"

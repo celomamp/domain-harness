@@ -18,14 +18,25 @@ domains, no autoscaling setup, no production data.
 | registry | `dh-registry-staging` | `apps/registry/Dockerfile` | 4100 | yes (443) | vendor registry JSON API; builders + sign-in links |
 | panel | `dh-panel-staging` | `apps/panel/Dockerfile` | 3000 | yes (443) | management panel; the staging front door |
 | service | `dh-service-staging` | `apps/service/Dockerfile` | none | no | bundle-pull daemon; outbound only |
-| guidance | `dh-guidance-staging` | `apps/service/Dockerfile.guidance` | 8080 | no (see below) | Guidance MCP + credentialed Read API |
+| guidance | `dh-guidance-staging` | `apps/service/Dockerfile.guidance` | 8080 | yes, token-gated (see below) | Guidance MCP + credentialed Read API |
 
-The guidance app declares `[[services.ports]]` only because the platform
-schema requires a ports entry wherever checks run. It is **never allocated a
-public IP** (`fly ips list --app dh-guidance-staging` must stay empty), so it
-is reachable only at `http://dh-guidance-staging.internal:8080`. The service
-daemon declares no services at all (it listens on no port and has no checks,
-per spec).
+**Pilot mode (option A, since 2026-10-20):** the guidance app is the pilot's
+hosted Guidance endpoint, `https://dh-guidance-staging.fly.dev/mcp`. It has
+public IPs and **must** run with `SERVICE_GUIDANCE_ACCESS_TOKEN` set: every
+`/mcp` request then needs `Authorization: Bearer <token>` (401 otherwise),
+which the bridge sends from the Builder's `DH_GUIDANCE_TOKEN`. Never allocate
+IPs to it without that secret. The Read API keeps its own credential. To go
+back to private-only, `fly ips release` both IPs; it then answers only at
+`http://dh-guidance-staging.internal:8080`. The service daemon declares no
+services at all (it listens on no port and has no checks, per spec).
+
+The service daemon and the guidance server serve the **Demo Pilot** Company
+(the demo accounts' tenant), with a service credential minted for it on
+2026-10-20 (one more row in `tenant_service_credentials`; the credential
+printed at the Demo Pilot's automatic provisioning is never shown). The
+guidance server delivers every recorded Guidance event to the registry
+through the Collector outbox (flushed every 30 s, `collector_flush` in the
+logs); the Buyer must have recorded reading the Compilation catalog first.
 
 Every app sets `auto_stop_machines = false, min_machines_running = 1` (the
 daemon has no services block to carry them — keep exactly one Machine running
@@ -116,6 +127,7 @@ provision refuses owner/superuser roles via `assertRuntimeRoleSafe`):
 | guidance | `SERVICE_RECORD_DATABASE_URL` | Supabase dashboard (`record_store` second DB, same value) |
 | guidance | `SERVICE_READ_CREDENTIAL` | Generated opaque secret (any unguessable string) |
 | guidance | `SERVICE_ROLE_TOKEN_TRUST_KEYS` | Generated trust-set JSON (§2, same value) |
+| guidance | `SERVICE_GUIDANCE_ACCESS_TOKEN` | Generated opaque secret, ≥ 32 chars (required while the app has public IPs); Builders set the same value as `DH_GUIDANCE_TOKEN` |
 | panel | — | none (the panel holds no credentials) |
 
 Set them per app, e.g.
@@ -217,6 +229,16 @@ and never set either toggle where real Companies sign in. The registry logs
 `bundle: activated|pinned` and `staleness: recorded|…`. An unreachable vendor
 URL is logged per cycle (`bundle: pull:…`) and the daemon keeps cycling —
 it never crashes on a failed pull.
+
+## Pilot installables (GitHub Release)
+
+The bridge and the CLI are not on npm yet. `sh tooling/release/pack-pilot.sh
+<out-dir>` packs both as self-contained tarballs, attached to a GitHub Release
+(`pilot-0.2`, prerelease). The registry's `REGISTRY_MCP_BRIDGE_PACKAGE`
+(`fly.registry-staging.toml`) makes every generated Boilerplate run
+`npx -y <release>/mcp-bridge.tgz <endpoint>`; the CLI installs with
+`npm install -g <release>/cli.tgz`. A new pilot build is a new release tag
+plus the toml change.
 
 ## Rollback
 

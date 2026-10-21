@@ -16,7 +16,7 @@ import { createServer } from "node:http";
 import type { Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { canonicalJson, GUIDANCE_TOOLS, GUIDANCE_IDENTITY_HEADERS } from "@domain-harness/contract";
-import type { GuidanceToolResult, StandardBundlePayload, UuidV7 } from "@domain-harness/contract";
+import type { GuidanceEvent, GuidanceToolResult, StandardBundlePayload, UuidV7 } from "@domain-harness/contract";
 import { createGuidanceMcpHandler } from "./mcp.ts";
 import type { GuidanceMcpDeps } from "./mcp.ts";
 import { createInMemoryGuidanceIdentityStore } from "./store.ts";
@@ -100,7 +100,7 @@ interface Fixture {
 }
 
 /** One in-process guidance server (no DB): the InMemory twins behind the real MCP handler at `/mcp`. */
-async function setup(issuedAt: string = ISSUED, overrides: { eventStore?: GuidanceEventStore; onRecordError?: GuidanceMcpDeps["onRecordError"] } = {}): Promise<Fixture> {
+async function setup(issuedAt: string = ISSUED, overrides: { eventStore?: GuidanceEventStore; onRecordError?: GuidanceMcpDeps["onRecordError"]; collector?: GuidanceMcpDeps["collector"] } = {}): Promise<Fixture> {
   const payload = payloadOf(issuedAt);
   const signed = signPayload(payload, makeSigningKey("mcp-http-key"));
   const hash = bundleHashOf(signed);
@@ -116,6 +116,7 @@ async function setup(issuedAt: string = ISSUED, overrides: { eventStore?: Guidan
     getPinnedBundle: () => Promise.resolve({ payload, hash }),
     getBundledState: (now) => bundledState(bundleStore, TENANT, now),
     now: () => NOW,
+    collector: overrides.collector,
   };
   const httpServer = createServer((request, response) => {
     void createGuidanceMcpHandler(deps)(request, response);
@@ -321,6 +322,32 @@ describe("the Guidance MCP server over Streamable HTTP", () => {
       const gaps = await fixture.eventStore.listGuidanceGaps(APPLICATION_ID);
       expect(gaps).toHaveLength(1);
       expect(gaps[0]).toMatchObject({ tool: "design_import", subject: "~/acme/unknown" });
+    } finally {
+      await stop(fixture, client);
+    }
+  });
+
+  it("hands every recorded event to the Collector, after the local append", async () => {
+    const recorded: GuidanceEvent[] = [];
+    const fixture = await setup(ISSUED, {
+      collector: {
+        recordGuidance: (event) => {
+          recorded.push(event);
+          return Promise.resolve();
+        },
+        recordGateRun: () => Promise.resolve(),
+      },
+    });
+    let client: Client | null = null;
+    try {
+      client = await connectedClient(fixture.serverUrl, BOUND_HEADERS);
+      await client.callTool({ name: "code_stack_rule", arguments: { subject: "react" } });
+      await client.callTool({ name: "design_import", arguments: { subject: "~/acme/unknown" } });
+      expect(recorded.map((event) => [event.tool, event.outcome.kind])).toEqual([
+        ["code_stack_rule", "hit"],
+        ["design_import", "miss"],
+      ]);
+      expect(await fixture.eventStore.listGuidanceEvents(APPLICATION_ID)).toEqual(recorded);
     } finally {
       await stop(fixture, client);
     }

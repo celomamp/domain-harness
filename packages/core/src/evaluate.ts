@@ -4,7 +4,9 @@
  * (Standard id, Standard version, Conflict slot, subject), with its Correction
  * instruction, plus the checked/open counts and the Adherence fraction.
  *
- * Code-stack entries map onto dependency facts by exact name: a prohibited
+ * Code-stack entries map onto dependency facts by casefold name (trimmed,
+ * Unicode NFC, lowercase — the slot and Guidance rule, so a "TypeScript"
+ * entry governs the `typescript` package): a prohibited
  * entry whose fact is present, a required entry whose fact is missing, and an
  * approved or required entry whose fact fails a non-empty version constraint —
  * or whose version cannot be resolved to a concrete version — each yield one
@@ -332,7 +334,8 @@ export function evaluateDeviations(input: EvaluateInput): EvaluateResult {
     if (isCodeStackEntry(entry)) {
       const name = entry.name;
       const base = { standardId: id, standardVersion: version, slot: effective.slot, subject: name };
-      const matching = input.facts.dependencies.filter((fact) => fact.name === name).sort(byFactVersion);
+      const key = normalizeSlotName(name);
+      const matching = input.facts.dependencies.filter((fact) => normalizeSlotName(fact.name) === key).sort(byFactVersion);
       const hasConstraint = entry.versionConstraint !== null && entry.versionConstraint !== "";
 
       if (entry.status === "prohibited" && matching.length > 0) {

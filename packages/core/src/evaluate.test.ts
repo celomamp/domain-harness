@@ -439,6 +439,44 @@ describe("evaluateDeviations — code-stack checks", () => {
     expect(result.deviations[0]?.kind).toBe("prohibited");
   });
 
+  it("matches dependency facts casefold: a required 'TypeScript' is met by the typescript package", () => {
+    const typescript = codeStackStandard(nextId(), 1, codeStackEntry("language", "TypeScript", "required"));
+    expect(evaluate([typescript], { dependencies: [dep("typescript", "5.6.3")] })).toMatchObject({ ok: true, open: 0 });
+    expect(evaluate([typescript], { dependencies: [dep(" TYPESCRIPT ", "5.6.3")] })).toMatchObject({ ok: true, open: 0 });
+  });
+
+  it("catches a prohibited entry whatever the case of the package, keeping the entry's name as the subject", () => {
+    const react = codeStackStandard(nextId(), 1, codeStackEntry("library", "React", "prohibited"));
+    const result = evaluate([react], { dependencies: [dep("react", "18.2.0")] });
+    expect(result).toMatchObject({ ok: true, open: 1 });
+    if (!result.ok) return;
+    expect(result.deviations[0]).toMatchObject({ kind: "prohibited", subject: "React" });
+  });
+
+  it("checks the version constraint against a fact that matches only casefold", () => {
+    const react = codeStackStandard(nextId(), 1, codeStackEntry("library", "React", "approved", { versionConstraint: "^18" }));
+    expect(evaluate([react], { dependencies: [dep("react", "18.2.0")] })).toMatchObject({ ok: true, open: 0 });
+    const old = evaluate([react], { dependencies: [dep("react", "16.8.0")] });
+    expect(old).toMatchObject({ ok: true, open: 1 });
+    if (!old.ok) return;
+    expect(old.deviations[0]?.kind).toBe("version-constraint");
+  });
+
+  it("matches NFC-equal names: a decomposed accent meets its composed form", () => {
+    const composed = "café-utils";
+    const decomposed = "café-utils";
+    const entry = codeStackStandard(nextId(), 1, codeStackEntry("library", composed, "prohibited"));
+    expect(evaluate([entry], { dependencies: [dep(decomposed, "1.0.0")] })).toMatchObject({ ok: true, open: 1 });
+  });
+
+  it("still tells different packages apart", () => {
+    const react = codeStackStandard(nextId(), 1, codeStackEntry("library", "React", "prohibited"));
+    expect(evaluate([react], { dependencies: [dep("react-dom", "18.2.0"), dep("preact", "10.0.0")] })).toMatchObject({
+      ok: true,
+      open: 0,
+    });
+  });
+
   it("picks the failing fact deterministically when facts repeat a name", () => {
     const react = codeStackStandard(nextId(), 1, codeStackEntry("library", "react", "approved", { versionConstraint: "^18" }));
     const shuffled = evaluate([react], { dependencies: [dep("react", "16.8.0"), dep("react", "18.2.0")] });
