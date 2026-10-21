@@ -278,7 +278,7 @@ async function recordGuidanceEvent(
  * the entry predates the generation (pre-4.5 payloads carry no key) or when
  * the Application never generated a Boilerplate.
  */
-function agentToolOf(payload: StandardBundlePayload, applicationId: UuidV7): BoilerplateTarget | null {
+export function agentToolOf(payload: StandardBundlePayload, applicationId: UuidV7): BoilerplateTarget | null {
   const entry = payload.applications.find((candidate) => candidate.id === applicationId);
   if (entry === undefined) return null;
   const raw = (entry as { readonly agentTool?: unknown }).agentTool;

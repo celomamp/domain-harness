@@ -53,6 +53,8 @@ export interface GateCommandOptions {
 export interface GateCommandResult {
   readonly exitCode: number;
   readonly lines: readonly string[];
+  /** Hosted mode only: one stderr line saying why a run did not complete (never a secret). */
+  readonly diagnostics?: readonly string[];
 }
 
 /** Optional seams for tests (a failing git is otherwise hard to stage). */
@@ -68,6 +70,8 @@ export type CollectRevisionOutcome =
   | {
       readonly ok: true;
       readonly applicationId: string;
+      /** The identification file's advisory Project id (the hosted Gate sends it like the bridge). */
+      readonly advisoryProjectId?: string;
       readonly fingerprint: string;
       readonly files: Record<string, string>;
       readonly unreadable: ReadonlyArray<{ path: string; reason: string }>;
@@ -310,6 +314,7 @@ export function collectRevisionFiles(root: string): CollectRevisionOutcome {
     return {
       ok: true,
       applicationId: String(applicationId),
+      advisoryProjectId: String(parsed.file.projectId),
       fingerprint: fp.fingerprint,
       files,
       unreadable,

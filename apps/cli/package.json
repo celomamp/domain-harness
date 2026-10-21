@@ -19,6 +19,7 @@
   "dependencies": {
     "@domain-harness/contract": "workspace:*",
     "@domain-harness/core": "workspace:*",
+    "@domain-harness/extractor": "workspace:*",
     "@domain-harness/gate": "workspace:*"
   },
   "bin": {
