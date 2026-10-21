@@ -71,7 +71,7 @@ const COMPONENT_SLOTS: readonly (readonly string[])[] = [["Button"], ["button"],
 const DEPENDENCY_VERSIONS = ["18.2.0", "16.8.0", "^18.0.0", "1.2.3-beta.1+build", "latest", "18.2"];
 const CONSTRAINTS: readonly (string | null)[] = [null, "*", "^18.0.0", ">=16", "2.0.0", "bogus", "^1.0.0 || ^2.0.0"];
 const INSTRUCTIONS: readonly (string | null)[] = [null, "", "Use the shared helper instead."];
-const SPECIFIERS = ["button", "Button", "@acme/ui/Button", "@acme/ui/DatePicker", "./helpers", "react"];
+const SPECIFIERS = ["button", "Button", "@acme/ui/Button", "@acme/ui/DatePicker", "@acme/legacy/Card", "./helpers", "react", "moment"];
 const TOKEN_NAMES = ["--color-primary", "--color-bg"];
 
 function randomCodeStackEntry(random: Random): CodeStackEntry {
@@ -267,6 +267,21 @@ describe("evaluateDeviations property", () => {
         for (const deviation of found) {
           expect(deviation.status, `seed ${String(seed)}`).toBe(live ? "accepted" : "open");
         }
+      }
+
+      // A component finding always names the last segment of a specifier
+      // under a required design-system import: never an npm library's name.
+      const roots = input.effectiveSet.standards.flatMap((effective) => {
+        const entry = effective.standard.entry;
+        return "kind" in entry && entry.kind === "import" && entry.status === "required" ? [entry.specifier] : [];
+      });
+      for (const deviation of result.deviations.filter((d) => d.kind === "component-outside-allow-list")) {
+        const sources = input.facts.imports.filter(
+          (fact) =>
+            roots.some((root) => fact.specifier.startsWith(`${root}/`)) &&
+            fact.specifier.slice(fact.specifier.lastIndexOf("/") + 1) === deviation.subject,
+        );
+        expect(sources.length, `seed ${String(seed)}`).toBeGreaterThan(0);
       }
 
       emitted += result.deviations.length;
