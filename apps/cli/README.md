@@ -63,7 +63,7 @@ the token, stdout says `run did not complete` and stderr says why.
 As a CI step (GitHub Actions):
 
 ```yaml
-- run: npm install -g https://github.com/celomamp/domain-harness/releases/download/pilot-0.3/cli.tgz
+- run: npm install -g https://github.com/celomamp/domain-harness/releases/download/pilot-0.4/cli.tgz
 - run: domain-harness gate --endpoint https://dh-guidance-staging.fly.dev/mcp
   env:
     DH_GUIDANCE_TOKEN: ${{ secrets.DH_GUIDANCE_TOKEN }}

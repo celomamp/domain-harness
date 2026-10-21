@@ -252,8 +252,10 @@ it never crashes on a failed pull.
 
 The bridge and the CLI are not on npm yet. `sh tooling/release/pack-pilot.sh
 <out-dir>` packs both as self-contained tarballs, attached to a GitHub Release
-(latest `pilot-0.3`, prerelease: it adds `gate --endpoint` to the CLI; the
-bridge is unchanged, so `REGISTRY_MCP_BRIDGE_PACKAGE` still names `pilot-0.2`). The registry's `REGISTRY_MCP_BRIDGE_PACKAGE`
+(latest `pilot-0.4`, prerelease, built from main `f07a5cc`: its CLI carries
+the finding-16 component allow-list fix in both the offline and the hosted
+Gate; the bridge is behaviorally unchanged since `pilot-0.2`, so
+`REGISTRY_MCP_BRIDGE_PACKAGE` still names `pilot-0.2`). The registry's `REGISTRY_MCP_BRIDGE_PACKAGE`
 (`fly.registry-staging.toml`) makes every generated Boilerplate run
 `npx -y <release>/mcp-bridge.tgz <endpoint>`; the CLI installs with
 `npm install -g <release>/cli.tgz`. A new pilot build is a new release tag

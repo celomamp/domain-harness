@@ -117,6 +117,6 @@ PRs #2 and #3 merged into main (`55e29dc`). The service daemon (release v6) and 
 | Hosted Gate, revision `4c4652c` (moment added; moment code-stack Deviation accepted until 2026-11-21), CLI built from main | `pass`, exit 0 — no PrimaryButton line: finding 16 no longer reproduces on the hosted Gate |
 | Server log | `gate_run` kind `pass`, `checked 4, open 0`; `collector_flush sent 1` 24 s later |
 
-Still open: the offline CLI in release `pilot-0.3` was packed from PR #2's branch, before the finding-16 fix, so the offline Gate there still reports the spurious allow-list line; a new pilot release from main fixes it. The VAL Design System still has no required import entry, so its component allow-list checks nothing on staging.
+The offline CLI in release `pilot-0.3` was packed from PR #2's branch, before the finding-16 fix, so its offline Gate still reports the spurious allow-list line. **Resolved 2026-10-21:** release `pilot-0.4`, packed from main `f07a5cc`, carries the fix (bridge rebuilt, behaviorally unchanged); its tarballs install with `npm install -g` from the release URL and both bins start through the installed symlinks. Still open: the VAL Design System still has no required import entry, so its component allow-list checks nothing on staging.
 
 Test data added on staging (Demo Pilot): one more Gate run (pass) on "VAL E2E agente 2 (evidencia)".
