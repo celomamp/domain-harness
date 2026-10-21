@@ -493,10 +493,11 @@ describe("Effective Standard set", () => {
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows.map((row) => within(row).getAllByRole("cell").slice(0, 3).map((cell) => cell.textContent))).toEqual([
       ["prohibited", "1", "Web (this Project)"],
-      ["None", "3", "Platform"],
+      ["Governed by usage rule", "3", "Platform"],
     ]);
-    // The status cell carries a word-and-icon badge.
+    // The status cell carries a word-and-icon badge; a component's is neutral.
     expect(within(rows[0] as HTMLElement).getAllByRole("cell")[0]?.querySelector(".badge")).not.toBeNull();
+    expect(within(rows[1] as HTMLElement).getAllByRole("cell")[0]?.querySelector(".badge")?.getAttribute("data-tone")).toBe("neutral");
     // Only the row scoped to the selected Project holds the mark form.
     expect(within(rows[0] as HTMLElement).getByRole("button", { name: 'Mark as Locked rule (code stack, library, "x")' })).toBeTruthy();
     expect(within(rows[1] as HTMLElement).queryByRole("button")).toBeNull();

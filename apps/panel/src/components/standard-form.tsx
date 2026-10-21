@@ -22,6 +22,8 @@ export const STANDARDS_COPY = {
   empty: "No Standard is published in this Module yet.",
   noOwner: "No owner",
   none: "None",
+  /** The Status cell of a design-system component, which has no status field. */
+  componentStatus: "Governed by usage rule",
   unavailable: "Standards are unavailable right now. Try again in a few minutes.",
   actionUnavailable: "Standards are unavailable right now, so nothing was published. Try again in a few minutes.",
   moduleNotFound: "That Module was not found. Nothing was published.",

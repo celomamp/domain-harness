@@ -485,6 +485,11 @@ describe("Module Standards page: design system", () => {
     expect(within(table).getByRole("link", { name: "@mui/material" }).getAttribute("href")).toBe(
       `/standards/${MODULE}?edit=${BEA}`,
     );
+    // A component has no status field: its Status cell says what governs it instead of "None".
+    const componentRow = within(table).getByRole("link", { name: "Button" }).closest("tr") as HTMLElement;
+    const cells = within(componentRow).getAllByRole("cell").map((cell) => cell.textContent);
+    expect(cells).toContain("Governed by usage rule");
+    expect(cells).not.toContain("None");
   });
 
   it("shows the empty state and the design-system form with the component field set first", async () => {
