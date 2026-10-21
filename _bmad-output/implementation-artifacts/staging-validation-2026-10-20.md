@@ -49,10 +49,15 @@ Service side (`fly status` / `fly logs`): all four apps running; the daemon logs
 ### Guide gaps and UX notes
 
 5. The Collector cannot send until the Buyer clicks **"I have read catalog 1.0.0"** in Compilations → Schemas. The guide never mentions this step; add it to §12 and to the Buyer checklist in §16.
+   **Resolved 2026-10-21:** the guide's §12 has a callout for the catalog-read step and §16's Buyer checklist includes it; §11 now also explains `DH_GUIDANCE_TOKEN` (Claude Code: shell profile; Cursor started from the GUI: `launchctl setenv` on macOS, or start it from a terminal), with a matching Builder checklist item.
 6. Design-system components show status **"None"** in Effective standards (the component form has no status field). Reads as missing data.
+   **Resolved 2026-10-21:** a component's Status reads "Governed by usage rule" in Effective standards (neutral badge) and in the design-system Module Standards table; guide shot 13 refreshed.
 7. Builders see the Buyer-only **Company setup** box (Guidance endpoint form) in New-application flow.
+   **Resolved 2026-10-21:** only the Buyer sees the Company setup form; Builders and Standard owners see a read-only "Company Guidance endpoint" card with the current URL or "Not set." and "Ask the Buyer to set or change the Company Guidance endpoint." Registry authorization is unchanged.
 8. The prohibited Standard's correction instruction ("use date-fns…") does not appear in the generated `CLAUDE.md`, only the bare "Prohibited: library moment".
+   **Resolved 2026-10-21:** the Boilerplate plan carries each code-stack Standard's correction instruction, and `CLAUDE.md`/`AGENTS.md` render it as an indented one-line `Correction:` under the required, approved or prohibited item.
 9. The Create project drawer renders semi-transparent over the page, so the page content shows through behind the form.
+   **Not reproduced 2026-10-21:** checked locally on the built panel (Chrome, 1360×860 and 375×812, light and dark, right after opening and once settled): the panel is opaque (`--color-surface-raised`, computed opacity 1 on it and every ancestor, no filter or blend). Only the backdrop behind it is translucent, by design. The `sheet-in` animation fades the panel in over the motion duration, so a screenshot taken mid-animation can look see-through. No change made.
 
 ## Test data left on staging (Demo Pilot)
 
