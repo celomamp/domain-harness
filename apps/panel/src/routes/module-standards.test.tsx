@@ -485,6 +485,11 @@ describe("Module Standards page: design system", () => {
     expect(within(table).getByRole("link", { name: "@mui/material" }).getAttribute("href")).toBe(
       `/standards/${MODULE}?edit=${BEA}`,
     );
+    // A component has no status field: its Status cell says what governs it instead of "None".
+    // The Standard column is the row header, so cell indexes are one less than the header's.
+    const statusIndex = within(table).getAllByRole("columnheader").findIndex((th) => th.textContent === "Status") - 1;
+    const componentRow = within(table).getByRole("link", { name: "Button" }).closest("tr") as HTMLElement;
+    expect(within(componentRow).getAllByRole("cell")[statusIndex]?.textContent).toBe("Governed by usage rule");
   });
 
   it("shows the empty state and the design-system form with the component field set first", async () => {

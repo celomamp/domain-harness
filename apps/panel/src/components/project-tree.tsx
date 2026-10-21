@@ -153,7 +153,8 @@ export const PROJECT_TREE_COPY = {
     empty: (name: string) => `No Standard applies to ${name} yet.`,
     unavailable: "The Effective Standard set is unavailable right now. Try again in a few minutes.",
     headers: ["Conflict slot", "Status", "Version", "Source Project", "Locked rule"],
-    none: "None",
+    /** The Status of a design-system component's row: components carry a usage rule, not a status. */
+    componentStatus: "Governed by usage rule",
     locked: "Locked rule",
     notLocked: "Not locked",
     mark: "Mark as Locked rule",
@@ -517,12 +518,16 @@ export interface EffectiveSetTableProps {
   readonly set: EffectiveStandardSet;
 }
 
-/** The status word and icon of one Conflict slot's winner, in the monochrome status language. */
+/**
+ * The status word and icon of one Conflict slot's winner, in the monochrome
+ * status language. A `null` status is a design-system component, which is
+ * governed by its usage rule rather than a status.
+ */
 function StatusBadge({ status }: { readonly status: string | null }) {
   if (status === null) {
     return (
       <Badge tone="neutral" icon="dash">
-        {PROJECT_TREE_COPY.effective.none}
+        {PROJECT_TREE_COPY.effective.componentStatus}
       </Badge>
     );
   }

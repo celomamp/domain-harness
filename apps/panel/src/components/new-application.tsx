@@ -40,6 +40,7 @@ export const NEW_APPLICATION_COPY = {
     label: "Guidance endpoint URL",
     current: (url: string) => `Current endpoint: ${url}`,
     notSet: "Not set.",
+    askBuyer: "Ask the Buyer to set or change the Company Guidance endpoint.",
     loading: "Loading the Guidance endpoint…",
     unavailable: "The Guidance endpoint is unavailable right now. Try again in a few minutes.",
     submit: "Set the Guidance endpoint",
@@ -262,8 +263,9 @@ export interface GuidanceEndpointFormProps {
 
 /**
  * standard-form for the Company Guidance endpoint: the URL field and a
- * secondary button. Shown to every role: the registry refuses anyone but the
- * Buyer, and the refusal is announced as a denial.
+ * secondary button. Shown to the Buyer only (non-Buyers see
+ * {@link GuidanceEndpointView}); the registry still refuses anyone but the
+ * Buyer, and a refusal is announced as a denial.
  */
 export function GuidanceEndpointForm({ placedId, children }: GuidanceEndpointFormProps) {
   return (
@@ -321,6 +323,31 @@ export function GuidanceEndpointField({ state, busy = false, note, submitted }: 
         <p>{current === null ? NEW_APPLICATION_COPY.endpoint.notSet : NEW_APPLICATION_COPY.endpoint.current(current)}</p>
       )}
       {note === undefined ? null : <p>{note}</p>}
+    </div>
+  );
+}
+
+export interface GuidanceEndpointViewProps {
+  /** The current state; undefined while it loads or when it is unavailable. */
+  readonly state: GuidanceEndpointState | undefined;
+  /** True while the state loads. */
+  readonly busy?: boolean;
+  /** Shown while loading or when unavailable. */
+  readonly note?: string | undefined;
+}
+
+/**
+ * The read-only Company Guidance endpoint for a non-Buyer: the current URL or
+ * "Not set.", and who to ask to change it. No field and no button.
+ */
+export function GuidanceEndpointView({ state, busy = false, note }: GuidanceEndpointViewProps) {
+  const current = state?.url;
+  const copy = NEW_APPLICATION_COPY.endpoint;
+  return (
+    <div className="standard-form__fields" {...(busy ? { "aria-busy": true as const } : {})}>
+      {current === undefined ? null : <p>{current === null ? copy.notSet : copy.current(current)}</p>}
+      {note === undefined ? null : <p>{note}</p>}
+      <p>{copy.askBuyer}</p>
     </div>
   );
 }

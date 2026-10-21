@@ -405,12 +405,19 @@
       <div class="chapter__num">11</div>
       <h2>Crie uma nova aplicação</h2>
       <p>O fluxo em <b>New-application flow</b> tem três etapas: <b>Place</b> (posicionar) → <b>Generate</b> (gerar o kit) → <b>Result</b>.</p>
-      <div class="callout"><span class="callout__icon">⚙️</span><p><b>Uma vez só, o Buyer configura o Guidance endpoint</b> no quadro “Company setup”, no fim da página: o endereço do serviço da empresa que os agentes vão consultar. Sem ele, o kit não pode ser gerado.</p></div>
+      <div class="callout"><span class="callout__icon">⚙️</span><p><b>Uma vez só, o Buyer configura o Guidance endpoint</b> no quadro “Company setup”, no fim da página: o endereço do serviço da empresa que os agentes vão consultar. Sem ele, o kit não pode ser gerado. Quem não é Buyer vê ali só o endereço atual, para leitura, e pede ao Buyer quando precisar mudá-lo.</p></div>
       <ol class="steps">
         <li>Na aba <b>Place an application</b>, descreva a aplicação e escolha o <b>Project</b>. Clique em <b>Place the Application</b>.</li>
         <li>O fluxo avança sozinho para <b>Generate Boilerplate</b>. Escolha a ferramenta (<b>Claude Code</b> ou <b>Cursor</b>) e clique em <b>Generate the Boilerplate</b>.</li>
-        <li>Baixe o pacote em <b>Download the archive</b> e descompacte-o na raiz do repositório da aplicação. A partir daí, o agente já consulta os padrões do projeto.</li>
+        <li>Baixe o pacote em <b>Download the archive</b> e descompacte-o na raiz do repositório da aplicação. Com o token de acesso configurado (veja abaixo), o agente já consulta os padrões do projeto.</li>
       </ol>
+      <h3>O token de acesso do agente</h3>
+      <p>No piloto, o serviço de orientações só responde a quem envia o token de acesso da empresa. A equipe do piloto entrega esse valor a cada Builder; ele nunca vem dentro do kit. Guarde-o na variável de ambiente <code>DH_GUIDANCE_TOKEN</code>, no ambiente de onde o agente é aberto:</p>
+      <ul>
+        <li><b>Claude Code:</b> acrescente <code>export DH_GUIDANCE_TOKEN="&lt;token recebido&gt;"</code> ao perfil do seu shell (por exemplo <code>~/.zshrc</code>), abra um terminal novo e inicie o Claude Code nele.</li>
+        <li><b>Cursor aberto pelo Dock ou pelo menu:</b> o Cursor não lê o perfil do shell. No macOS, rode <code>launchctl setenv DH_GUIDANCE_TOKEN "&lt;token recebido&gt;"</code> e reabra o Cursor; ou abra o Cursor a partir de um terminal que já tenha a variável (<code>cursor .</code>). O <code>launchctl setenv</code> vale só até você encerrar a sessão ou reiniciar o Mac: depois disso, repita o comando (ou abra o Cursor pelo terminal).</li>
+      </ul>
+      <p>Sem o token, o agente não consegue consultar os padrões. Se a equipe do piloto trocar o token, atualize a variável e reinicie o agente.</p>
       <div class="grid grid--2">
         <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/15-place-application.jpg" alt="Posicionar aplicação em um projeto" loading="lazy"></div><figcaption><b>Place.</b> Quem não é Buyer precisa de build grant no projeto.</figcaption></figure>
         <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/16-boilerplate.jpg" alt="Resultado do Boilerplate com os arquivos gerados" loading="lazy"></div><figcaption><b>Result.</b> Cada arquivo do kit, com botão para copiar o caminho.</figcaption></figure>
@@ -421,7 +428,7 @@
         <tbody>
           <tr><td><code>.domain-harness.json</code></td><td>Identifica a aplicação e o projeto. Deve ficar na raiz do repositório.</td></tr>
           <tr><td><code>.mcp.json</code></td><td>Conecta o agente ao serviço de orientações da empresa.</td></tr>
-          <tr><td><code>CLAUDE.md</code> / regras do Cursor</td><td>Instruções para o agente consultar os padrões antes de decidir.</td></tr>
+          <tr><td><code>CLAUDE.md</code> / regras do Cursor</td><td>Instruções para o agente consultar os padrões antes de decidir, com a instrução de correção de cada padrão que tiver uma.</td></tr>
           <tr><td><code>package.json</code></td><td>Dependências já fixadas conforme os padrões aprovados.</td></tr>
           <tr><td><code>design-system.json</code></td><td>Referências do design system em vigor.</td></tr>
           <tr><td>Skills</td><td>Habilidade pronta de “consultar orientação” para o agente.</td></tr>
@@ -441,6 +448,7 @@
       <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/18-inventory.jpg" alt="Inventory com aplicações agrupadas por ferramenta" loading="lazy"></div><figcaption><b>Inventory.</b> Aplicações criadas pelo fluxo, por quem constrói e registradas.</figcaption></figure>
       <p>Clique em uma aplicação para ver suas <b>evidências</b>: execuções do Gate, desvios encontrados e histórico. A partir de um desvio, o Buyer pode registrar a aceitação diretamente.</p>
       <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/19-application.jpg" alt="Página de evidências da aplicação" loading="lazy"></div><figcaption><b>Application.</b> No piloto, as evidências aparecem depois do primeiro Gate ou da primeira consulta do agente.</figcaption></figure>
+      <div class="callout"><span class="callout__icon">📋</span><p><b>Antes da primeira evidência, o Buyer confirma o catálogo.</b> Em <b>Compilations</b>, aba <b>Schemas</b>, leia o catálogo dos registros que o serviço da empresa envia e clique em <b>I have read catalog 1.0.0</b>. Até isso ser feito, o serviço não envia nenhum registro: consultas do agente e execuções do Gate não chegam ao painel.</p></div>
       <p>Em <b>Compilations</b>, o Buyer acompanha a saúde do serviço da empresa: qual pacote de padrões está ativo, se está atualizado, quantos registros estão pendentes e se algum foi descartado.</p>
       <figure><div class="shot"><div class="shot__bar"><i></i><i></i><i></i></div><img src="img/23-compilations.jpg" alt="Tela de Compilations" loading="lazy"></div><figcaption><b>Compilations.</b> Vazio até o serviço da empresa ser instalado e começar a reportar.</figcaption></figure>
     </section>
@@ -499,6 +507,7 @@
         <li>Criar um módulo de code stack e um de design system, e atribuir os donos.</li>
         <li>Conceder build grant a um construtor em um projeto.</li>
         <li>Configurar o Guidance endpoint e criar uma aplicação até baixar o Boilerplate.</li>
+        <li>Em Compilations → Schemas, clicar em <b>I have read catalog 1.0.0</b>.<small>Sem isso, nenhuma evidência chega ao painel.</small></li>
         <li>Travar uma regra importante e conferir os padrões efetivos de um projeto filho.</li>
         <li>Registrar um desvio aceito (a equipe do piloto fornece uma linha de exemplo do Gate).</li>
       </ul>
@@ -512,6 +521,7 @@
       <ul class="checklist">
         <li>Criar uma aplicação em um projeto com permissão e gerar o kit para sua ferramenta.</li>
         <li>Tentar criar em um projeto sem permissão e avaliar se a mensagem é clara.</li>
+        <li>Definir <code>DH_GUIDANCE_TOKEN</code> com o token recebido da equipe do piloto.<small>Claude Code: no perfil do shell. Cursor aberto pela interface: <code>launchctl setenv</code> no macOS, ou abrir o Cursor por um terminal.</small></li>
         <li>Abrir o kit no repositório e iniciar uma conversa com o agente.<small>O agente consultou os padrões antes de escolher bibliotecas?</small></li>
       </ul>
       <div class="callout callout--tip"><span class="callout__icon">✉️</span><p><b>Como enviar feedback:</b> mande para a equipe do piloto o que tentou fazer, o que esperava e o que aconteceu, com um print sempre que possível. Mensagens de erro do painel são ótimas pistas: copie o texto exato.</p></div>

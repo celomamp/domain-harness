@@ -730,7 +730,8 @@ function codeStackCells(standard: StandardInfo): ReactNode[] {
 function designSystemCells(standard: StandardInfo): ReactNode[] {
   const entry = isDesignSystemEntry(standard.entry) ? standard.entry : null;
   const component = entry?.kind === "component" ? entry : null;
-  const status = entry !== null && entry.kind !== "component" ? entry.status : STANDARDS_COPY.none;
+  const status =
+    entry === null ? STANDARDS_COPY.none : entry.kind === "component" ? STANDARDS_COPY.componentStatus : entry.status;
   const tokens = component === null || component.tokens.length === 0 ? STANDARDS_COPY.none : component.tokens.join(", ");
   return [
     standard.project.name,

@@ -32,6 +32,8 @@ export interface StackItem {
   /** Trimmed, in the Standard owner's spelling. */
   readonly name: string;
   readonly versionConstraint: string | null;
+  /** The Standard owner's correction instruction, as authored; `null` when none. */
+  readonly correctionInstruction: string | null;
 }
 
 /** One required entry and the pin it became (`null` for a language with no package, e.g. JavaScript). */
@@ -44,6 +46,8 @@ export interface ComponentReference {
   readonly name: string;
   readonly usageRule: string;
   readonly tokens: readonly string[];
+  /** The Standard owner's correction instruction, as authored; `null` when none. */
+  readonly correctionInstruction: string | null;
 }
 
 /** The design-system references of the set, in core order. */
@@ -128,6 +132,7 @@ export function planBoilerplate(set: EffectiveStandardSet): BoilerplatePlanResul
         category: stack.category,
         name: stack.name.trim(),
         versionConstraint: stack.versionConstraint,
+        correctionInstruction: stack.correctionInstruction,
       };
       if (stack.status === "required") required.push(item);
       else if (stack.status === "approved") approved.push(item);
@@ -142,7 +147,12 @@ export function planBoilerplate(set: EffectiveStandardSet): BoilerplatePlanResul
         (entry.status === "required" ? requiredTokens : prohibitedTokens).push(entry.name);
         break;
       case "component":
-        components.push({ name: entry.name, usageRule: entry.usageRule, tokens: [...entry.tokens] });
+        components.push({
+          name: entry.name,
+          usageRule: entry.usageRule,
+          tokens: [...entry.tokens],
+          correctionInstruction: entry.correctionInstruction,
+        });
         break;
     }
   }

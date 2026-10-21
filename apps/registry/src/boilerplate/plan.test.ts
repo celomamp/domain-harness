@@ -34,7 +34,8 @@ const stack = (
   name: string,
   status: "required" | "approved" | "prohibited",
   versionConstraint: string | null = null,
-): StandardEntry => ({ category, name, versionConstraint, status, correctionInstruction: null });
+  correctionInstruction: string | null = null,
+): StandardEntry => ({ category, name, versionConstraint, status, correctionInstruction });
 
 const set = (...entries: StandardEntry[]): EffectiveStandardSet => ({ project: PROJECT, standards: entries.map(effective) });
 
@@ -46,12 +47,12 @@ describe("planBoilerplate", () => {
         stack("library", "React", "required", "^19"),
         stack("framework", "@Remix-run/React", "required"),
         stack("library", "zod", "approved", "^3"),
-        stack("library", "lodash", "prohibited"),
+        stack("library", "lodash", "prohibited", null, "Use native\nArray methods."),
         { kind: "import", specifier: "@acme/ui", status: "required" },
         { kind: "import", specifier: "@old/ui", status: "prohibited" },
         { kind: "token", name: "color.brand", status: "required" },
         { kind: "token", name: "color.legacy", status: "prohibited" },
-        { kind: "component", name: "Button", usageRule: "Use for actions", tokens: ["color.brand"], correctionInstruction: null },
+        { kind: "component", name: "Button", usageRule: "Use for actions", tokens: ["color.brand"], correctionInstruction: "Use Button,\nnot a link." },
       ),
     );
     if (!result.ok) throw new Error(result.error.message);
@@ -59,14 +60,18 @@ describe("planBoilerplate", () => {
     expect(plan.dependencies).toEqual({ "@remix-run/react": "*", react: "^19" });
     expect(Object.keys(plan.dependencies)).toEqual(["@remix-run/react", "react"]);
     expect(plan.devDependencies).toEqual({ typescript: "~5.6" });
-    expect(plan.approved).toEqual([{ category: "library", name: "zod", versionConstraint: "^3" }]);
-    expect(plan.prohibited).toEqual([{ category: "library", name: "lodash", versionConstraint: null }]);
+    expect(plan.approved).toEqual([{ category: "library", name: "zod", versionConstraint: "^3", correctionInstruction: null }]);
+    expect(plan.prohibited).toEqual([
+      { category: "library", name: "lodash", versionConstraint: null, correctionInstruction: "Use native\nArray methods." },
+    ]);
     expect(plan.designSystem).toEqual({
       requiredImports: ["@acme/ui"],
       prohibitedImports: ["@old/ui"],
       requiredTokens: ["color.brand"],
       prohibitedTokens: ["color.legacy"],
-      components: [{ name: "Button", usageRule: "Use for actions", tokens: ["color.brand"] }],
+      components: [
+        { name: "Button", usageRule: "Use for actions", tokens: ["color.brand"], correctionInstruction: "Use Button,\nnot a link." },
+      ],
     });
   });
 

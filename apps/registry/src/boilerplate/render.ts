@@ -95,6 +95,14 @@ const ACCESS_TOKEN_RULE =
 const stackLine = (item: StackItem): string =>
   `- ${item.category} ${oneLine(item.name)}${item.versionConstraint === null ? "" : ` (${oneLine(item.versionConstraint)})`}`;
 
+/** A bullet, followed by an indented one-line `Correction:` when the entry carries one. */
+const withCorrection = (line: string, item: { readonly correctionInstruction: string | null }): string => {
+  const correction = item.correctionInstruction === null ? "" : oneLine(item.correctionInstruction);
+  return correction === "" ? line : `${line}\n  Correction: ${correction}`;
+};
+
+const stackBullet = (item: StackItem): string => withCorrection(stackLine(item), item);
+
 const bullets = (lines: readonly string[], none: string): string => (lines.length === 0 ? `- ${none}` : lines.join("\n"));
 
 const code = (text: string): string => `\`${oneLine(text).replace(/`/g, "'")}\``;
@@ -104,13 +112,15 @@ function renderInstructionsMd(applicationId: UuidV7, plan: BoilerplatePlan, mcpC
   const ds = plan.designSystem;
   const pinned = plan.required.map((item) => {
     const where = item.pin === null ? "no package" : `${item.pin.dev ? "devDependencies" : "dependencies"}.${oneLine(item.pin.packageName)} = "${oneLine(item.pin.version)}"`;
-    return `${stackLine(item)}: ${where}`;
+    return withCorrection(`${stackLine(item)}: ${where}`, item);
   });
-  const components = ds.components.map(
-    (component) =>
+  const components = ds.components.map((component) =>
+    withCorrection(
       `- ${oneLine(component.name)}: ${oneLine(component.usageRule)}${
         component.tokens.length === 0 ? "" : ` (tokens: ${component.tokens.map(code).join(", ")})`
       }`,
+      component,
+    ),
   );
   const sections = [
     "# Domain Harness",
@@ -133,11 +143,11 @@ function renderInstructionsMd(applicationId: UuidV7, plan: BoilerplatePlan, mcpC
     "",
     "Approved (not pinned; you may add them within their constraints):",
     "",
-    bullets(plan.approved.map(stackLine), "none"),
+    bullets(plan.approved.map(stackBullet), "none"),
     "",
     "Prohibited (never add them):",
     "",
-    bullets(plan.prohibited.map(stackLine), "none"),
+    bullets(plan.prohibited.map(stackBullet), "none"),
     "",
     "## Design system",
     "",

@@ -24,17 +24,27 @@ const plan: BoilerplatePlan = {
   dependencies: { react: "^19" },
   devDependencies: { typescript: "~5.6" },
   required: [
-    { category: "language", name: "TypeScript", versionConstraint: "~5.6", pin: { packageName: "typescript", version: "~5.6", dev: true } },
-    { category: "library", name: "React", versionConstraint: "^19", pin: { packageName: "react", version: "^19", dev: false } },
+    { category: "language", name: "TypeScript", versionConstraint: "~5.6", correctionInstruction: null, pin: { packageName: "typescript", version: "~5.6", dev: true } },
+    { category: "library", name: "React", versionConstraint: "^19", correctionInstruction: "Use React,\n  not Preact.", pin: { packageName: "react", version: "^19", dev: false } },
   ],
-  approved: [{ category: "library", name: "zod", versionConstraint: "^3" }],
-  prohibited: [{ category: "library", name: "lodash", versionConstraint: null }],
+  approved: [{ category: "library", name: "zod", versionConstraint: "^3", correctionInstruction: "Stay on zod 3." }],
+  prohibited: [
+    { category: "library", name: "lodash", versionConstraint: null, correctionInstruction: null },
+    {
+      category: "library",
+      name: "moment",
+      versionConstraint: null,
+      correctionInstruction: "Use date-fns instead of moment.\nReplace moment() with new Date().",
+    },
+  ],
   designSystem: {
     requiredImports: ["@acme/ui"],
     prohibitedImports: [],
     requiredTokens: ["color.brand"],
     prohibitedTokens: [],
-    components: [{ name: "Button", usageRule: "Use for\nactions", tokens: ["color.brand"] }],
+    components: [
+      { name: "Button", usageRule: "Use for\nactions", tokens: ["color.brand"], correctionInstruction: "Use Button,\n  not a link." },
+    ],
   },
 };
 
@@ -134,6 +144,38 @@ describe("Boilerplate renderers", () => {
     expect(text).toContain("- Button: Use for actions");
   });
 
+  it("renders each correction instruction as one indented line under its stack item", () => {
+    const text = renderClaudeMd(APP, plan);
+    expect(text).toContain(
+      "- library moment\n  Correction: Use date-fns instead of moment. Replace moment() with new Date().\n",
+    );
+    expect(text).toContain('- library React (^19): dependencies.react = "^19"\n  Correction: Use React, not Preact.\n');
+    expect(text).toContain("- library zod (^3)\n  Correction: Stay on zod 3.\n");
+  });
+
+  it("adds no Correction line to an entry without one", () => {
+    const text = renderClaudeMd(APP, plan);
+    expect(text).toContain("- library lodash\n- library moment");
+    expect(text).toContain('- language TypeScript (~5.6): devDependencies.typescript = "~5.6"\n- library React');
+    expect(text.match(/Correction:/g)).toHaveLength(4);
+  });
+
+  it("renders a component's correction as one indented line under its bullet", () => {
+    expect(renderClaudeMd(APP, plan)).toContain(
+      "- Button: Use for actions (tokens: `color.brand`)\n  Correction: Use Button, not a link.\n",
+    );
+  });
+
+  it("adds no Correction line to a component without one", () => {
+    for (const correctionInstruction of [null, "  \n "]) {
+      const bare = {
+        ...plan,
+        designSystem: { ...plan.designSystem, components: [{ name: "Card", usageRule: "Group", tokens: [], correctionInstruction }] },
+      };
+      expect(renderClaudeMd(APP, bare).endsWith("- Card: Group\n")).toBe(true);
+    }
+  });
+
   it("starts the skill with name and description frontmatter", () => {
     expect(renderClaudeSkill()).toMatch(/^---\nname: domain-harness-guidance\ndescription: .+\n---\n/);
   });
@@ -212,6 +254,7 @@ describe("Cursor renderers", () => {
     expect(text).toContain('library React (^19): dependencies.react = "^19"');
     expect(text).toContain("- library zod (^3)");
     expect(text).toContain("- library lodash");
+    expect(text).toContain("- library moment\n  Correction: Use date-fns instead of moment. Replace moment() with new Date().");
   });
 
   it("starts the Cursor skill with the same name and description frontmatter", () => {

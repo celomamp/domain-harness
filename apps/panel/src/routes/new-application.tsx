@@ -16,6 +16,7 @@ import {
   BoilerplateResultSection,
   GuidanceEndpointField,
   GuidanceEndpointForm,
+  GuidanceEndpointView,
   NEW_APPLICATION_COPY,
   NewApplicationForm,
   ProjectField,
@@ -317,6 +318,12 @@ export default function NewApplicationPage() {
       <GuidanceEndpointField state={undefined} submitted={endpointSubmitted} />
     </>
   );
+  const endpointViewUnavailable = (
+    <>
+      <Banner tone="denial">{endpointCopy.unavailable}</Banner>
+      <GuidanceEndpointView state={undefined} />
+    </>
+  );
   const currentStep = newApplicationStep(actionData);
   return (
     <div className="new-application-flow">
@@ -420,25 +427,37 @@ export default function NewApplicationPage() {
         </RegisterApplicationForm>
         {actionData?.registration === undefined ? null : <RegistrationResultSection rendering={actionData.registration} />}
       </section>
-      <SectionCard title="Company setup" action={<Badge tone="outline">Buyer</Badge>}>
-        <GuidanceEndpointForm placedId={actionData?.placedId}>
-          <Suspense
-            fallback={
-              <GuidanceEndpointField state={undefined} busy note={endpointCopy.loading} submitted={endpointSubmitted} />
-            }
-          >
-            <Await resolve={endpoint} errorElement={endpointUnavailable}>
+      {role === "Buyer" ? (
+        <SectionCard title="Company setup" action={<Badge tone="outline">Buyer</Badge>}>
+          <GuidanceEndpointForm placedId={actionData?.placedId}>
+            <Suspense
+              fallback={
+                <GuidanceEndpointField state={undefined} busy note={endpointCopy.loading} submitted={endpointSubmitted} />
+              }
+            >
+              <Await resolve={endpoint} errorElement={endpointUnavailable}>
+                {(result: RegistryResult<GuidanceEndpointState>) =>
+                  result.kind === "ok" ? (
+                    <GuidanceEndpointField state={result.value} submitted={endpointSubmitted} />
+                  ) : (
+                    endpointUnavailable
+                  )
+                }
+              </Await>
+            </Suspense>
+          </GuidanceEndpointForm>
+        </SectionCard>
+      ) : (
+        <SectionCard title={endpointCopy.heading}>
+          <Suspense fallback={<GuidanceEndpointView state={undefined} busy note={endpointCopy.loading} />}>
+            <Await resolve={endpoint} errorElement={endpointViewUnavailable}>
               {(result: RegistryResult<GuidanceEndpointState>) =>
-                result.kind === "ok" ? (
-                  <GuidanceEndpointField state={result.value} submitted={endpointSubmitted} />
-                ) : (
-                  endpointUnavailable
-                )
+                result.kind === "ok" ? <GuidanceEndpointView state={result.value} /> : endpointViewUnavailable
               }
             </Await>
           </Suspense>
-        </GuidanceEndpointForm>
-      </SectionCard>
+        </SectionCard>
+      )}
     </div>
   );
 }
