@@ -42,7 +42,9 @@ const plan: BoilerplatePlan = {
     prohibitedImports: [],
     requiredTokens: ["color.brand"],
     prohibitedTokens: [],
-    components: [{ name: "Button", usageRule: "Use for\nactions", tokens: ["color.brand"] }],
+    components: [
+      { name: "Button", usageRule: "Use for\nactions", tokens: ["color.brand"], correctionInstruction: "Use Button,\n  not a link." },
+    ],
   },
 };
 
@@ -155,7 +157,23 @@ describe("Boilerplate renderers", () => {
     const text = renderClaudeMd(APP, plan);
     expect(text).toContain("- library lodash\n- library moment");
     expect(text).toContain('- language TypeScript (~5.6): devDependencies.typescript = "~5.6"\n- library React');
-    expect(text.match(/Correction:/g)).toHaveLength(3);
+    expect(text.match(/Correction:/g)).toHaveLength(4);
+  });
+
+  it("renders a component's correction as one indented line under its bullet", () => {
+    expect(renderClaudeMd(APP, plan)).toContain(
+      "- Button: Use for actions (tokens: `color.brand`)\n  Correction: Use Button, not a link.\n",
+    );
+  });
+
+  it("adds no Correction line to a component without one", () => {
+    for (const correctionInstruction of [null, "  \n "]) {
+      const bare = {
+        ...plan,
+        designSystem: { ...plan.designSystem, components: [{ name: "Card", usageRule: "Group", tokens: [], correctionInstruction }] },
+      };
+      expect(renderClaudeMd(APP, bare).endsWith("- Card: Group\n")).toBe(true);
+    }
   });
 
   it("starts the skill with name and description frontmatter", () => {

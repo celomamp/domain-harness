@@ -46,6 +46,8 @@ export interface ComponentReference {
   readonly name: string;
   readonly usageRule: string;
   readonly tokens: readonly string[];
+  /** The Standard owner's correction instruction, as authored; `null` when none. */
+  readonly correctionInstruction: string | null;
 }
 
 /** The design-system references of the set, in core order. */
@@ -145,7 +147,12 @@ export function planBoilerplate(set: EffectiveStandardSet): BoilerplatePlanResul
         (entry.status === "required" ? requiredTokens : prohibitedTokens).push(entry.name);
         break;
       case "component":
-        components.push({ name: entry.name, usageRule: entry.usageRule, tokens: [...entry.tokens] });
+        components.push({
+          name: entry.name,
+          usageRule: entry.usageRule,
+          tokens: [...entry.tokens],
+          correctionInstruction: entry.correctionInstruction,
+        });
         break;
     }
   }

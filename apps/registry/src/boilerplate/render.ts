@@ -95,8 +95,8 @@ const ACCESS_TOKEN_RULE =
 const stackLine = (item: StackItem): string =>
   `- ${item.category} ${oneLine(item.name)}${item.versionConstraint === null ? "" : ` (${oneLine(item.versionConstraint)})`}`;
 
-/** A stack bullet, followed by an indented one-line `Correction:` when the entry carries one. */
-const withCorrection = (line: string, item: StackItem): string => {
+/** A bullet, followed by an indented one-line `Correction:` when the entry carries one. */
+const withCorrection = (line: string, item: { readonly correctionInstruction: string | null }): string => {
   const correction = item.correctionInstruction === null ? "" : oneLine(item.correctionInstruction);
   return correction === "" ? line : `${line}\n  Correction: ${correction}`;
 };
@@ -114,11 +114,13 @@ function renderInstructionsMd(applicationId: UuidV7, plan: BoilerplatePlan, mcpC
     const where = item.pin === null ? "no package" : `${item.pin.dev ? "devDependencies" : "dependencies"}.${oneLine(item.pin.packageName)} = "${oneLine(item.pin.version)}"`;
     return withCorrection(`${stackLine(item)}: ${where}`, item);
   });
-  const components = ds.components.map(
-    (component) =>
+  const components = ds.components.map((component) =>
+    withCorrection(
       `- ${oneLine(component.name)}: ${oneLine(component.usageRule)}${
         component.tokens.length === 0 ? "" : ` (tokens: ${component.tokens.map(code).join(", ")})`
       }`,
+      component,
+    ),
   );
   const sections = [
     "# Domain Harness",

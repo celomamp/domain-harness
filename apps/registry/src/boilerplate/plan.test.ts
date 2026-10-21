@@ -52,7 +52,7 @@ describe("planBoilerplate", () => {
         { kind: "import", specifier: "@old/ui", status: "prohibited" },
         { kind: "token", name: "color.brand", status: "required" },
         { kind: "token", name: "color.legacy", status: "prohibited" },
-        { kind: "component", name: "Button", usageRule: "Use for actions", tokens: ["color.brand"], correctionInstruction: null },
+        { kind: "component", name: "Button", usageRule: "Use for actions", tokens: ["color.brand"], correctionInstruction: "Use Button,\nnot a link." },
       ),
     );
     if (!result.ok) throw new Error(result.error.message);
@@ -69,7 +69,9 @@ describe("planBoilerplate", () => {
       prohibitedImports: ["@old/ui"],
       requiredTokens: ["color.brand"],
       prohibitedTokens: ["color.legacy"],
-      components: [{ name: "Button", usageRule: "Use for actions", tokens: ["color.brand"] }],
+      components: [
+        { name: "Button", usageRule: "Use for actions", tokens: ["color.brand"], correctionInstruction: "Use Button,\nnot a link." },
+      ],
     });
   });
 
