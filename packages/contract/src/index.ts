@@ -235,6 +235,14 @@ export type {
   UnreadableFile,
 } from "./facts.ts";
 export {
+  GATE_RUN_MAX_BODY_BYTES,
+  GATE_RUN_PATH,
+  isCommitSha,
+  isGateRunRequest,
+  isGateRunResult,
+} from "./gate-runs.ts";
+export type { GateRunKind, GateRunRequest, GateRunResult } from "./gate-runs.ts";
+export {
   BUNDLE_API_PATHS,
   BUNDLE_FORMAT_VERSION,
   BUNDLE_TYPE,

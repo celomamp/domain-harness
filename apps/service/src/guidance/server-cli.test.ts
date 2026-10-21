@@ -19,9 +19,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { canonicalJson, encodeRoleTokenBody, GUIDANCE_IDENTITY_HEADERS, toBase64Url } from "@domain-harness/contract";
+import { canonicalJson, encodeRoleTokenBody, GATE_RUN_PATH, GUIDANCE_IDENTITY_HEADERS, toBase64Url } from "@domain-harness/contract";
 import type { GuidanceToolResult, StandardBundlePayload, UuidV7 } from "@domain-harness/contract";
-import { createGuidanceHttpServer } from "./server-cli.ts";
+import { extractRevisionFacts } from "@domain-harness/extractor";
+import { createCollector, createGuidanceHttpServer } from "./server-cli.ts";
 import type { LogEvent } from "./server-cli.ts";
 import { createPostgresGuidanceEventStore } from "./events.ts";
 import { migrate } from "../db/migrate.ts";
@@ -513,5 +514,141 @@ describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-
       .toMatchObject({ retentionDays: 90, deleted: 0 });
     const { rows } = await owner.query<{ n: number }>("select count(*)::int as n from guidance_events");
     expect(rows[0]?.n).toBe(1);
+  });
+});
+
+describe.skipIf(dbAdminUrl === undefined || dbAdminUrl === "")("guidance server-cli: hosted Gate run wiring against PostgreSQL", () => {
+  const database = `dh_service_guidance_gate_run_test_${randomBytes(6).toString("hex")}`;
+  const ACCESS_TOKEN = randomBytes(24).toString("hex");
+  const STD_MOMENT = "018f3d2a-7000-7000-8000-000000000133" as UuidV7;
+  const REVISION = "b".repeat(40);
+  let admin: pg.Client;
+  let owner: pg.Client;
+  let pool: pg.Pool;
+  let server: HttpServer;
+  let url: string;
+  const logs: LogEvent[] = [];
+
+  beforeAll(async () => {
+    admin = new pg.Client({ connectionString: dbAdminUrl });
+    await admin.connect();
+    await admin.query(`create database ${database}`);
+    const dbUrl = withDatabase(dbAdminUrl ?? "", database);
+    owner = new pg.Client({ connectionString: dbUrl });
+    await owner.connect();
+    await migrate(owner);
+
+    pool = createPool(dbUrl);
+    const payload: StandardBundlePayload = {
+      ...makeBundlePayload({ keyId: "guidance-gate-run-test-key", sequence: 1, issuedAt: new Date().toISOString() }),
+      frozen: false,
+      standards: [
+        {
+          ...libraryStandard(STD_MOMENT, "moment"),
+          entry: { category: "library", name: "moment", versionConstraint: null, status: "prohibited", correctionInstruction: "use date-fns" },
+        },
+      ],
+      tree: {
+        rootId: ROOT,
+        projects: [
+          { id: ROOT, name: "Root", levelName: null, parentId: null, createdAt: ISSUED },
+          { id: WEB, name: "Web", levelName: null, parentId: ROOT, createdAt: ISSUED },
+        ],
+        lockedRules: [],
+      },
+      applications: [{ id: APP, projectId: WEB, fromFlow: true, agentTool: "claude-code" }],
+      acceptedDeviations: [],
+    };
+    const signed = signPayload(payload, makeSigningKey("guidance-gate-run-test-key"));
+    await createPostgresBundleRecordStore(pool).activate(signed, bundleHashOf(signed), TENANT as UuidV7);
+
+    const port = await freePort();
+    const config = {
+      tenantId: TENANT as UuidV7,
+      recordDatabaseUrl: dbUrl,
+      readCredential: READ_CREDENTIAL,
+      port,
+      registryUrl: "http://registry.test",
+      registryCredential: "tenant-credential",
+      tokenTrustSet: new Map([[ROLE_KEY.keyId, createPublicKey(ROLE_KEY.publicKeyPem)]]),
+      mcpAccessToken: ACCESS_TOKEN,
+    };
+    const log = (event: LogEvent): void => {
+      logs.push(event);
+    };
+    server = createGuidanceHttpServer(config, pool, log, null, createCollector(config, pool, log));
+    await new Promise<void>((resolve) => {
+      server.listen(port, "127.0.0.1", () => {
+        resolve();
+      });
+    });
+    url = `http://127.0.0.1:${String(port)}${GATE_RUN_PATH}`;
+  }, 60_000);
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    await pool.end();
+    await owner.end();
+    await admin.query(`drop database if exists ${database} with (force)`);
+    await admin.end();
+  }, 60_000);
+
+  function post(headers: Record<string, string>): Promise<Response> {
+    const facts = extractRevisionFacts({ "package.json": JSON.stringify({ name: "portal", dependencies: { moment: "2.30.1" } }) });
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ revision: REVISION, facts }),
+    });
+  }
+
+  it("refuses a request without the access token with the one 401 envelope", async () => {
+    const response = await post(BOUND_HEADERS);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe("Bearer");
+    expect(await response.json()).toEqual({ code: "session_invalid", message: "the Guidance access token is not valid", subject: "session" });
+    const { rows } = await owner.query<{ n: number }>("select count(*)::int as n from gate_runs");
+    expect(rows[0]?.n).toBe(0);
+  });
+
+  it("records the run in gate_runs, enqueues one gate_run Compilation and answers the Gate result", async () => {
+    const response = await post({ ...BOUND_HEADERS, Authorization: `Bearer ${ACCESS_TOKEN}` });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      kind: "fail",
+      exitCode: 1,
+      sentence: "fail",
+      deviationLines: [`${STD_MOMENT} code-stack/library/moment moment: use date-fns`],
+    });
+
+    const runs = await owner.query<Record<string, unknown>>("select application_id, revision, open_count from gate_runs");
+    expect(runs.rows).toEqual([{ application_id: APP, revision: REVISION, open_count: 1 }]);
+    const outbox = await owner.query<{ application_id: string; payload: Record<string, unknown> }>(
+      "select application_id, payload from collector_outbox",
+    );
+    expect(outbox.rows).toHaveLength(1);
+    expect(outbox.rows[0]?.application_id).toBe(APP);
+    expect(outbox.rows[0]?.payload).toMatchObject({ type: "gate_run", revision: REVISION, verdict: "fail", openCount: 1, agentToolName: "claude-code" });
+
+    expect(logs).toContainEqual({ event: "gate_run", applicationId: APP, kind: "fail", checked: expect.any(Number) as unknown, open: 1 });
+    expect(logs).toContainEqual(expect.objectContaining({ event: "http_request", route: "gate_run", status: 200 }));
+    expect(JSON.stringify(logs)).not.toContain("moment");
+  });
+
+  it("refuses a copied fingerprint through the shared binding and records the refusal", async () => {
+    const response = await post({
+      ...BOUND_HEADERS,
+      [HEADER_KEYS.repoFingerprint]: "2".repeat(64),
+      Authorization: `Bearer ${ACCESS_TOKEN}`,
+    });
+    expect(await response.json()).toEqual({ kind: "refusal", exitCode: 1, sentence: "duplicate Application id", deviationLines: [] });
+    const refusals = await owner.query<{ n: number }>("select count(*)::int as n from binding_refusals where application_id = $1", [APP]);
+    expect(refusals.rows[0]?.n).toBe(1);
+    const runs = await owner.query<{ n: number }>("select count(*)::int as n from gate_runs");
+    expect(runs.rows[0]?.n).toBe(1);
   });
 });
