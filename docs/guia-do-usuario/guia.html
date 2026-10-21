@@ -415,7 +415,7 @@
       <p>No piloto, o serviço de orientações só responde a quem envia o token de acesso da empresa. A equipe do piloto entrega esse valor a cada Builder; ele nunca vem dentro do kit. Guarde-o na variável de ambiente <code>DH_GUIDANCE_TOKEN</code>, no ambiente de onde o agente é aberto:</p>
       <ul>
         <li><b>Claude Code:</b> acrescente <code>export DH_GUIDANCE_TOKEN="&lt;token recebido&gt;"</code> ao perfil do seu shell (por exemplo <code>~/.zshrc</code>), abra um terminal novo e inicie o Claude Code nele.</li>
-        <li><b>Cursor aberto pelo Dock ou pelo menu:</b> o Cursor não lê o perfil do shell. No macOS, rode <code>launchctl setenv DH_GUIDANCE_TOKEN "&lt;token recebido&gt;"</code> e reabra o Cursor; ou abra o Cursor a partir de um terminal que já tenha a variável (<code>cursor .</code>).</li>
+        <li><b>Cursor aberto pelo Dock ou pelo menu:</b> o Cursor não lê o perfil do shell. No macOS, rode <code>launchctl setenv DH_GUIDANCE_TOKEN "&lt;token recebido&gt;"</code> e reabra o Cursor; ou abra o Cursor a partir de um terminal que já tenha a variável (<code>cursor .</code>). O <code>launchctl setenv</code> vale só até você encerrar a sessão ou reiniciar o Mac: depois disso, repita o comando (ou abra o Cursor pelo terminal).</li>
       </ul>
       <p>Sem o token, o agente não consegue consultar os padrões. Se a equipe do piloto trocar o token, atualize a variável e reinicie o agente.</p>
       <div class="grid grid--2">
