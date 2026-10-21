@@ -487,7 +487,9 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
       expect(loading.closest("[aria-busy]")).not.toBeNull();
       expect(screen.queryByLabelText("Guidance endpoint URL")).toBeNull();
       cleanup();
-      renderPage(role, Promise.resolve(ok(tree)), Promise.reject(new Error("down")));
+      const failed = Promise.reject(new Error("down"));
+      failed.catch(() => undefined);
+      renderPage(role, Promise.resolve(ok(tree)), failed);
       expect(await screen.findByText("The Guidance endpoint is unavailable right now. Try again in a few minutes.")).toBeTruthy();
       expect(screen.getByText("Ask the Buyer to set or change the Company Guidance endpoint.")).toBeTruthy();
       expect(screen.queryByLabelText("Guidance endpoint URL")).toBeNull();
