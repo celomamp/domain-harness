@@ -450,8 +450,8 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     return fetch;
   }
 
-  it("shows the endpoint form to every role, with Not set. and a secondary button", async () => {
-    renderPage("Builder", Promise.resolve(ok(tree)));
+  it("shows the Buyer the endpoint form, with Not set. and a secondary button", async () => {
+    renderPage("Buyer", Promise.resolve(ok(tree)));
     expect(await screen.findByText("Not set.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Company Guidance endpoint" })).toBeTruthy();
     const companySetup = screen.getByRole("heading", { name: "Company setup" }).closest(".section-card");
@@ -461,6 +461,33 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     expect(screen.getByRole("button", { name: "Set the Guidance endpoint" }).className).toBe("button-inverse");
     expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Generate the Boilerplate" })).toBeNull();
+  });
+
+  it.each(["Builder", "Standard owner"] as const)(
+    "shows a %s the endpoint read-only: no field, no Set button, and who to ask",
+    async (role) => {
+      renderPage(role, Promise.resolve(ok(tree)), Promise.resolve(ok({ url: URL_A, changedAt: AT })));
+      expect(await screen.findByText(`Current endpoint: ${URL_A}`)).toBeTruthy();
+      const card = screen.getByRole("heading", { name: "Company Guidance endpoint" }).closest(".section-card");
+      expect(card).not.toBeNull();
+      expect(within(card as HTMLElement).getByText("Ask the Buyer to set or change the Company Guidance endpoint.")).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Company setup" })).toBeNull();
+      expect(screen.queryByLabelText("Guidance endpoint URL")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Set the Guidance endpoint" })).toBeNull();
+      expect(document.querySelector("input[name=intent][value=guidance-endpoint]")).toBeNull();
+    },
+  );
+
+  it("shows a Builder Not set. when the Company has no endpoint", async () => {
+    renderPage("Builder", Promise.resolve(ok(tree)));
+    const card = (await screen.findByText("Not set.")).closest(".section-card") as HTMLElement;
+    expect(within(card).getByText("Ask the Buyer to set or change the Company Guidance endpoint.")).toBeTruthy();
+  });
+
+  it("tells a Builder when the endpoint is unavailable, with the same banner", async () => {
+    renderPage("Builder", Promise.resolve(ok(tree)), Promise.resolve({ kind: "unavailable" }));
+    expect(await screen.findByText("The Guidance endpoint is unavailable right now. Try again in a few minutes.")).toBeTruthy();
+    expect(screen.queryByLabelText("Guidance endpoint URL")).toBeNull();
   });
 
   it("fills the field with the current URL", async () => {
@@ -492,9 +519,9 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     expect(init.body).toBe(JSON.stringify({ url: URL_A }));
   });
 
-  it("announces a denial when a Builder sets the endpoint, keeping the value", async () => {
+  it("announces a denial when the registry refuses the set, keeping the value", async () => {
     registry([403, { code: "role_denied", message: "m", subject: "role" }]);
-    renderPage("Builder", Promise.resolve(ok(tree)));
+    renderPage("Buyer", Promise.resolve(ok(tree)));
     fireEvent.change(await screen.findByLabelText("Guidance endpoint URL"), { target: { value: URL_A } });
     fireEvent.click(screen.getByRole("button", { name: "Set the Guidance endpoint" }));
     await waitFor(() => {
