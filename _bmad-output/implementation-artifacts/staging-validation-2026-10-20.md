@@ -81,6 +81,28 @@ New findings from this run:
 10. **The Collector was never wired into the deployed service** — no Guidance event or Gate run could ever reach the panel. Fixed for Guidance events (guidance server enqueues to the outbox, 30 s flusher).
 11. **Boilerplate generation did not rebuild the bundle**, so a freshly generated Application had no agent tool in the bundle and the Collector skipped all its events. Fixed (generation now builds the bundle; the bundles DB test was updated from the old pinned behavior).
 12. **The Gate matches code-stack Standards to packages by exact, case-sensitive name** (`packages/core/src/evaluate.ts`, documented as a design choice), while Guidance matches casefold. A Standard named "TypeScript" (the guide's example) is never satisfied by the `typescript` package, so a fresh kit **fails** the Gate; and a prohibited "React" would **not** catch `react`. **Resolved 2026-10-21:** code-stack matching is now casefold (trimmed, NFC, lowercase) in the core, as in Guidance; released in `pilot-0.2`. On staging the kit's "TypeScript" is met by `typescript`, `moment` is still caught, and the revision without it passes.
-13. **Gate runs still never reach the panel:** the CI Gate (`apps/service/src/ci-gate/gate-cli.ts`) has no Collector, needs the Company record store, and needs a pre-resolved snapshot file nothing produces; the offline CLI records nothing. In the hosted pilot model the Builder's CI cannot reach the record store, so Gate evidence needs a design (e.g. a token-gated Gate-run ingest on the guidance server).
+13. **Gate runs still never reach the panel:** the CI Gate (`apps/service/src/ci-gate/gate-cli.ts`) has no Collector, needs the Company record store, and needs a pre-resolved snapshot file nothing produces; the offline CLI records nothing. In the hosted pilot model the Builder's CI cannot reach the record store, so Gate evidence needs a design (e.g. a token-gated Gate-run ingest on the guidance server). **Resolved 2026-10-21** (PR #2, see below).
 14. One `npx` start of the bridge timed out once (download), then worked; first-run latency of `npx <tarball URL>` is worth noting for pilots.
 15. An orphan service-credential row exists for Demo Pilot (a first mint whose value was lost); harmless, nobody holds the token.
+
+## Follow-up 2026-10-21: hosted Gate runs (finding 13)
+
+Decisions put to the user first: evaluation is **server-side** (the server's bundle, acceptances and staleness are authoritative; the verdict is not self-reported), and the revision's **facts may leave the Company in the hosted pilot** (dependency names and versions, import specifiers, design-token names; never file contents or paths), documented as a pilot-only exception.
+
+Built (PR #2): `POST /v1/gate-runs` on the guidance server behind the `/mcp` Bearer gate (Story 4.3 identity on the shared bindings, `joinEffectiveSet`, `runGate`, `gate_runs` append, Collector enqueue), and `domain-harness gate --endpoint <url>` in the CLI, released as `pilot-0.3`. The guidance app was deployed by hand from the PR branch (release v7). The pilot access token was **rotated** on 2026-10-21 (the old value could not be recovered); every Builder must update `DH_GUIDANCE_TOKEN`.
+
+| Step | Result |
+| --- | --- |
+| Gate-run route from the internet: no token / wrong token / new token with an empty body | 401 / 401 / 400 `invalid_input` |
+| Hosted Gate, revision `4c4652c` of the bound "VAL E2E agente 2" repo with `moment` added (CLI from the branch) | `fail`, exit 1, **two** Deviation lines: moment (code-stack, authored correction) and moment (design-system PrimaryButton allow-list, finding 16) |
+| Server log | `gate_run` with id, kind and counts only (`checked 4, open 2`); `collector_flush sent 1` 9 s later |
+| Application page | Pass: "No Gate run yet" replaced by Gate verdict fail, 2 open, Adherence 2 of 4; History "Gate run, Sequence 5" |
+| Accept the moment code-stack Deviation from its row (Buyer) | Pass: Accepted deviation recorded, 21 Oct to 21 Nov 2026, alert 24 h; daemon activated bundle 22 a minute later |
+| Same revision again, `pilot-0.3` CLI from the release tarball | `fail`, exit 1, one line (PrimaryButton) — moment no longer reported; panel shows the moment row **accepted** ("End date 2026-11-21"), 1 open, Adherence 3 of 4, Gate run Sequence 6 |
+
+New findings:
+
+16. **Any import fails the component allow-list once a design system has a component Standard.** `evaluateDeviations` (`packages/core/src/evaluate.ts`, component allow-list) treats the last path segment of *every* import specifier as a component use, so `moment` — and `react`, `date-fns`, any npm import — is a Deviation of the `PrimaryButton` Standard in "VAL Portal do Cliente". The hosted Gate faithfully reproduces it (the offline CLI and CI Gate share the evaluator), but it means no real revision of that Project can pass. The allow-list should only consider imports from the design system's own package(s).
+17. The Accept link on the Application page did not navigate on a click from the built-in browser once (opened directly by its URL); not reproduced further, worth a look.
+
+Test data added on staging (Demo Pilot): two Gate runs and one Accepted deviation (moment, until 2026-11-21) on "VAL E2E agente 2 (evidencia)".
