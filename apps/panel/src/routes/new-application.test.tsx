@@ -461,6 +461,7 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
     expect(screen.getByRole("button", { name: "Set the Guidance endpoint" }).className).toBe("button-inverse");
     expect(document.querySelectorAll(".button-primary")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Generate the Boilerplate" })).toBeNull();
+    expect(screen.queryByText("Ask the Buyer to set or change the Company Guidance endpoint.")).toBeNull();
   });
 
   it.each(["Builder", "Standard owner"] as const)(
@@ -475,6 +476,22 @@ describe("Boilerplate and Guidance endpoint on the New-application flow", () => 
       expect(screen.queryByLabelText("Guidance endpoint URL")).toBeNull();
       expect(screen.queryByRole("button", { name: "Set the Guidance endpoint" })).toBeNull();
       expect(document.querySelector("input[name=intent][value=guidance-endpoint]")).toBeNull();
+    },
+  );
+
+  it.each(["Builder", "Standard owner"] as const)(
+    "keeps a %s's read-only endpoint card while it loads, and says when it is unavailable",
+    async (role) => {
+      renderPage(role, Promise.resolve(ok(tree)), new Promise(() => undefined));
+      const loading = await screen.findByText("Loading the Guidance endpoint…");
+      expect(loading.closest("[aria-busy]")).not.toBeNull();
+      expect(screen.queryByLabelText("Guidance endpoint URL")).toBeNull();
+      cleanup();
+      renderPage(role, Promise.resolve(ok(tree)), Promise.reject(new Error("down")));
+      expect(await screen.findByText("The Guidance endpoint is unavailable right now. Try again in a few minutes.")).toBeTruthy();
+      expect(screen.getByText("Ask the Buyer to set or change the Company Guidance endpoint.")).toBeTruthy();
+      expect(screen.queryByLabelText("Guidance endpoint URL")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Set the Guidance endpoint" })).toBeNull();
     },
   );
 
