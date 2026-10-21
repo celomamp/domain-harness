@@ -472,7 +472,11 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
       await publish(codeStack, { category: "language", name: "TypeScript", versionConstraint: "~5.6", status: "required" }, h.id);
       await publish(codeStack, { category: "library", name: "React", versionConstraint: "^19", status: "required" }, h.id);
       await publish(codeStack, { category: "library", name: "zod", versionConstraint: "^3", status: "approved" }, h.id);
-      await publish(codeStack, { category: "library", name: "lodash", status: "prohibited" }, h.id);
+      await publish(
+        codeStack,
+        { category: "library", name: "lodash", status: "prohibited", correctionInstruction: "Use native\nArray methods." },
+        h.id,
+      );
       await publish(designSystem, { kind: "import", specifier: "@acme/ui", status: "required" }, h.id);
       await publish(designSystem, { kind: "token", name: "color.brand", status: "required" }, h.id);
       happy = await placed("Happy app", h.id);
@@ -516,7 +520,7 @@ describe.skipIf(adminUrl === undefined || adminUrl === "")("Guidance endpoint an
         expect(content(path).toLowerCase()).toContain("make an initial commit before calling guidance");
       }
       expect(content("CLAUDE.md")).toContain("zod");
-      expect(content("CLAUDE.md")).toContain("lodash");
+      expect(content("CLAUDE.md")).toContain("- library lodash\n  Correction: Use native Array methods.\n");
     });
 
     it("is open to every role and deterministic: identical archives for the same request", async () => {
