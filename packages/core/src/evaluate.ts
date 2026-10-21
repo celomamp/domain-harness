@@ -11,10 +11,14 @@
  * approved or required entry whose fact fails a non-empty version constraint —
  * or whose version cannot be resolved to a concrete version — each yield one
  * Deviation, failing closed. Design-system token and import entries map token
- * and import facts by exact name; component usage is detected from import
- * specifiers (a specifier equal to the component name or ending with
- * `/<name>`, case-insensitively) and any detected component outside the
- * allow-list — the union of component-entry names — is a Deviation.
+ * and import facts by exact name. Component usage is detected only from
+ * design-system import specifiers: a specifier under the specifier of a
+ * required design-system import entry (`<root>/…`) uses the component named
+ * by its last path segment, case-insensitively, and any detected component
+ * outside the allow-list — the union of component-entry names — is a
+ * Deviation. npm libraries, relative paths and the package root itself never
+ * count as component uses; with no required import entry in the set, nothing
+ * is detected.
  *
  * Pure: no I/O, no clock, no network. Identical inputs produce a byte-identical
  * result whatever the order of the inputs' arrays.
@@ -242,6 +246,22 @@ const authoredOr = (authored: string | null, generated: string): string =>
 const isComponentEntry = (entry: unknown): entry is ComponentEntry =>
   isDesignSystemEntry(entry) && entry.kind === "component";
 
+/**
+ * The design-system roots: the specifiers of the set's required
+ * design-system import entries, trailing slashes dropped. A prohibited import
+ * is not the design system and yields its own Deviation instead.
+ */
+function designSystemRoots(ordered: readonly EffectiveStandard[]): readonly string[] {
+  const roots: string[] = [];
+  for (const effective of ordered) {
+    const entry = effective.standard.entry;
+    if (!isDesignSystemEntry(entry) || entry.kind !== "import" || entry.status !== "required") continue;
+    const root = entry.specifier.replace(/\/+$/, "");
+    if (root !== "") roots.push(root);
+  }
+  return roots;
+}
+
 /** Whether an acceptance lets a finding through: the five key fields equal, and `start <= now < end`. */
 function acceptanceCovers(acceptance: AcceptedDeviation, finding: Finding, applicationId: UuidV7, nowMs: number): boolean {
   if (acceptance.applicationId !== applicationId) return false;
@@ -430,10 +450,13 @@ export function evaluateDeviations(input: EvaluateInput): EvaluateResult {
 
   // Component allow-list: the union of the component entries' names. With no
   // component entry in the set the allow-list constrains nothing. Component
-  // usage is detected from import specifiers case-insensitively (a specifier
-  // equal to the component name, or ending with `/<name>`: the trailing path
-  // segment). Every detected component outside the union is a Deviation,
-  // attributed to the contributing Standard with the lowest Standard id.
+  // usage is detected only from specifiers that come from the design system:
+  // those under a required design-system import entry's specifier (the root,
+  // `<root>/<path>`), whose last path segment names the component,
+  // case-insensitively. Any other import (`moment`, `react`, `./helpers`, the
+  // bare root) is not a component use. Every detected component outside the
+  // union is a Deviation, attributed to the contributing Standard with the
+  // lowest Standard id.
   const contributors = ordered
     .filter((effective) => isComponentEntry(effective.standard.entry))
     .sort((a, b) => compare(a.standard.id, b.standard.id));
@@ -447,8 +470,10 @@ export function evaluateDeviations(input: EvaluateInput): EvaluateResult {
       // Deduplicated case-insensitively; the subject keeps the spelling from
       // the lexicographically smallest specifier, so no answer depends on the
       // order of the facts.
+      const roots = designSystemRoots(ordered);
       const detected = new Map<string, string>();
       for (const fact of [...input.facts.imports].sort(bySpecifier)) {
+        if (!roots.some((root) => fact.specifier.startsWith(`${root}/`))) continue;
         const segment = fact.specifier.slice(fact.specifier.lastIndexOf("/") + 1);
         if (segment === "") continue; // a trailing slash names no component
         const key = segment.toLowerCase();

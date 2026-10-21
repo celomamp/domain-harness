@@ -329,11 +329,32 @@ export const gateFixtures: readonly GateFixture[] = [
     expectation: { kind: "fail", refusalReason: null },
   },
   {
+    // Only imports under the required design-system import are component
+    // uses: the npm libraries and the listed Button pass (finding 16).
+    name: "pass-libraries-and-listed-component",
+    applicationId: GATE_APP_ID,
+    repoFingerprint: GATE_FINGERPRINT_A,
+    files: {
+      "src/index.ts":
+        'import moment from "moment";\nimport { useState } from "react";\nimport "@org/design-system";\nimport Button from "@org/design-system/Button";',
+    },
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, { effectiveSet: { project: gateProjectRef, standards: [allowListComponent, requiredImport] } }),
+    },
+    now: GATE_NOW,
+    boundFingerprint: null,
+    expectation: { kind: "pass", refusalReason: null },
+  },
+  {
     name: "fail-component-outside-allow-list",
     applicationId: GATE_APP_ID,
     repoFingerprint: GATE_FINGERPRINT_A,
-    files: { "src/index.ts": 'import "./components/Widget";' },
-    bundle: { variant: "snapshot", snapshot: fixtureSnapshot(GATE_NOW, { effectiveSet: { project: gateProjectRef, standards: [allowListComponent] } }) },
+    files: { "src/index.ts": 'import "@org/design-system";\nimport Widget from "@org/design-system/Widget";' },
+    bundle: {
+      variant: "snapshot",
+      snapshot: fixtureSnapshot(GATE_NOW, { effectiveSet: { project: gateProjectRef, standards: [allowListComponent, requiredImport] } }),
+    },
     now: GATE_NOW,
     boundFingerprint: null,
     expectation: { kind: "fail", refusalReason: null },

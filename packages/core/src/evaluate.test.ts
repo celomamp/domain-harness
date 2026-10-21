@@ -532,21 +532,38 @@ describe("evaluateDeviations — design-system checks", () => {
     expect(result).toMatchObject({ ok: true, deviations: [], checked: 3, adherence: 1 });
   });
 
-  it("matches component usage from specifiers: equal, or ending with /<name>, case-insensitively", () => {
-    const button = designStandard(nextId(), 1, {
+  const designSystemRoot = (specifier = "@acme/ui"): EffectiveStandard =>
+    designStandard(nextId(), 1, { kind: "import", specifier, status: "required" });
+  const buttonComponent = (): EffectiveStandard =>
+    designStandard(nextId(), 1, {
       kind: "component",
       name: "Button",
       usageRule: "Use the shared button.",
       tokens: [],
       correctionInstruction: null,
     });
+
+  it("detects components only under a required design-system import, by last segment, case-insensitively", () => {
+    const button = buttonComponent();
+    const root = designSystemRoot();
     const facts: Partial<RevisionFacts> = {
-      imports: [imp("button"), imp("@acme/ui/button"), imp("DatePicker"), imp("./DatePicker")],
+      imports: [
+        imp("@acme/ui"),
+        imp("@acme/ui/button"),
+        imp("@acme/ui/forms/Button"),
+        imp("@acme/ui/DatePicker"),
+        imp("@acme/ui/datepicker"),
+        imp("@acme/uikit/Modal"),
+        imp("DatePicker"),
+        imp("./DatePicker"),
+      ],
     };
-    const result = evaluate([button], facts);
+    const result = evaluate([button, root], facts);
     if (!result.ok) return;
-    // "button" (equal) and "@acme/ui/button" (trailing segment) are allow-listed;
-    // "DatePicker" and "./DatePicker" are two spellings of one outside component.
+    // "button" and "forms/Button" are allow-listed; the two "DatePicker"
+    // spellings under the root are one outside component. "@acme/uikit/Modal"
+    // only shares a prefix with the root, and "DatePicker" and "./DatePicker"
+    // do not come from the design system: none of them is a component use.
     expect(result.deviations).toHaveLength(1);
     expect(result.deviations[0]).toMatchObject({
       standardId: button.standard.id,
@@ -557,25 +574,49 @@ describe("evaluateDeviations — design-system checks", () => {
     });
   });
 
-  it("treats a specifier ending in a slash as naming no component", () => {
-    const button = designStandard(nextId(), 1, {
+  it("passes a revision that imports only npm libraries and listed components (finding 16)", () => {
+    const primary = designStandard(nextId(), 1, {
       kind: "component",
-      name: "Button",
-      usageRule: "Use the shared button.",
+      name: "PrimaryButton",
+      usageRule: "Use for the main action.",
       tokens: [],
       correctionInstruction: null,
     });
-    // "@acme/ui/" and "./" both yield an empty trailing segment, which must
-    // not become a component with an empty subject.
-    const result = evaluate([button], { imports: [imp("@acme/ui/"), imp("./")] });
+    const root = designSystemRoot();
+    const result = evaluate([primary, root], {
+      imports: [imp("moment"), imp("react"), imp("date-fns"), imp("date-fns/format"), imp("@acme/ui"), imp("@acme/ui/PrimaryButton")],
+    });
+    expect(result).toMatchObject({ ok: true, deviations: [], checked: 2, adherence: 1 });
+  });
+
+  it("detects no component when the set holds no required design-system import", () => {
+    const button = buttonComponent();
+    const prohibited = designStandard(nextId(), 1, { kind: "import", specifier: "@legacy/ui", status: "prohibited" });
+    const result = evaluate([button, prohibited], {
+      imports: [imp("moment"), imp("./components/Widget"), imp("@legacy/ui/Widget")],
+    });
+    // A prohibited import is not the design system: "@legacy/ui/Widget" is not
+    // the prohibited specifier itself, so nothing is found.
     expect(result).toMatchObject({ ok: true, deviations: [] });
+  });
+
+  it("treats a specifier ending in a slash as naming no component", () => {
+    const button = buttonComponent();
+    // A root spelled with a trailing slash is the same root; "@acme/ui/" and
+    // "@acme/ui//" yield an empty last segment, which must not become a
+    // component with an empty subject.
+    const root = designSystemRoot("@acme/ui/");
+    const result = evaluate([button, root], { imports: [imp("@acme/ui/"), imp("@acme/ui//"), imp("@acme/ui/Card")] });
+    if (!result.ok) return;
+    expect(result.deviations.map((d) => d.subject)).toEqual(["Card"]);
   });
 
   it("constrains nothing when the set holds no component entry", () => {
     const token = designStandard(nextId(), 1, { kind: "token", name: "--color-primary", status: "required" });
-    const result = evaluate([token], {
+    const root = designSystemRoot();
+    const result = evaluate([token, root], {
       tokens: [tok("--color-primary")],
-      imports: [imp("react"), imp("./helpers")],
+      imports: [imp("react"), imp("./helpers"), imp("@acme/ui"), imp("@acme/ui/DatePicker")],
     });
     expect(result).toMatchObject({ ok: true, deviations: [] });
   });
@@ -596,7 +637,7 @@ describe("evaluateDeviations — design-system checks", () => {
       tokens: [],
       correctionInstruction: null,
     });
-    const result = evaluate([second, first], { imports: [imp("./DatePicker")] });
+    const result = evaluate([second, first, designSystemRoot()], { imports: [imp("@acme/ui"), imp("@acme/ui/DatePicker")] });
     if (!result.ok) return;
     expect(result.deviations).toHaveLength(1);
     expect(result.deviations[0]).toMatchObject({
@@ -647,8 +688,9 @@ describe("evaluateDeviations — counts and ordering", () => {
       tokens: [],
       correctionInstruction: null,
     });
-    const imports: RevisionFacts["imports"] = [imp("datepicker"), imp("./DatePicker")];
-    const result = evaluate([vue, lodash, button], {
+    const root = designStandard(nextId(), 1, { kind: "import", specifier: "@acme/ui", status: "required" });
+    const imports: RevisionFacts["imports"] = [imp("@acme/ui"), imp("@acme/ui/datepicker"), imp("@acme/ui/DatePicker")];
+    const result = evaluate([vue, lodash, button, root], {
       dependencies: [dep("vue", "1.0.0"), dep("lodash", "1.0.0")],
       imports,
     });
